@@ -162,12 +162,23 @@ def test_change_email_settings_records_one_change_per_value() -> None:
         "Open daily.",
     )
     assert changes == [
-        SettingChange(LATER, STAFF, f"Sending address: {old.sending_address} → {new_address}"),
+        SettingChange(LATER, STAFF, "Changed the sending address"),
         SettingChange(LATER, STAFF, "Pickup window: 14 → 10 days"),
         SettingChange(LATER, STAFF, "Changed the pickup hours text"),
     ]
     _, only_window = change(old, window="21")
     assert only_window == [SettingChange(LATER, STAFF, "Pickup window: 14 → 21 days")]
+
+
+def test_the_history_holds_no_sending_address() -> None:
+    old = a_studio()
+    new_address = a_sending_address("kilnops")
+    _, changes = change(old, address=new_address)
+    assert changes == [SettingChange(LATER, STAFF, "Changed the sending address")]
+    for change_ in changes:
+        assert "@" not in change_.what
+        assert old.sending_address.split("@")[0] not in change_.what
+        assert "kilnops" not in change_.what
 
 
 def test_change_email_settings_records_nothing_when_unchanged() -> None:
@@ -344,17 +355,24 @@ def test_an_unknown_item_is_refused(which: CatalogList) -> None:
 
 
 def test_used_item_can_be_retired_not_deleted() -> None:
-    studio = a_studio()
+    studio, _ = retire_item(a_studio(), CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
+    assert studio.item(CatalogList.KILNS, ItemId("helios")).status is ItemStatus.RETIRED
     with pytest.raises(errors.ItemInUse, match="Helios is used by a drop-off or a load: retire it instead"):
         delete_item(studio, CatalogList.KILNS, ItemId("helios"), used=True, by=STAFF, at=LATER)
-    retired, _ = retire_item(studio, CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
-    assert retired.item(CatalogList.KILNS, ItemId("helios")).status is ItemStatus.RETIRED
 
 
-def test_unused_item_can_be_deleted() -> None:
-    studio, record = delete_item(
-        a_studio(), CatalogList.KILNS, ItemId("helios"), used=False, by=STAFF, at=LATER
-    )
+@pytest.mark.parametrize("used", [False, True])
+def test_an_active_item_must_be_retired_before_it_is_deleted(used: bool) -> None:
+    # Retiring is what stops new use, so a delete can't race a submit or a new load
+    # that names the item: `used` is read only once nothing new can name it.
+    with pytest.raises(errors.InvalidSetting, match="Retire Helios before deleting it") as refused:
+        delete_item(a_studio(), CatalogList.KILNS, ItemId("helios"), used=used, by=STAFF, at=LATER)
+    assert refused.value.field == "status"
+
+
+def test_a_retired_unused_item_can_be_deleted() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
+    studio, record = delete_item(studio, CatalogList.KILNS, ItemId("helios"), used=False, by=STAFF, at=LATER)
     assert names(studio, CatalogList.KILNS) == ["Athena", "Vulcan"]
     assert record == SettingChange(LATER, STAFF, "Deleted kiln Helios")
 
@@ -377,7 +395,7 @@ def test_the_last_active_item_of_each_list_cannot_be_retired_or_deleted(which: C
     with pytest.raises(errors.InvalidSetting, match=f"{last.name} is the last active") as refused:
         retire_item(studio, which, last.id, STAFF, LATER)
     assert refused.value.field == "status"
-    with pytest.raises(errors.InvalidSetting, match=f"{last.name} is the last active"):
+    with pytest.raises(errors.InvalidSetting, match=f"Retire {last.name} before deleting it"):
         delete_item(studio, which, last.id, used=False, by=STAFF, at=LATER)
 
 

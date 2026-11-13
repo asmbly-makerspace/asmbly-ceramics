@@ -6,7 +6,14 @@ from datetime import datetime
 
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import PHOTO_MAX_BYTES, PHOTOS_MAX, PHOTOS_MIN, UPLOAD_SLOT_LIFETIME
-from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoSize, PresignedPost, UploadSlot
+from asmbly_ceramics.domain.photos import (
+    CheckedPhoto,
+    PhotoRef,
+    PhotoSize,
+    PresignedPost,
+    UploadSlot,
+    is_slot_id,
+)
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, UploadMissing
 
 UPLOAD_URL = "https://uploads.example.org/memory"
@@ -29,7 +36,7 @@ class MemoryPhotoStore:
         self._fail()
         slots = []
         for _ in range(count):
-            slot_id = secrets.token_urlsafe(16)  # 22 characters
+            slot_id = secrets.token_urlsafe(16)  # 22 characters: `is_slot_id`'s shape
             expires_at = now + UPLOAD_SLOT_LIFETIME
             self._slots[slot_id] = expires_at
             post = PresignedPost(url=UPLOAD_URL, fields={"key": f"uploads/{slot_id}"})
@@ -51,7 +58,7 @@ class MemoryPhotoStore:
     def read_upload(self, slot_id: str) -> bytes:
         self._fail()
         self.read_uploads.append(slot_id)
-        if slot_id in self._discarded or slot_id not in self._uploads:
+        if not is_slot_id(slot_id) or slot_id in self._discarded or slot_id not in self._uploads:
             raise UploadMissing()
         return self._uploads[slot_id]
 
@@ -60,6 +67,8 @@ class MemoryPhotoStore:
             raise TypeError("slot_ids is a sequence of slot IDs, not one string")
         self._fail()
         for slot_id in slot_ids:
+            if not is_slot_id(slot_id):
+                continue  # as the S3 adapter does: no storage call for another shape
             self._uploads.pop(slot_id, None)
             if slot_id in self._slots:
                 self._discarded.add(slot_id)
@@ -74,6 +83,7 @@ class MemoryPhotoStore:
         self._fail()
         if self.kept_count(drop_off_id):
             raise PhotosAlreadyKept(drop_off_id)
+        # Nothing below can fail, so this is all or nothing, as the port requires.
         refs = []
         for index, photo in enumerate(photos, start=1):
             self._kept[drop_off_id, index, PhotoSize.FULL] = photo.full

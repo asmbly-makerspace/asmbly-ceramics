@@ -8,16 +8,24 @@ One table, one transaction per change with a version check on each item (decisio
   (`drop_off_id`, `kind`, `occasion`); a submission by `token_hash`; a `SettingChange` by
   its `at` and a random suffix, so two at the same instant both land.
 - `Put` stores the item at `version + 1` and is refused with `Conflict` when the key
-  exists. `Update` stores it at `version + 1` and is refused with `Conflict` unless an
-  item with that key is stored at exactly `item.version`.
-- `commit` is all or nothing. More than `MAX_CHANGES` changes, or two on one key, is a
-  `ValueError` before anything is written. An empty commit is a no-op: nothing is sent
-  (DynamoDB refuses an empty transaction) and nothing is written.
+  exists. `Update` replaces the whole item (phase 4: a transactional `Put` of the whole
+  item under a version condition, not an `UpdateItem`), stores it at `version + 1`, and
+  is refused with `Conflict` unless an item with that key is stored at exactly
+  `item.version`.
+- `commit` is all or nothing and returns nothing: a caller that needs a stored item
+  after a commit reads it again (an entity is stored at `item.version + 1`). More than
+  `MAX_CHANGES` changes, or two on one key, is a `ValueError` before anything is
+  written. An empty commit is a no-op: nothing is sent (DynamoDB refuses an empty
+  transaction) and nothing is written.
 - A read of a key with nothing stored returns `None`.
 - Every method raises `RecordsUnavailable(code)` when the table can't be reached.
 - Ranges are half-open, `start <= value < end`, and their bounds are aware.
 - Lists come in order: drop-offs by `created_at` then ID, loads by `date` then ID, emails
   by `created_at`, history newest first.
+- History pages by an opaque cursor, never by a time alone: one settings save can write
+  several changes at the same instant (`change_email_settings`), and a time cursor would
+  skip the ones after a page's end. Changes at one instant come in a fixed order (their
+  key's suffix), and `HistoryPage.older` resumes exactly after the page's last change.
 """
 
 # The errors are named for what happened (`Conflict`, `SendFailed`), as the plan's
@@ -86,10 +94,28 @@ class Conflict(PortError):
         super().__init__("changed by someone else first: " + (", ".join(self.ids) or "unknown"))
 
 
+@dataclass(frozen=True, slots=True)
+class HistoryPage:
+    """At most `limit` changes, newest first, and where the next (older) page starts."""
+
+    changes: tuple[SettingChange, ...]
+    # Pass as `before` for the next page; `None` exactly when no older change exists (the
+    # DynamoDB adapter asks for one more than `limit` to know). Opaque: a page passes it
+    # back as it came and never builds or reads one.
+    older: str | None
+
+
+class BadCursor(PortError):
+    """`history` was given a cursor it never returned (a hand-edited page address)."""
+
+    def __init__(self) -> None:
+        super().__init__("not a history cursor")
+
+
 class Records(Protocol):
     def commit(self, changes: Sequence[Change]) -> None:
         """All or nothing; `Conflict`; at most `MAX_CHANGES` changes; empty is a no-op;
-        `RecordsUnavailable`."""
+        `RecordsUnavailable`. Returns nothing: re-read what you need afterwards."""
         ...
 
     # Strongly consistent reads, used right before a commit. `None` when nothing is
@@ -109,8 +135,10 @@ class Records(Protocol):
     def loads_between(self, start: date, end: date) -> list[Load]: ...
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]: ...
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]: ...
-    def history(self, limit: int, before: datetime | None = None) -> list[SettingChange]:
-        """Newest first, at most `limit`, strictly before `before` when given."""
+    def history(self, limit: int, before: str | None = None) -> HistoryPage:
+        """Newest first, at most `limit` (at least 1, else `ValueError`), starting just
+        after the change `before` (a `HistoryPage.older`) names; `BadCursor` for any other
+        text. Two changes at one instant are never split or skipped across pages."""
         ...
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:

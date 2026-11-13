@@ -4,22 +4,27 @@ from datetime import datetime, timedelta
 import pytest
 
 from asmbly_ceramics.domain import errors
+from asmbly_ceramics.domain.dropoff import DropOffState, reject, undo_rejection
 from asmbly_ceramics.domain.email import (
     ERROR_CODE_MAX,
     Email,
     EmailKind,
     EmailStatus,
     claim,
+    is_rejection_occasion,
+    is_still_rejected,
     mark_cancelled,
     mark_failed,
     mark_sent,
     needs_attention,
     new_email,
+    rejection_occasion,
     retry,
 )
-from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER
-from tests.domain.builders import NOW
+from asmbly_ceramics.domain.ids import DropOffId, ItemId
+from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER, STUDIO_TZ
+from asmbly_ceramics.domain.studio import CatalogList
+from tests.domain.builders import NOW, STAFF, a_drop_off, a_studio
 
 AC12 = DropOffId(12)
 
@@ -51,12 +56,57 @@ def test_a_new_email_is_pending() -> None:
 
 
 def test_a_rejected_email_needs_an_occasion_and_the_others_have_none() -> None:
-    occasion = NOW.isoformat()
+    occasion = rejection_occasion(NOW)
     assert new_email(AC12, EmailKind.REJECTED, NOW, occasion).occasion == occasion
     with pytest.raises(ValueError, match="occasion"):
         new_email(AC12, EmailKind.REJECTED, NOW)
     with pytest.raises(ValueError, match="occasion"):
         new_email(AC12, EmailKind.READY, NOW, occasion)
+
+
+def test_the_occasion_is_utc_to_the_microsecond() -> None:
+    assert rejection_occasion(NOW) == "2026-11-13T18:30:00.000000+00:00"
+    in_austin = NOW.astimezone(STUDIO_TZ).replace(microsecond=7)
+    assert rejection_occasion(in_austin) == "2026-11-13T18:30:00.000007+00:00"
+    with pytest.raises(ValueError, match="aware"):
+        rejection_occasion(datetime(2026, 11, 13, 12))  # noqa: DTZ001
+
+
+def test_the_occasion_survives_a_round_trip_through_another_offset_or_precision() -> None:
+    # A store may give the time back in another offset, or drop zero microseconds.
+    occasion = rejection_occasion(NOW)
+    read_back = datetime.fromisoformat(NOW.astimezone(STUDIO_TZ).isoformat(timespec="seconds"))
+    assert rejection_occasion(read_back) == occasion
+    assert rejection_occasion(datetime.fromisoformat(occasion)) == occasion
+
+
+@pytest.mark.parametrize(
+    "occasion",
+    [
+        NOW.isoformat(),  # no microseconds
+        NOW.astimezone(STUDIO_TZ).isoformat(timespec="microseconds"),  # not UTC
+        "2026-11-13T18:30:00.000000",  # naive
+        "2026-11-13T18:30:00.000000Z",
+        "yesterday",
+    ],
+)
+def test_a_rejected_email_refuses_any_other_occasion_format(occasion: str) -> None:
+    assert not is_rejection_occasion(occasion)
+    with pytest.raises(ValueError, match="occasion"):
+        new_email(AC12, EmailKind.REJECTED, NOW, occasion)
+
+
+def test_is_still_rejected_only_by_the_same_rejection() -> None:
+    reason = a_studio().item(CatalogList.REASONS, ItemId("has-glaze-issues"))
+    rejected = reject(a_drop_off(), reason, "", STAFF, NOW)
+    occasion = rejection_occasion(NOW.astimezone(STUDIO_TZ))  # however the caller held the time
+    assert is_still_rejected(rejected, occasion)
+    waiting = undo_rejection(rejected, NOW + timedelta(minutes=5))
+    assert not is_still_rejected(waiting, occasion)
+    again = reject(waiting, reason, "", STAFF, NOW + timedelta(minutes=10))
+    assert not is_still_rejected(again, occasion)
+    assert is_still_rejected(again, rejection_occasion(NOW + timedelta(minutes=10)))
+    assert not is_still_rejected(a_drop_off(state=DropOffState.CLOSED), occasion)
 
 
 def test_an_email_needs_aware_times() -> None:

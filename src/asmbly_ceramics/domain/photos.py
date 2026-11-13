@@ -6,6 +6,7 @@ here prints a photo's contents or an upload's signed fields in its `repr`, so ne
 reaches a log by accident.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,6 +14,16 @@ from enum import StrEnum
 
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import PHOTOS_MAX, PHOTOS_MIN
+
+SLOT_ID_LENGTH = 22  # `secrets.token_urlsafe(16)`: 16 random bytes in unpadded base64url
+_SLOT_ID = re.compile(rf"[A-Za-z0-9_-]{{{SLOT_ID_LENGTH}}}", flags=re.ASCII)
+
+
+def is_slot_id(text: str) -> bool:
+    """Exactly 22 of `[A-Za-z0-9_-]`: the one shape an upload slot's ID has, which the use
+    case checks before any read and the photo stores check before any storage call, so a
+    browser-sent value can never name another key."""
+    return isinstance(text, str) and _SLOT_ID.fullmatch(text) is not None
 
 
 class PhotoSize(StrEnum):
@@ -43,8 +54,8 @@ class PresignedPost:
 
 @dataclass(frozen=True, slots=True)
 class UploadSlot:
-    # Random, URL-safe, 22+ characters; the only handle the form sends back, so a bearer
-    # handle that stays out of a repr.
+    # `is_slot_id`'s shape (22 random URL-safe characters); the only handle the form sends
+    # back, so a bearer handle that stays out of a repr.
     slot_id: str = field(repr=False)
     post: PresignedPost
     expires_at: datetime

@@ -14,7 +14,17 @@ from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
-from asmbly_ceramics.ports.records import MAX_CHANGES, Change, Conflict, Item, Put, Submission, Update
+from asmbly_ceramics.ports.records import (
+    MAX_CHANGES,
+    BadCursor,
+    Change,
+    Conflict,
+    HistoryPage,
+    Item,
+    Put,
+    Submission,
+    Update,
+)
 
 _STUDIO_KEY = ("studio",)
 
@@ -92,13 +102,25 @@ class MemoryRecords:
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]:
         return sorted((e for e in self._all(Email) if e.status in statuses), key=lambda e: e.created_at)
 
-    def history(self, limit: int, before: datetime | None = None) -> list[SettingChange]:
+    def history(self, limit: int, before: str | None = None) -> HistoryPage:
         if limit < 1:
             raise ValueError("history's limit is at least 1")
-        if before is not None:
-            _check_aware(before)
-        changes = [c for c in self._all(SettingChange) if before is None or c.at < before]
-        return sorted(changes, key=lambda c: c.at, reverse=True)[:limit]
+        start = None if before is None else _parse_cursor(before)
+        self._fail_read()
+        keyed = sorted(
+            (
+                ((key[1], key[2]), item)
+                for key, item in self._items.items()
+                if isinstance(item, SettingChange) and isinstance(key, tuple)
+            ),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        if start is not None:
+            keyed = [pair for pair in keyed if pair[0] < start]
+        page = keyed[:limit]
+        older = _cursor(*page[-1][0]) if len(keyed) > limit else None
+        return HistoryPage(tuple(change for _, change in page), older)
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         drop_offs = self._all(DropOff)
@@ -170,6 +192,22 @@ def _conflict_id(item: Item) -> str:
             return str(item.drop_off_id)
         case Studio() | SettingChange():
             return ""
+
+
+def _cursor(at: datetime, suffix: int) -> str:
+    """Like the DynamoDB adapter's sort key after `HISTORY#`: the time and the suffix."""
+    return f"{at.isoformat()}#{suffix}"
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, int]:
+    at, _, suffix = cursor.rpartition("#")
+    try:
+        parsed = (datetime.fromisoformat(at), int(suffix))
+    except ValueError:
+        raise BadCursor() from None
+    if parsed[0].utcoffset() is None or not suffix.isdigit():
+        raise BadCursor()
+    return parsed
 
 
 def _by_created(drop_offs: Iterable[DropOff]) -> list[DropOff]:

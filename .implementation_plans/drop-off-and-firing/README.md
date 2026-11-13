@@ -93,13 +93,15 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   `@asmbly.org`), `pickup_window_days` (1 or more; 14 to start), `pickup_hours_text`,
   and four lists of `CatalogItem(id, name, status: active | retired)`: kilns, firing
   types (each with `needs_glaze_type`), glaze types, rejection reasons (each with
-  `needs_message`). An item any drop-off or load uses can be retired, not deleted; a
-  retired item stays on past records and can't be picked. Every change appends a
+  `needs_message`). An item any drop-off or load uses can be retired, not deleted, and
+  only a retired item can be deleted; a retired item stays on past records and can't be
+  picked. Every change appends a
   `SettingChange(at, by, what)` to the history.
 - **Email** (the outbox): `(drop_off_id, kind)` with kind `received`, `ready` or
-  `rejected`, `status` `pending → sending → sent | failed`, `attempts`, `error_code`,
-  `sent_at`. One per drop-off and kind (a `rejected` one per rejection: its key adds the
-  rejection's time). The ready email's `sent_at` starts the pickup window.
+  `rejected`, `status` `pending → sending → sent | failed`, or `cancelled` (from
+  `pending` or `sending`, when the drop-off closed or its rejection was undone),
+  `attempts`, `error_code`, `sent_at`. One per drop-off and kind (a `rejected` one per
+  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window.
 
 ### The rules, each in one place
 

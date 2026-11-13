@@ -4,7 +4,14 @@ from typing import cast
 import pytest
 
 from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoRefusal, PresignedPost, UploadSlot
+from asmbly_ceramics.domain.photos import (
+    CheckedPhoto,
+    PhotoRef,
+    PhotoRefusal,
+    PresignedPost,
+    UploadSlot,
+    is_slot_id,
+)
 from tests.domain.builders import NOW
 
 AC1 = DropOffId(1)
@@ -13,7 +20,7 @@ PHOTO_BYTES = b"\xff\xd8\xff\xe0SECRET-PIXELS"
 THUMB_BYTES = b"\xff\xd8\xff\xe0SECRET-THUMB"
 POST_URL = "https://uploads.example.org/signed-target"
 SIGNATURE = "SIGNED-POLICY-VALUE"
-SLOT_ID = "slot-handle-abcdefghijklmnop"
+SLOT_ID = "slot-handle-abcdefghij"  # 22 characters: a slot ID's shape
 
 
 def a_post() -> PresignedPost:
@@ -66,3 +73,11 @@ def test_a_photo_index_outside_1_to_6_or_not_a_whole_number_is_refused(index: in
 def test_photo_refs_order_by_drop_off_then_index() -> None:
     refs = [PhotoRef(DropOffId(2), 1), PhotoRef(AC1, 2), PhotoRef(AC1, 1)]
     assert sorted(refs) == [PhotoRef(AC1, 1), PhotoRef(AC1, 2), PhotoRef(DropOffId(2), 1)]
+
+
+def test_a_slot_id_is_exactly_22_url_safe_characters() -> None:
+    assert is_slot_id(SLOT_ID)
+    assert is_slot_id("A" * 11 + "z_-" + "0123456" + "9")
+    for text in ("", "a" * 21, "a" * 23, "a" * 21 + "/", "a" * 21 + "=", "a" * 21 + "\n", "é" * 22):
+        assert not is_slot_id(text)
+    assert not is_slot_id(cast(str, None))

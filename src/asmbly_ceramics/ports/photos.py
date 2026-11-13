@@ -42,7 +42,8 @@ class PhotoStore(Protocol):
 
     def read_upload(self, slot_id: str) -> bytes:
         """The slot's upload; never more than `PHOTO_MAX_BYTES`. `UploadMissing` when
-        there is none, including after `discard_uploads` for that slot."""
+        there is none, including after `discard_uploads` for that slot, and for a
+        `slot_id` without `is_slot_id`'s shape (checked before any storage call)."""
         ...
 
     def discard_uploads(self, slot_ids: Sequence[str]) -> None:
@@ -50,7 +51,8 @@ class PhotoStore(Protocol):
         them raises `UploadMissing` from then on, even if the browser posts to the slot
         again before it expires. Called once a drop-off made from them is committed, so
         raw uploads (EXIF included) don't wait for the bucket's lifecycle rule and a slot
-        can't make a second drop-off. Idempotent; an unknown slot is ignored."""
+        can't make a second drop-off. Idempotent; an unknown slot, or one without
+        `is_slot_id`'s shape, is ignored without a storage call."""
         ...
 
     def keep(self, drop_off_id: DropOffId, photos: Sequence[CheckedPhoto]) -> tuple[PhotoRef, ...]:
@@ -59,7 +61,17 @@ class PhotoStore(Protocol):
         1 to 6 photos (`PHOTOS_MIN` to `PHOTOS_MAX`), else `ValueError`. Never
         overwrites: if photos are already kept for `drop_off_id`, raises
         `PhotosAlreadyKept` and stores nothing. Leaves the uploads alone
-        (`discard_uploads` removes them)."""
+        (`discard_uploads` removes them).
+
+        All or nothing: when it raises, for any reason, nothing is left under
+        `drop_off_id` (the S3 adapter deletes the copies it wrote before raising). Once it
+        has returned, the photos have no record until the caller's commit lands, so a
+        caller whose commit then fails, in any way (`Conflict`, `RecordsUnavailable`, or
+        anything else), calls `delete_drop_off(drop_off_id)` before it returns or raises:
+        the close (#7) only deletes the photos of a drop-off that has a record. If that
+        delete fails too, the photos are orphaned until the store's own backstop removes
+        them (phase 4/7: the form's role needs `s3:DeleteObject` on `dropoffs/*`, and a
+        sweep or lifecycle rule for `dropoffs/` keys with no record)."""
         ...
 
     def read(self, ref: PhotoRef, size: PhotoSize) -> bytes:
@@ -67,5 +79,6 @@ class PhotoStore(Protocol):
         ...
 
     def delete_drop_off(self, drop_off_id: DropOffId) -> None:
-        """Both sizes of every photo; idempotent."""
+        """Both sizes of every photo; idempotent. The close (#7) calls it, and so does the
+        submit when its commit fails after `keep` (see `keep`)."""
         ...

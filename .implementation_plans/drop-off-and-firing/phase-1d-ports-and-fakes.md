@@ -178,7 +178,7 @@ class Records(Protocol):
     def loads_between(self, start: date, end: date) -> list[Load]: ...
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]: ...
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]: ...
-    def history(self, limit: int, before: datetime | None = None) -> list[SettingChange]: ...  # newest first
+    def history(self, limit: int, before: str | None = None) -> HistoryPage: ...  # opaque cursor
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool: ...
 ```
 
@@ -191,18 +191,31 @@ The contract, which the fake keeps and phase 4's adapter matches:
   stored, and read back, at version 1); refused with `Conflict` when the key exists.
   `Put` of a `Studio` happens once (the starting values); every later change is an
   `Update`.
-- **`Update`** stores the item with `version + 1`; refused with `Conflict` unless an
-  item with that key is stored at exactly `item.version`. A `SettingChange` or a
+- **`Update`** replaces the whole item (phase 4: a transactional `Put` of the whole
+  item under a version condition) and stores it with `version + 1`; refused with
+  `Conflict` unless an item with that key is stored at exactly `item.version`. A `SettingChange` or a
   `Submission` is never updated (the type says so).
 - **`commit`** is all or nothing: one refused change writes none. More than 100
   changes, or two changes on the same key, raise `ValueError` before anything is
-  written (a bug: the domain's 48-drop-off limit keeps a fire at 97).
+  written (a bug: the domain's 48-drop-off limit keeps a fire at 97;
+  `test_firing_a_full_load_fits_in_one_commit` pins `2 * LOAD_CAPACITY + 1 <=
+  MAX_CHANGES`). `commit` returns nothing: a caller that needs a stored item afterwards
+  reads it again (an entity is stored at `item.version + 1`).
 - **Ranges** are half-open, `start <= value < end`: `drop_offs_created_between` on
   `created_at`, `drop_offs_rejected_between` on `rejection.at`, `loads_between` on
   `date`.
 - **Order.** `drop_offs_*` by `created_at` then ID; `loads_*` by `date` then ID;
-  `emails_for` and `emails_in` by `created_at`; `history` newest first, at most `limit`,
-  strictly before `before` when given.
+  `emails_for` and `emails_in` by `created_at`; `history` newest first, at most `limit`.
+- **History pages by an opaque cursor** (changed in the whole-branch review): `history`
+  returns `HistoryPage(changes, older)`, and `older`, passed back as `before`, resumes
+  just after the page's last change; it is `None` exactly when nothing older exists. A
+  cursor of a time alone skipped changes: one `change_email_settings` writes up to
+  three changes with the same `at`, and `history(2)` then `history(2, before=at)` lost
+  the third. Changes at one instant come in their key's suffix order. A cursor
+  `history` never gave is `BadCursor` (a port error). The fake's cursor is
+  `<at ISO>#<suffix>`, like phase 4's sort key after `HISTORY#`; callers treat it as
+  opaque (`test_history_pages_never_split_or_skip_changes_at_one_instant`,
+  `test_history_refuses_a_cursor_it_never_gave`).
 - **`is_item_used`**: a kiln by any load; a firing type by any drop-off or load; a glaze
   type by any drop-off; a reason by any drop-off's rejection (closed ones included).
 
@@ -224,11 +237,12 @@ class PhotosAlreadyKept(Exception): ...  # keep found photos for that drop-off; 
 
 class PhotoStore(Protocol):  # every method: PhotosUnavailable(code)
     def upload_slots(self, count: int, now: datetime) -> list[UploadSlot]: ...  # 1 to 6, else ValueError
-    def read_upload(self, slot_id: str) -> bytes: ...  # UploadMissing; never more than PHOTO_MAX_BYTES
+    def read_upload(self, slot_id: str) -> bytes: ...  # UploadMissing; <= PHOTO_MAX_BYTES
     def discard_uploads(self, slot_ids: Sequence[str]) -> None: ...  # uses the slots up; idempotent
     def keep(
         self, drop_off_id: DropOffId, photos: Sequence[CheckedPhoto]
-    ) -> tuple[PhotoRef, ...]: ...  # 1 to 6, else ValueError; never overwrites: PhotosAlreadyKept
+    ) -> tuple[PhotoRef, ...]: ...  # 1 to 6, else ValueError; never overwrites: PhotosAlreadyKept;
+    # all or nothing: when it raises, nothing is left under the drop-off's number
     def read(self, ref: PhotoRef, size: PhotoSize) -> bytes: ...  # UploadMissing when gone
     def delete_drop_off(self, drop_off_id: DropOffId) -> None: ...  # idempotent
 
@@ -324,7 +338,7 @@ domain does; so does `FixedClock`.
 | --- | --- | --- | --- |
 | `MemoryRecords` | dicts keyed as the contract above | every rule in the contract above; stores and returns copies (frozen, so the same objects) | `fail_next_commit_with: Exception \| None` (e.g. `Conflict()` or `RecordsUnavailable("ThrottlingException")`), cleared after it fires, nothing written; `commits: list[Sequence[Change]]` of the commits that succeeded, for assertions |
 | `MemoryIdNumbers` | two counters | increasing, never repeats | `skip(n)` (n at least 1) to show gaps are fine; `fail_with: Exception \| None` |
-| `MemoryPhotoStore` | uploads and kept photos by key | `upload_slots` returns `count` slots with 22+ character random IDs, a fake URL and `expires_at = now + UPLOAD_SLOT_LIFETIME`; `read_upload` raises `UploadMissing` for an unknown slot, one with no upload, or one discarded; `discard_uploads` drops the uploads and uses the slots up; `keep` stores only the `CheckedPhoto`s' bytes, refuses a count outside 1 to 6 with `ValueError`, raises `PhotosAlreadyKept` when the drop-off already has photos, and returns refs 1..n; `read` raises `UploadMissing` when gone; `delete_drop_off` idempotent and removes both sizes | `put_upload(slot_id, data)` to simulate the browser's upload: `ValueError` for a slot it didn't issue; empty data or data over `PHOTO_MAX_BYTES` is not kept (S3's 1-byte-to-10-MB condition refuses it), so `read_upload` raises `UploadMissing`; `read_uploads` (slots asked for, in order), `upload_count()`; `fail_with: Exception \| None` |
+| `MemoryPhotoStore` | uploads and kept photos by key | `upload_slots` returns `count` slots with random IDs of `is_slot_id`'s shape (exactly 22 of `[A-Za-z0-9_-]`), a fake URL and `expires_at = now + UPLOAD_SLOT_LIFETIME`; `read_upload` raises `UploadMissing` for an unknown slot, one of another shape, one with no upload, or one discarded; `discard_uploads` drops the uploads and uses the slots up, ignoring an ID of another shape; `keep` stores only the `CheckedPhoto`s' bytes, refuses a count outside 1 to 6 with `ValueError`, raises `PhotosAlreadyKept` when the drop-off already has photos, and returns refs 1..n; `read` raises `UploadMissing` when gone; `delete_drop_off` idempotent and removes both sizes | `put_upload(slot_id, data)` to simulate the browser's upload: `ValueError` for a slot it didn't issue; empty data or data over `PHOTO_MAX_BYTES` is not kept (S3's 1-byte-to-10-MB condition refuses it), so `read_upload` raises `UploadMissing`; `read_uploads` (slots asked for, in order), `upload_count()`; `fail_with: Exception \| None` |
 | `MemoryPhotoInspector` | none | returns `CheckedPhoto(full=data, thumb=data[:16])` | refuses data starting with `b"NOT-IMAGE"`, `b"TOO-LARGE"`, `b"TOO-MANY-PIXELS"` with the matching `PhotoRefusal` |
 | `MemoryMailer` | `sent: list[OutgoingEmail]` | stores the message; a `from_address` not at `SENDING_DOMAIN` is a `ValueError` and nothing is stored (the adapter refuses it the same way) | `fail_with: str \| None` raises `SendFailed(code)` and stores nothing |
 | `MemoryStaffTokens` | `members: dict[str, StaffMember]` (token → a member of `ceramics`); `outsiders: dict[str, str]` (token → username, signed in but not in the group); codes issued by `approve(code, token)`, each tied to the last `sign_in_url`'s challenge and redirect URI | `verify`: a member's token returns it; an outsider's raises `NotAllowed(username)`; anything else `NotSignedIn`. `exchange` pops the code (one try) and returns its token only when `s256(code_verifier)` is the challenge and the redirect URI is the same; otherwise `NotSignedIn`. `sign_in_url` and `sign_out_url` return an `https://sign-in.example.org/...` URL with the arguments as query parameters | `fail_with: Exception \| None` (e.g. `SignInUnavailable("timeout")`) |
@@ -352,23 +366,29 @@ split again, because a port without its fake and contract tests can't be checked
   `test_records_refuses_two_changes_on_one_key`;
   `test_records_empty_commit_is_a_no_op_and_not_recorded`;
   `test_conflict_refuses_one_string_for_its_ids`;
-  `test_records_failure_switch_raises_and_writes_nothing`.
+  `test_records_failure_switch_raises_and_writes_nothing`;
+  `test_firing_a_full_load_fits_in_one_commit`;
+  `test_commit_returns_nothing_and_a_re_read_shows_the_stored_version`.
 - `test_records_email_key_includes_the_occasion` (a second ready email for one drop-off
   conflicts; a rejected email for a new rejection doesn't).
 - `test_records_lists_filter_and_sort` (states, statuses, half-open ranges, history newest
-  first with `limit` and `before`); `test_records_is_item_used_for_each_list`.
+  first with `limit` and the `older` cursor); `test_records_is_item_used_for_each_list`;
+  `test_history_pages_never_split_or_skip_changes_at_one_instant`;
+  `test_history_refuses_a_cursor_it_never_gave`.
 - `test_ids_never_repeat`; `test_ids_skip_leaves_a_gap`.
 - `test_photo_store_slots_expire_after_15_minutes`; `test_photo_store_read_upload_of_an_unknown_slot_raises`;
   `test_photo_store_refuses_an_upload_over_10_mb`; `test_photo_store_keep_then_read_both_sizes`;
   `test_photo_store_delete_is_idempotent`; `test_photo_store_refuses_an_empty_upload`;
   `test_photo_store_records_each_read_upload`; `test_photo_store_discard_uses_the_slots_up`;
-  `test_photo_store_keep_never_overwrites`.
+  `test_photo_store_keep_never_overwrites`; `test_photo_store_ignores_a_slot_id_of_another_shape`;
+  `test_photo_store_keep_that_fails_leaves_nothing`.
 - `test_inspector_refuses_each_marker`; `test_mailer_failure_raises_send_failed_with_the_code`;
   `test_an_outgoing_email_repr_holds_no_address`; `test_mailer_refuses_a_from_outside_asmbly_org`;
   `test_reprs_hold_no_bytes_token_or_address` (`InlineImage`, `StaffMember`, `Submission`).
 - `test_port_errors_keep_a_code_never_a_message` (`Unavailable`, `SendFailed`,
   `SecretMissing`); `test_every_port_error_has_safe_text` (one of each port error class).
-- `test_fakes_refuse_a_naive_time` (photo slots, rate limiter, records' ranges and `history`).
+- `test_fakes_refuse_a_naive_time` (photo slots, rate limiter, records' ranges, and a
+  `history` cursor with a naive time, which is `BadCursor`).
 - `test_staff_tokens_not_allowed_and_not_signed_in`; `test_s256_is_the_pkce_challenge`;
   `test_staff_tokens_exchange_returns_the_token_once`;
   `test_staff_tokens_exchange_refuses_a_wrong_verifier_or_redirect`;
@@ -419,7 +439,8 @@ Built on 2026-11-13. What phases 2 and later can rely on:
   and `domain.email.is_error_code(code)` (1 to 64 of `[A-Za-z0-9_.-]`), which
   `mark_failed` and the port errors share.
 - `asmbly_ceramics.ports`, with the names and signatures above: `records` (`Records`,
-  `Put`, `Update`, `Change`, `Item`, `Submission`, `Conflict`, `MAX_CHANGES = 100`),
+  `Put`, `Update`, `Change`, `Item`, `Submission`, `Conflict`, `HistoryPage`,
+  `BadCursor`, `MAX_CHANGES = 100`),
   `ids.IdNumbers`, `photos` (`PhotoStore`, `UploadMissing`, `PhotosAlreadyKept`), `images` (`PhotoInspector`,
   `PhotoRefused`), `mailer` (`Mailer`, `OutgoingEmail`, `InlineImage`, `SendFailed`,
   `is_sending_address`), `staff` (`StaffTokens`, `StaffMember`, `NotSignedIn`,
@@ -471,9 +492,10 @@ Built on 2026-11-13. What phases 2 and later can rely on:
   - Phase 2: make the `KeyHasher`'s outputs `NewType`s (e.g. `RateKey`,
     `SubmissionHash`) if the ports start taking them, so a raw value can't be passed
     where a hash is expected; today the ports take `str`.
-  - Phase 4: `S3PhotoStore.read_upload` and `discard_uploads` check that a
-    browser-sent slot ID has `token_urlsafe(16)`'s shape (exactly 22 of
-    `[A-Za-z0-9_-]`) before any S3 call (written into phase 4's photo store section).
+  - Phase 4: `S3PhotoStore.read_upload` and `discard_uploads` check
+    `domain.photos.is_slot_id` (exactly 22 of `[A-Za-z0-9_-]`, `token_urlsafe(16)`'s
+    shape) before any S3 call, as the memory fake now does (written into phase 4's
+    photo store section). There is one shape: phase 2 checks the same function.
   - When entry points arrive (phases 6 and 8): a `tests/repo/` test that nothing under
     `entry/` or `web/` imports `asmbly_ceramics.adapters.memory`, so a fake can never
     serve production.
@@ -485,3 +507,37 @@ Built on 2026-11-13. What phases 2 and later can rely on:
   `settings_history`, `get_drop_off`) and some photo types differently (see phase 1b's
   hand-off); the names here and in phase 1b are the contract, and phase 4's `/prep`
   corrects its document.
+
+From the whole-branch review (after 1a to 1d were built):
+
+- **`Records.history` changed shape**: `history(limit, before: str | None) ->
+  HistoryPage(changes, older)`, with `BadCursor` for a cursor it never gave (see the
+  contract above). Phase 3's `ViewStudio`, phase 4's adapter and phase 9's history page
+  take the cursor as opaque text.
+- **`Update` means replace.** The contract's `Update` is a transactional `Put` of the
+  whole item under `version = :expected` (phase 4's `commit`), not an `UpdateItem`. Phase
+  7 grants the mailer's role `dynamodb:UpdateItem` only (`MarkEmails`), so every mailer
+  commit (`claim`, `mark_sent`, `mark_failed`, `mark_cancelled`) would be refused.
+  **Phase 7's `/prep` must reconcile**: either grant the mailer `dynamodb:PutItem` on
+  `EMAIL#*` (and correct the line "no `PutItem`" in its verification), or have phase 4's
+  adapter send an `Update` of an `Email` as an `UpdateItem` that sets every attribute
+  under the same version condition. Phase 4's `/prep` checks the same for any other role
+  that commits an `Update`.
+- **`commit` returns nothing**; callers re-read (contract above).
+- **`PhotoStore.keep` is all or nothing**, and a caller whose commit fails in any way
+  after `keep` (`Conflict`, `RecordsUnavailable`, anything else) calls
+  `delete_drop_off(id)` before it returns or raises (the port's docstring; phase 2's
+  step 7). Today phase 7 gives the form's role only `s3:PutObject` on `dropoffs/*`, so it
+  can't make that call. **Phases 4 and 7 must give a cleanup path**: `s3:DeleteObject`
+  on `dropoffs/*` for the form's role (it adds little, since `PutObject` there can
+  already overwrite a photo), and a backstop for a cleanup that itself fails (a sweep
+  in the daily close for `dropoffs/AC-n/` prefixes with no drop-off record, or another
+  rule phase 4 designs), so no photo outlives the close (#7).
+- **Phases 3 and 4 `/prep` must settle the use-count port shape** (review finding 5,
+  not changed here): phase 9's lists show each item's use count ("Used by 212 loads"),
+  but `Records.is_item_used` returns a bool, and phase 4's table has no index that
+  counts uses. Prep decides between a `use_counts(which)` read (and the index or scan
+  behind it) and showing used/unused only, and updates this port, its fake and phase 9.
+- **Only a retired item can be deleted** (`domain.studio.delete_item`, phase 1a's
+  hand-off), so `is_item_used` is read only once nothing new can name the item; no
+  `Check` change to `commit` was needed.

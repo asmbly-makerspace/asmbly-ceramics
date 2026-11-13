@@ -27,18 +27,19 @@ from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.adapters.memory.secrets import MemorySecrets
 from asmbly_ceramics.adapters.memory.staff_tokens import MemoryStaffTokens, s256
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
-from asmbly_ceramics.domain.email import EmailKind, EmailStatus, mark_sent, new_email
+from asmbly_ceramics.domain.email import EmailKind, EmailStatus, mark_sent, new_email, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import (
     DEVICE_LIMIT,
+    LOAD_CAPACITY,
     PHOTO_MAX_BYTES,
     STUDIO_TZ,
     SUBMISSION_LIFETIME,
     UPLOAD_SLOT_LIFETIME,
 )
-from asmbly_ceramics.domain.load import Load, LoadStatus
-from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoRefusal, PhotoSize
-from asmbly_ceramics.domain.studio import CatalogList, SettingChange, starting_studio
+from asmbly_ceramics.domain.load import Load, LoadStatus, fire
+from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoRefusal, PhotoSize, is_slot_id
+from asmbly_ceramics.domain.studio import CatalogList, SettingChange, change_email_settings, starting_studio
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.errors import (
     IdsUnavailable,
@@ -55,7 +56,17 @@ from asmbly_ceramics.ports.images import PhotoInspector, PhotoRefused
 from asmbly_ceramics.ports.mailer import InlineImage, Mailer, OutgoingEmail, SendFailed
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, PhotoStore, UploadMissing
 from asmbly_ceramics.ports.rate_limit import RateLimiter
-from asmbly_ceramics.ports.records import MAX_CHANGES, Change, Conflict, Put, Records, Submission, Update
+from asmbly_ceramics.ports.records import (
+    MAX_CHANGES,
+    BadCursor,
+    Change,
+    Conflict,
+    HistoryPage,
+    Put,
+    Records,
+    Submission,
+    Update,
+)
 from asmbly_ceramics.ports.secrets import SecretName, Secrets
 from asmbly_ceramics.ports.staff import NotAllowed, NotSignedIn, StaffMember, StaffTokens
 from tests.domain.builders import (
@@ -66,6 +77,7 @@ from tests.domain.builders import (
     a_drop_off,
     a_load,
     a_sending_address,
+    a_studio,
     an_address,
 )
 
@@ -160,6 +172,40 @@ def test_records_refuses_more_than_100_changes() -> None:
     assert len(records.drop_offs_in(set(DropOffState))) == MAX_CHANGES
 
 
+def test_firing_a_full_load_fits_in_one_commit() -> None:
+    # A fire writes the load, each drop-off and each ready email in one commit.
+    assert 2 * LOAD_CAPACITY + 1 <= MAX_CHANGES
+    records = MemoryRecords()
+    numbers = range(1, LOAD_CAPACITY + 1)
+    members = [a_drop_off(n, DropOffState.IN_LOAD) for n in numbers]
+    load = a_load(1, LoadStatus.FIRING, numbers)
+    records.commit([Put(load)])
+    records.commit([Put(member) for member in members])
+    stored_load = records.load(LoadId(1))
+    stored = [records.drop_off(DropOffId(n)) for n in numbers]
+    assert stored_load is not None
+    result = fire(stored_load, [d for d in stored if d is not None], NOW)
+    changes: list[Change] = [
+        Update(result.load),
+        *(Update(d) for d in result.drop_offs),
+        *(Put(e) for e in result.emails),
+    ]
+    assert len(changes) == 2 * LOAD_CAPACITY + 1
+    records.commit(changes)
+    assert len(records.emails_in({EmailStatus.PENDING})) == LOAD_CAPACITY
+
+
+def test_commit_returns_nothing_and_a_re_read_shows_the_stored_version() -> None:
+    records = MemoryRecords()
+    drop_off = a_drop_off(1)
+    assert records.commit([Put(drop_off)]) is None  # type: ignore[func-returns-value]
+    stored = records.drop_off(DropOffId(1))
+    assert stored is not None
+    assert stored.version == drop_off.version + 1
+    with pytest.raises(Conflict):  # the object committed is stale: re-read before changing it again
+        records.commit([Update(drop_off)])
+
+
 def test_records_refuses_two_changes_on_one_key() -> None:
     records = MemoryRecords()
     records.commit([Put(a_drop_off(1))])
@@ -192,7 +238,7 @@ def test_records_setting_changes_at_one_instant_both_land() -> None:
     first = SettingChange(NOW, STAFF, "Added kiln Helios")
     second = SettingChange(NOW, STAFF, "Added kiln Vulcan")
     records.commit([Put(first), Put(second)])
-    assert set(records.history(10)) == {first, second}
+    assert set(records.history(10).changes) == {first, second}
 
 
 def test_records_failure_switch_raises_and_writes_nothing() -> None:
@@ -220,8 +266,8 @@ def test_records_email_key_includes_the_occasion() -> None:
     with pytest.raises(Conflict) as refused:
         records.commit([Put(new_email(ac1, EmailKind.READY, NOW + timedelta(hours=1)))])
     assert refused.value.ids == ("AC-1",)
-    first = NOW.isoformat()
-    later = (NOW + timedelta(hours=1)).isoformat()
+    first = rejection_occasion(NOW)
+    later = rejection_occasion(NOW + timedelta(hours=1))
     records.commit([Put(new_email(ac1, EmailKind.REJECTED, NOW, occasion=first))])
     records.commit([Put(new_email(ac1, EmailKind.REJECTED, NOW, occasion=later))])
     with pytest.raises(Conflict):
@@ -277,10 +323,49 @@ def test_records_lists_filter_and_sort() -> None:
 
     changes = [SettingChange(NOW + timedelta(minutes=n), STAFF, f"change {n}") for n in range(5)]
     records.commit([Put(change) for change in changes])
-    assert records.history(3) == [changes[4], changes[3], changes[2]]
-    assert records.history(10, before=changes[2].at) == [changes[1], changes[0]]
+    first = records.history(3)
+    assert first.changes == (changes[4], changes[3], changes[2])
+    assert first.older is not None
+    rest = records.history(10, before=first.older)
+    assert rest == HistoryPage((changes[1], changes[0]), None)
+    assert records.history(5).older is None  # exactly the last page: nothing older
     with pytest.raises(ValueError, match="limit"):
         records.history(0)
+
+
+def test_history_pages_never_split_or_skip_changes_at_one_instant() -> None:
+    records = MemoryRecords()
+    _, saved = change_email_settings(
+        a_studio(),
+        sending_address=a_sending_address("kiln-room"),
+        pickup_window_days="21",
+        pickup_hours_text="Weekdays only.",
+        by=STAFF,
+        at=NOW,
+    )
+    assert len(saved) == 3
+    assert len({change.at for change in saved}) == 1  # one save, one instant
+    earlier = SettingChange(NOW - timedelta(minutes=1), STAFF, "Added kiln Kiln Four")
+    records.commit([Put(earlier)])
+    records.commit([Put(change) for change in saved])
+
+    seen: list[SettingChange] = []
+    cursor: str | None = None
+    for _ in range(10):
+        page = records.history(2, before=cursor)
+        seen.extend(page.changes)
+        cursor = page.older
+        if cursor is None:
+            break
+    assert len(seen) == 4
+    assert set(seen[:3]) == set(saved)
+    assert seen[3] == earlier
+
+
+@pytest.mark.parametrize("cursor", ["", "yesterday", "2026-11-13T18:30:00#x", "2026-11-13T18:30:00#1"])
+def test_history_refuses_a_cursor_it_never_gave(cursor: str) -> None:
+    with pytest.raises(BadCursor):
+        MemoryRecords().history(5, before=cursor)
 
 
 def test_records_is_item_used_for_each_list() -> None:
@@ -335,8 +420,8 @@ def test_fakes_refuse_a_naive_time() -> None:
         records.drop_offs_created_between(NAIVE, NOW)
     with pytest.raises(ValueError, match="aware"):
         records.drop_offs_rejected_between(NOW, NAIVE)
-    with pytest.raises(ValueError, match="aware"):
-        records.history(10, before=NAIVE)
+    with pytest.raises(BadCursor):  # a naive time in a cursor is not one `history` gave
+        records.history(10, before=NAIVE.isoformat() + "#1")
 
 
 # IdNumbers
@@ -374,7 +459,7 @@ def test_photo_store_slots_expire_after_15_minutes() -> None:
     slots = store.upload_slots(3, NOW)
     assert len(slots) == 3
     assert len({slot.slot_id for slot in slots}) == 3
-    assert all(len(slot.slot_id) >= 22 for slot in slots)
+    assert all(is_slot_id(slot.slot_id) for slot in slots)
     assert all(slot.expires_at == NOW + UPLOAD_SLOT_LIFETIME == NOW + timedelta(minutes=15) for slot in slots)
     with pytest.raises(ValueError, match="aware"):
         store.upload_slots(1, NAIVE)
@@ -494,6 +579,28 @@ def test_photo_store_delete_is_idempotent() -> None:
     for size in PhotoSize:
         with pytest.raises(UploadMissing):
             store.read(PhotoRef(ac1, 1), size)
+
+
+def test_photo_store_ignores_a_slot_id_of_another_shape() -> None:
+    store = MemoryPhotoStore()
+    (slot,) = store.upload_slots(1, NOW)
+    store.put_upload(slot.slot_id, PHOTO)
+    for hostile in ("../dropoffs/AC-1/1", slot.slot_id + "x", slot.slot_id[:-1], slot.slot_id + "/"):
+        with pytest.raises(UploadMissing):
+            store.read_upload(hostile)
+    store.discard_uploads(["../" + slot.slot_id[3:]])
+    assert store.read_upload(slot.slot_id) == PHOTO
+
+
+def test_photo_store_keep_that_fails_leaves_nothing() -> None:
+    store = MemoryPhotoStore()
+    store.fail_with = PhotosUnavailable("SlowDown")
+    with pytest.raises(PhotosUnavailable):
+        store.keep(DropOffId(1), [CheckedPhoto(full=b"a", thumb=b"b")] * 2)
+    store.fail_with = None
+    assert store.kept_count(DropOffId(1)) == 0
+    # and the number can still be kept afterwards: nothing half-kept blocks it
+    assert len(store.keep(DropOffId(1), [CheckedPhoto(full=b"a", thumb=b"b")])) == 1
 
 
 def test_photo_store_failure_switch() -> None:

@@ -319,8 +319,10 @@ def delete_item(
   `PICKUP_WINDOW_MIN` to `PICKUP_WINDOW_MAX` (`InvalidSetting("pickup_window_days", ...)`);
   hours text stripped, 1 to `HOURS_TEXT_MAX` characters
   (`InvalidSetting("pickup_hours_text", ...)`). One `SettingChange` per value that
-  changed: "Sending address: A → B", "Pickup window: 10 → 14 days", "Changed the pickup
-  hours text". No change, no record (and the studio returned unchanged).
+  changed: "Changed the sending address" (no address: the history is kept for good, so
+  it names neither the old address nor the new one), "Pickup window: 10 → 14 days",
+  "Changed the pickup hours text". No change, no record (and the studio returned
+  unchanged).
 - `add_item`: name stripped, 1 to `ITEM_NAME_MAX` (`InvalidSetting("name", ...)`);
   `DuplicateItem` for a name already in that list, case-insensitively, retired ones
   included; the ID from `new_item_id`. `needs_glaze_type` on any list but firing types,
@@ -332,9 +334,17 @@ def delete_item(
   (`InvalidSetting`), so the form and the console always have one to pick: a studio with
   no active glaze type could never accept a Glaze drop-off. Records "Retired kiln
   Vulcan" / "Restored kiln Vulcan".
-- `delete_item` (#6): `UnknownItem`; `ItemInUse` when `used` (the caller asks
-  `Records.is_item_used`, phase 1d); deleting the last active item of a list is refused
-  like retiring it. Records "Deleted kiln Helios".
+- `delete_item` (#6): `UnknownItem`; an active item is refused with
+  `InvalidSetting("status", "Retire Helios before deleting it.")`; `ItemInUse` when
+  `used` (the caller asks `Records.is_item_used`, phase 1d). Records "Deleted kiln
+  Helios". Decided in the whole-branch review: **only a retired item can be deleted.**
+  Retiring is what stops new use (a submit or a new load checks the item is active), so
+  `is_item_used`, read after the retire, can't be made stale by a commit naming the item;
+  for an active item the delete could read "unused" while a `SubmitDropOff` or
+  `StartLoad` naming it commits, and both would win. The one window left is a submit or
+  a new load that read the studio before the retire and commits after both the retire
+  and the delete (two separate staff clicks); pages show an item ID the studio no longer
+  has as "a deleted item" rather than failing (phases 8 and 9).
 
 ## Tests
 
@@ -395,8 +405,8 @@ None.
 
 Built on 2026-11-13. What phases 1b to 1d can rely on:
 
-- `asmbly_ceramics.domain.errors`: `DomainError` (`.message`) and the 23 subclasses
-  above (phase 1c added `FiringTypeLocked`), each constructor taking only what its message names. Signatures that the
+- `asmbly_ceramics.domain.errors`: `DomainError` (`.message`) and the 24 subclasses
+  (phase 1c added `FiringTypeLocked`; `tests/domain/test_errors.py` checks every one), each constructor taking only what its message names. Signatures that the
   sketch left open: `NotFound(id: DropOffId | LoadId)`, `NotWaiting(drop_off_id, state)`,
   `LoadNotLoading(load_id, status)`, `LoadFull(load_id, capacity)`,
   `WrongLoadStatus(load_id, status, expected)`,
@@ -423,5 +433,12 @@ Built on 2026-11-13. What phases 1b to 1d can rely on:
 - `tests/domain/test_imports.py` already walks `ports/` with its allowed imports; phase
   1d needs no change to it.
 
-A `SettingChange.what` can hold the studio's sending address; it is studio data shown in
-the console's history, but a later phase shouldn't log it.
+Changed in the whole-branch review (decided there and tested):
+
+- A `SettingChange.what` never holds an address: a sending address change is recorded
+  as "Changed the sending address", matching phase 9's history page
+  (`test_the_history_holds_no_sending_address`). The history is kept for good, so it
+  names neither the old address nor the new one.
+- `delete_item` deletes only a retired item (`InvalidSetting("status", ...)` for an
+  active one), so a delete can't race a submit or a new load that names the item (see
+  `delete_item` above). Phase 3's `DeleteCatalogItem` and phase 9's lists follow.

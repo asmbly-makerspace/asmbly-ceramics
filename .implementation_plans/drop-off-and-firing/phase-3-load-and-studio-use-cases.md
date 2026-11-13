@@ -236,9 +236,12 @@ whose new image has `status = pending`. In order:
 2. **Claim**: commit `Update(claim(email, now))`. `Conflict` means another invocation
    claimed it: return `None`. Only the claimer sends, so a duplicate stream record
    never sends twice.
-3. Read the drop-off. If it is `CLOSED`, or the email is `REJECTED` and the drop-off is
-   no longer rejected with that `occasion` (the rejection was undone), commit
-   `mark_cancelled` and log `event=email_cancelled`. Nothing is sent.
+3. Read the drop-off. If it is `CLOSED`, or the email is `REJECTED` and
+   `not is_still_rejected(drop_off, email.occasion)` (`domain.email`: the one check,
+   comparing `rejection_occasion(drop_off.rejection.at)`, UTC to the microsecond, so a
+   time read back in another offset or precision still matches; the rejection was
+   undone, or undone and rejected again), commit `mark_cancelled` and log
+   `event=email_cancelled`. Nothing is sent.
 4. Read the current studio (#6: every email after a change uses the new settings) and
    each photo's full-size copy (`photos.read(ref, PhotoSize.FULL)`). A missing photo
    fails the email with code `photo_missing`.
@@ -280,11 +283,11 @@ class StudioView:
     studio: Studio
     history: tuple[SettingChange, ...]
     used: Mapping[tuple[CatalogList, ItemId], bool]  # which items can only be retired
-    more_history: bool
+    older: str | None  # the next page's cursor (Records.history's HistoryPage.older); None at the end
 
 
 class ViewStudio:
-    def __call__(self, before: datetime | None = None) -> StudioView: ...  # 20 changes a page, newest first
+    def __call__(self, before: str | None = None, limit: int = 20) -> StudioView: ...  # newest first
 
 
 class ChangeEmailSettings:
@@ -342,8 +345,15 @@ class DeleteCatalogItem: ...  # same signature; asks records.is_item_used first
   `TestEmailFailed(code)` for the page. The recipient is only ever the signed-in staff
   member's own address from their verified token. Logs `event=test_email`, `user`,
   `outcome` (`sent` or `failed`), `error_code`.
-- `DeleteCatalogItem`: `ItemInUse` when `records.is_item_used(...)` (#6: anything a
-  drop-off or load has used is retired, not deleted).
+- `DeleteCatalogItem`: the domain refuses an active item (`InvalidSetting("status",
+  "Retire Kiln Four before deleting it.")`): only a retired item can be deleted, so it
+  asks `records.is_item_used(...)` only once retiring has stopped new use, and a
+  `SubmitDropOff` or `StartLoad` naming the item can't commit between that read and the
+  delete (decided in phase 1's whole-branch review; no `Check` in the commit). Then
+  `ItemInUse` when used (#6: anything a drop-off or load has used stays retired).
+- `ViewStudio(before)`: `before` is the opaque cursor from the previous page's
+  `older`; `BadCursor` (a hand-edited address) passes up to the page, which shows the
+  first page. Changes saved at one instant are never split or skipped across pages.
 
 ### app: closing (`use_cases/close.py`) (#7)
 
@@ -440,7 +450,10 @@ rows.
 - `test_a_failure_records_the_code_and_logs_email_failed` (the exact field names above).
 - `test_an_unexpected_error_is_recorded_without_its_text_and_not_raised`.
 - `test_a_missing_photo_fails_the_email_with_photo_missing`.
-- `test_an_undone_rejections_email_is_cancelled_not_sent`.
+- `test_an_undone_rejections_email_is_cancelled_not_sent`;
+  `test_a_rejection_read_back_in_another_offset_is_still_sent` (the stored rejection's
+  time in Austin time, the email's occasion from `rejection_occasion`: sent, not
+  cancelled).
 - `test_a_closed_drop_offs_email_is_cancelled`.
 - `test_retry_requeues_only_that_email_and_a_send_clears_the_failure` (#4).
 - `test_retry_refuses_a_sent_email`.
@@ -451,8 +464,13 @@ rows.
 - `test_the_test_email_goes_from_the_new_address_to_the_signed_in_staff_member_and_saves_nothing`.
 - `test_a_test_email_without_a_staff_email_is_refused`.
 - `test_a_failed_test_email_reports_the_code`.
-- `test_every_change_records_who_and_when` and `test_history_pages_newest_first`.
-- `test_a_used_kiln_can_be_retired_not_deleted`; `test_an_unused_item_can_be_deleted`.
+- `test_every_change_records_who_and_when` and `test_history_pages_newest_first`;
+  `test_history_pages_keep_the_changes_of_one_save_together` (an email-settings save
+  that changes all three values, paged 2 at a time, shows all three once).
+- `test_a_used_kiln_can_be_retired_not_deleted`; `test_an_active_item_must_be_retired_before_it_is_deleted`;
+  `test_a_retired_unused_item_can_be_deleted`.
+- `test_the_history_holds_no_sending_address` (the change reads "Changed the sending
+  address").
 - `test_a_stale_version_is_a_conflict`.
 - `test_a_new_firing_type_needing_a_glaze_type_is_offered_by_the_form` (the next
   submission accepts it).
@@ -536,6 +554,19 @@ None.
 ## Hand-off
 
 Filled in when the phase is done.
+
+For this phase's `/prep` (from phase 1's whole-branch review, not decided there):
+
+- **Retention of a fired drop-off whose ready email never sends** (review finding 8:
+  the maintainer's call). `is_closable` starts a fired drop-off's pickup window from the
+  ready email's `sent_at`, so a drop-off whose ready email stays `FAILED` (or is never
+  retried) is never closed and its name, email, phone and photos are kept with no end,
+  longer than #7 says. Prep asks the maintainer whether to close such a drop-off a fixed
+  time after `fired_at` (and what the window is), or to keep it until staff act and show
+  it on the console as needing attention; nothing in phase 1 changes until then.
+- **The use-count port shape** (review finding 5; phase 1d's hand-off): whether
+  `ViewStudio.used` stays a bool per item or becomes a count (phase 9's "Used by 212
+  loads"), and what read gives it.
 
 What the next phase can rely on, as planned:
 

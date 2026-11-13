@@ -83,7 +83,7 @@ class PresignedPost:  # what the browser posts to; opaque to the domain
 
 @dataclass(frozen=True, slots=True)
 class UploadSlot:
-    slot_id: str  # random, URL-safe, 22+ characters; the only handle the form sends back
+    slot_id: str  # is_slot_id's shape: exactly 22 of [A-Za-z0-9_-]; the only handle the form sends back
     post: PresignedPost
     expires_at: datetime
 
@@ -237,7 +237,7 @@ class EmailStatus(StrEnum):
 class Email:
     drop_off_id: DropOffId
     kind: EmailKind
-    occasion: str  # "" for received and ready; the rejection's at, ISO, for rejected
+    occasion: str  # "" for received and ready; rejection_occasion(rejection.at) for rejected
     status: EmailStatus
     created_at: datetime
     attempts: int = 0
@@ -265,8 +265,14 @@ def needs_attention(
 - A move from a status the comment doesn't allow is a `ValueError` (a bug: the use
   case reads the email first), except `retry`, which staff ask for, and raises
   `EmailNotRetryable`.
-- `new_email`: `occasion` must be `""` for `RECEIVED` and `READY` and non-empty for
-  `REJECTED` (else `ValueError`).
+- `new_email`: `occasion` must be `""` for `RECEIVED` and `READY`, and for `REJECTED`
+  exactly what `rejection_occasion` gives (else `ValueError`).
+- `rejection_occasion(rejected_at)`: the one format of a rejected email's occasion, the
+  time in UTC to the microsecond (`2026-11-13T21:04:05.000000+00:00`), so the same
+  instant gives the same key whatever offset or precision a caller or the table holds
+  it in. `is_still_rejected(drop_off, occasion)` is the one check that a drop-off is
+  still rejected by that rejection (not undone, or undone and rejected again). Every
+  caller uses these two; none formats a time itself.
 - `mark_failed`: a code with any other character, or longer than 64, is a `ValueError`,
   so AWS's message text can never be stored in its place.
 - `retry` clears `error_code` and `claimed_at`; a stale `SENDING` is one claimed longer
@@ -386,6 +392,12 @@ Built on 2026-11-13. What phases 1c and later can rely on:
   drop-off, the kind and the status only. `retry` records no time: the entry goes back
   to `PENDING` with `claimed_at` cleared; a "retried at" field, if the console needs one,
   is for a later phase to add.
+- Added in the whole-branch review: `domain.email.rejection_occasion`,
+  `is_rejection_occasion` and `is_still_rejected` (above; phase 2's `RejectDropOff` and
+  `UndoRejection` and phase 3's `SendPendingEmail` use them), and
+  `domain.photos.is_slot_id` with `SLOT_ID_LENGTH` (exactly 22 of `[A-Za-z0-9_-]`, the
+  one slot-ID shape phase 2's `SubmitDropOff`, the memory fake and phase 4's
+  `S3PhotoStore` all check).
 - `asmbly_ceramics.domain.closing`: `is_closable(drop_off, ready_sent_at,
   pickup_window_days, now)` (`ValueError` for a window under 1 day) and
   `close(drop_off, at)`. The caller still deletes the photos themselves

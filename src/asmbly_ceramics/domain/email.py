@@ -3,6 +3,9 @@
 An entry's key is (`drop_off_id`, `kind`, `occasion`). The `Records` port (phase 1d)
 refuses a second entry with the same key, so a received or ready email is queued once,
 and a new rejection after an undo, with its own time as the occasion, queues a new one.
+A rejected email's occasion is `rejection_occasion(rejection.at)`, the one format every
+caller uses, and `is_still_rejected` is the one check that a drop-off still has that
+rejection (phase 3's sender cancels the email otherwise).
 Sending is at least once: a send that was claimed and never finished can be retried,
 which may send a second copy.
 
@@ -12,9 +15,10 @@ first), except `retry`, which staff ask for and which raises `EmailNotRetryable`
 
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
+from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.errors import EmailNotRetryable
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER
@@ -28,6 +32,33 @@ _ERROR_CODE = re.compile(rf"[A-Za-z0-9_.-]{{1,{ERROR_CODE_MAX}}}", flags=re.ASCI
 def is_error_code(code: str) -> bool:
     """1 to 64 of `[A-Za-z0-9_.-]`: the shape of a provider's error code, never a message."""
     return _ERROR_CODE.fullmatch(code) is not None
+
+
+def rejection_occasion(rejected_at: datetime) -> str:
+    """A rejected email's occasion: the rejection's time in UTC, to the microsecond
+    (`2026-11-13T21:04:05.000000+00:00`). One fixed format, so the same instant gives the
+    same key however it was written or read back (another offset, no microseconds)."""
+    _check_aware(rejected_at)
+    return rejected_at.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def is_rejection_occasion(occasion: str) -> bool:
+    """`occasion` is exactly what `rejection_occasion` gives for some time."""
+    try:
+        at = datetime.fromisoformat(occasion)
+    except ValueError:
+        return False
+    return at.utcoffset() is not None and rejection_occasion(at) == occasion
+
+
+def is_still_rejected(drop_off: DropOff, occasion: str) -> bool:
+    """`drop_off` is rejected, by the rejection whose email has this occasion: not undone,
+    and not undone and rejected again."""
+    return (
+        drop_off.state is DropOffState.REJECTED
+        and drop_off.rejection is not None
+        and rejection_occasion(drop_off.rejection.at) == occasion
+    )
 
 
 class EmailKind(StrEnum):
@@ -48,7 +79,7 @@ class EmailStatus(StrEnum):
 class Email:
     drop_off_id: DropOffId
     kind: EmailKind
-    occasion: str  # "" for received and ready; the rejection's time, ISO, for rejected
+    occasion: str  # "" for received and ready; `rejection_occasion(rejection.at)` for rejected
     status: EmailStatus
     created_at: datetime
     attempts: int = 0
@@ -62,6 +93,8 @@ def new_email(drop_off_id: DropOffId, kind: EmailKind, at: datetime, occasion: s
     _check_aware(at)
     if (kind is EmailKind.REJECTED) != bool(occasion):
         raise ValueError("only a rejected email has an occasion, and it always has one")
+    if occasion and not is_rejection_occasion(occasion):
+        raise ValueError("a rejected email's occasion is rejection_occasion(rejection.at)")
     return Email(drop_off_id, kind, occasion, EmailStatus.PENDING, created_at=at)
 
 

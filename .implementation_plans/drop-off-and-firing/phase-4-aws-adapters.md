@@ -161,15 +161,15 @@ create, +1 on every update).
 | Drop-off | `DROPOFF#AC-12` | `META` | `DROPOFF#<state>` / `<created_at ISO>#AC-12` | — | — |
 | Load | `LOAD#L-4` | `META` | `LOAD#<status>` / `<date>#L-4` | `LOADDATE` / `<date>#L-4` | — |
 | Studio settings and lists | `STUDIO` | `CURRENT` | — | — | — |
-| Settings history entry | `STUDIO` | `HISTORY#<at ISO>#<n>` | — | — | — |
-| Email (outbox) | `EMAIL#AC-12` | `<kind>` or `rejected#<rejected_at ISO>` | — | `EMAIL#<status>` / `<created_at ISO>#AC-12#<kind>` | — |
+| Settings history entry | `STUDIO` | `HISTORY#<at ISO>#<n>` (`n`: a fixed-width random suffix) | — | — | — |
+| Email (outbox) | `EMAIL#AC-12` | `<kind>` or `rejected#<occasion>` (`rejection_occasion`'s text, verbatim) | — | `EMAIL#<status>` / `<created_at ISO>#AC-12#<kind>` | — |
 | ID counters | `COUNTER#dropoff`, `COUNTER#load` | `META` | — | — | — |
 | Rate-limit hits | `RATE#<keyed hash>` | `META` | — | — | last hit + window + 1 day |
 | Submission token | `SUBMISSION#<hash>` (the keyed hash, never the token) | `META` | — | — | created + 1 day |
 
 - `<state>` and `<status>` are the domain enums' values (`waiting`, `in_load`, `fired`,
   `rejected`, `closed`; `loading`, `firing`, `fired`; `pending`, `sending`, `sent`,
-  `failed`), so the waiting list is a `Query` on `GSI1PK = DROPOFF#waiting` in
+  `failed`, `cancelled`), so the waiting list is a `Query` on `GSI1PK = DROPOFF#waiting` in
   `GSI1SK` order (oldest first), the drop-offs to close are `DROPOFF#fired` and
   `DROPOFF#rejected`, and failed emails are `GSI2PK = EMAIL#failed`.
 - Timestamps are ISO 8601 in UTC with a `Z`, so they sort as strings. Dates (a load's
@@ -218,6 +218,15 @@ class DynamoDbRecords:
     reload").
   - `emails_for` and `settings_history` query the base table (`PK`), so they are
     consistent.
+- **`history(limit, before)`** (phase 1d's contract, changed in phase 1's whole-branch
+  review): `Query` on `PK = STUDIO`, `SK begins_with HISTORY#`, newest first
+  (`ScanIndexForward=False`), `Limit = limit + 1` so `older` is `None` exactly when
+  nothing older exists. The cursor is the last returned item's `SK` without the
+  `HISTORY#` prefix, so changes written at one instant (one email-settings save writes
+  up to three) are never split or skipped: the next page starts with
+  `SK < HISTORY#<cursor>`. The `<at ISO>` in the key is UTC with fixed microseconds, so
+  string order is time order. A `before` that isn't `<UTC ISO>#<suffix>` is `BadCursor`
+  before any call.
 - **`commit(changes: Sequence[Change]) -> None`.** Phase 1 defines `Change` as a put of
   a new item or an update of an existing one with its expected version. The adapter
   sends one `TransactWriteItems`:
@@ -328,11 +337,11 @@ class S3PhotoStore:
   "that photo couldn't be uploaded", and `read_upload` refuses anything over 10 MB
   again. Phase 7's verification records the real answer.
 - **Slot IDs from the browser are hostile.** Before any S3 call, `read_upload` and
-  `discard_uploads` check that a slot ID has the shape `upload_slots` gives it
-  (`secrets.token_urlsafe(16)`: exactly 22 of `[A-Za-z0-9_-]`); anything else is
+  `discard_uploads` check `domain.photos.is_slot_id` (the shape `upload_slots` gives,
+  `secrets.token_urlsafe(16)`: exactly 22 of `[A-Za-z0-9_-]`); anything else is
   `UploadMissing` for `read_upload` and ignored by `discard_uploads`, so no key outside
-  `uploads/<22 characters>/` is ever read or deleted. (Phase 2 also checks 22 to 64
-  URL-safe characters; this is the adapter's own, exact check.)
+  `uploads/<22 characters>/` is ever read or deleted. (Phase 2 checks the same
+  function first: there is one shape.)
 - **`read_upload(slot)`**: first `HeadObject` on `uploads/<id>/used`; if it exists the
   slot was discarded, so `UploadMissing`. Then `GetObject` on `uploads/<id>/0` with
   `Range="bytes=0-10485760"` (10 MB + 1 byte). If `ContentLength` from the response's
@@ -350,8 +359,12 @@ class S3PhotoStore:
   `PutObject` is supported in us-east-2 and returns `PreconditionFailed` (412) when
   the key exists; if it isn't, drop the condition (the key holds a new, never-reused
   ID; the fake still refuses). `keep` leaves the uploads alone. Returns the refs. A failure part-way
-  deletes what it wrote under `dropoffs/AC-n/` and raises `PhotosUnavailable(code)`;
-  `SubmitDropOff` then stores nothing (phase 2).
+  deletes what it wrote under `dropoffs/AC-n/` and raises `PhotosUnavailable(code)`:
+  `keep` is all or nothing (phase 1d's port). `SubmitDropOff` then stores nothing, and
+  after a `keep` that returned, a commit that fails in any way makes it call
+  `delete_drop_off` (phase 2, step 7). Both need `s3:DeleteObject` on `dropoffs/*` for
+  the form's role, which phase 7 doesn't grant yet (phase 1d's hand-off: phases 4 and 7
+  add it and a backstop for a cleanup that fails).
 - **`discard_uploads(slot_ids)`** (phase 1d's port, from the 1d review): for each
   well-formed slot ID, `PutObject` an empty `uploads/<id>/used` marker, then
   `DeleteObject` on `uploads/<id>/0`. The marker is what makes the slot used up: the
@@ -549,6 +562,9 @@ adapter-on-stub, so the fake can't drift from the adapter:
 - `test_transaction_cancelled_maps_reasons_to_the_ids_that_conflicted`
 - `test_throttling_becomes_records_unavailable_and_logs_the_code_only`
 - `test_queries_follow_last_evaluated_key`
+- `test_history_pages_by_the_sort_key_and_keeps_one_instant_together` (three changes at
+  one `at`, `limit=2`: the second page holds the third) and
+  `test_history_refuses_a_malformed_cursor_before_calling_aws`
 
 **IDs**
 

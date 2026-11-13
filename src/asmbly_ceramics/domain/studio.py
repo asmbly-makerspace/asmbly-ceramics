@@ -108,7 +108,9 @@ class Studio:
 class SettingChange:
     at: datetime
     by: str  # staff username, or "system" for the starting values
-    what: str  # "Pickup window: 10 → 14 days", "Added kiln Helios", "Changed the pickup hours text"
+    # "Pickup window: 10 → 14 days", "Added kiln Helios", "Changed the sending address":
+    # never an address or the hours text, since the history is kept for good.
+    what: str
 
 
 def is_valid_email(address: str) -> bool:
@@ -190,7 +192,8 @@ def change_email_settings(
 
     changes: list[SettingChange] = []
     if address != studio.sending_address:
-        changes.append(SettingChange(at, by, f"Sending address: {studio.sending_address} → {address}"))
+        # No address in the history: it is kept for good, and an address is personal data.
+        changes.append(SettingChange(at, by, "Changed the sending address"))
     if window != studio.pickup_window_days:
         changes.append(SettingChange(at, by, f"Pickup window: {studio.pickup_window_days} → {window} days"))
     if hours != studio.pickup_hours_text:
@@ -260,13 +263,21 @@ def restore_item(
 def delete_item(
     studio: Studio, which: CatalogList, id: ItemId, *, used: bool, by: str, at: datetime
 ) -> tuple[Studio, SettingChange]:
-    """`used` comes from `Records.is_item_used`: an item any drop-off or load names is retired instead."""
+    """Delete a retired item no drop-off or load names (#6).
+
+    Only a retired item can be deleted. Retiring is what stops new use: a submit or a new
+    load checks the studio's item is active, so once the retire is committed nothing new
+    can name the item, and `used` (from `Records.is_item_used`, read after the retire)
+    can't be made stale by a commit that names it. An active item would race: the delete
+    could read `used` as false while a drop-off or load naming it is committed. An item
+    anything names is kept retired.
+    """
     _check_change(by, at)
     item = studio.item(which, id)
+    if item.status is ItemStatus.ACTIVE:
+        raise InvalidSetting("status", f"Retire {item.name} before deleting it.")
     if used:
         raise ItemInUse(item.name)
-    if item.status is ItemStatus.ACTIVE:
-        _refuse_last_active(studio, which, item)
     items = tuple(other for other in studio.items(which) if other.id != id)
     return _with_items(studio, which, items), SettingChange(at, by, f"Deleted {_KIND[which]} {item.name}")
 

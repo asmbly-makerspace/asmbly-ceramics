@@ -265,8 +265,9 @@ In order:
 2. **The rate limit** (#2). `limiter.hit(hasher.device(...), DEVICE_LIMIT, now)` and
    the same for the address with `ADDRESS_LIMIT`; either false raises
    `TooManySubmissions`. Every attempt that reaches this step counts, refused or not.
-3. **The fields.** First the slots, before any S3 read: each slot ID must be 22 to 64
-   URL-safe characters and there must be at most `PHOTOS_MAX` distinct ones; otherwise
+3. **The fields.** First the slots, before any S3 read: each slot ID must pass
+   `domain.photos.is_slot_id` (exactly 22 of `[A-Za-z0-9_-]`, the one shape `upload_slots`
+   gives and the photo stores check) and there must be at most `PHOTOS_MAX` distinct ones; otherwise
    `InvalidDetails({"photos": "photos.count"})` at once, reading nothing. Then
    `DropOffDetails.create(..., photo_count=len(set(upload_slots)),
    studio=CurrentStudio())`. A duplicated slot ID counts once.
@@ -284,9 +285,18 @@ In order:
 7. **Commit** `Put(drop_off)`, `Put(new_email(id, RECEIVED, now))`,
    `Put(Submission(hash, id, pieces, firing type name, glaze type name, now, now +
    SUBMISSION_LIFETIME))` together, and return `Submitted(received_view(submission),
-   hash, repeated=False)`. On `Conflict` (the same token committed in a race),
-   `photos.delete_drop_off(id)` (the number is skipped, which the ID contract allows)
-   and return the stored submission's view with `repeated=True`.
+   hash, repeated=False)`. **On any commit failure**, the kept photos have no record and
+   the close (#7) would never delete them, so `photos.delete_drop_off(id)` comes first
+   (the number is skipped, which the ID contract allows), then:
+   - `Conflict` (the same token committed in a race): return the stored submission's
+     view with `repeated=True`;
+   - `RecordsUnavailable`, or any other exception: re-raise it after the delete (the
+     page says "try again"; the uploads are untouched, so the same submit can be sent
+     again).
+   If `delete_drop_off` itself raises, log `event=photos_not_deleted` with
+   `drop_off_id` and the code and re-raise the commit's error: the photos are left to the
+   cleanup backstop phases 4 and 7 add (phase 1d's hand-off). `keep` itself is all or
+   nothing (phase 1d), so a `keep` that raised needs no cleanup here.
 8. **Use the uploads up.** Once the commit has succeeded, or the race above found the
    stored submission, `photos.discard_uploads(distinct slots)` (phase 1d): the raw
    uploads, EXIF included, are deleted at once instead of waiting a day for the
@@ -404,12 +414,16 @@ class UndoRejection:
   and send, the email uses the new one (#6: every email after a change uses it).
 - `RejectDropOff`: `NotFound`; `Conflict` when `version` isn't the stored one (someone
   else changed it: the page says to reload); `reject(...)`; commit
-  `Update(drop_off)` and `Put(new_email(id, REJECTED, now, occasion=rejection.at.isoformat()))`.
+  `Update(drop_off)` and `Put(new_email(id, REJECTED, now,
+  occasion=rejection_occasion(rejection.at)))` (`domain.email`: UTC to the microsecond,
+  the one format; no caller formats the time itself).
   The drop-off leaves the waiting list and can't join a load, because its state is
   `REJECTED` (the domain refuses it in `add_to_load`). Logs `event=drop_off_rejected`,
   `drop_off_id`, `user`, `reason` (the reason's item ID).
-- `UndoRejection`: `undo_rejection(...)`; if the rejection's email is still `PENDING`,
-  `mark_cancelled` it in the same commit (an email already sent can't be unsent; staff
+- `UndoRejection`: `undo_rejection(...)`; read the rejection's email by
+  `records.email(id, REJECTED, rejection_occasion(drop_off.rejection.at))` (taken
+  before the undo clears the rejection); if it is still `PENDING`, `mark_cancelled` it
+  in the same commit (an email already sent can't be unsent; staff
   contact the person, #5). Sends nothing. Logs `event=rejection_undone`, `drop_off_id`,
   `user`.
 
@@ -489,6 +503,10 @@ on return values):
 - `test_the_same_token_twice_returns_the_same_id_and_stores_nothing_more`.
 - `test_a_race_on_the_same_token_returns_the_first_and_deletes_the_kept_photos` (the
   fake's `fail_next_commit_with=Conflict()` and a submission written in between).
+- `test_a_failed_commit_deletes_the_kept_photos_and_raises` (parametrized over
+  `RecordsUnavailable("InternalServerError")` and a `RuntimeError`, through
+  `fail_next_commit_with`: the error is raised, `kept_count(id)` is 0, and the uploads
+  are not discarded) and `test_a_failed_cleanup_logs_and_raises_the_commit_error`.
 - `test_submit_discards_the_uploads_once_committed` (the fake's `upload_count()` is 0
   and `read_upload` of each slot raises `UploadMissing`) and
   `test_a_slot_cannot_make_a_second_drop_off` (a new token with the same slots gets
@@ -509,7 +527,8 @@ on return values):
   limiter's `keys_hit` holds only `device#`/`address#` hashes).
 - `test_upload_slots_count_must_be_1_to_6` and `test_upload_slot_requests_are_limited`.
 - `test_upload_slots_fail_closed_when_the_limiter_is_unavailable`.
-- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (the fake photo store's
+- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (a slot ID of 21 or 23
+  characters, or with `/` or `.`, fails `is_slot_id`; the fake photo store's
   `read_uploads` is empty).
 - `test_the_studio_is_seeded_once_with_the_starting_values` and
   `test_a_seeding_race_reads_the_winner`.
@@ -524,7 +543,9 @@ on return values):
 - `test_a_rejected_drop_off_leaves_the_waiting_list`.
 - `test_reject_with_a_stale_version_is_a_conflict_and_stores_nothing`.
 - `test_undo_the_same_day_returns_it_to_waiting_and_sends_nothing` (#5).
-- `test_undo_cancels_the_rejection_email_if_still_pending`.
+- `test_undo_cancels_the_rejection_email_if_still_pending` (the drop-off as read back
+  from the fake with its rejection time in another offset still finds the email: the
+  key is `rejection_occasion`'s).
 - `test_undo_the_next_day_is_refused`.
 - `test_unknown_log_field_raises`.
 - `test_nothing_logged_holds_personal_details`: runs submit (accepted and refused),

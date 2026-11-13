@@ -261,11 +261,15 @@ reason's `needs_message`), and "Preview the email", a GET form to
   so the message, which is personal data, never sits in a URL, browser history or a log
   of query strings) calls
   `PreviewRejection(id, reason, message)`. Refusals are shown next to the field on the
-  drop-off page's panel, with the typed message kept: unknown or retired reason ("Pick a
-  reason from the list."), a reason that needs a message and none ("Write a message: this
-  reason needs one."), a message over 1,000 characters ("Keep the message to 1,000
-  characters; it has n."), a drop-off that isn't waiting ("AC-12 isn't waiting: it's in
-  load L-4."). On success, `reject_preview.html` shows the composed email exactly as
+  drop-off page's panel, with the typed message kept, each as the domain error's
+  `.message` from `domain/errors.py` (any extra detail is built by the page from the
+  records, never parsed from `.message`): an unknown reason (`UnknownItem`, "That reason
+  doesn't exist.") or a retired one (`ItemRetired`, "Other is retired and can't be
+  picked."), a reason that needs a message and none (`MessageRequired`, "This reason
+  needs a message."), a message over 1,000 characters (`MessageTooLong`, "The message is
+  longer than 1,000 characters."; the page may add the typed length, which it counts
+  itself), a drop-off that isn't waiting (`NotWaiting`, "AC-12 isn't waiting: it is in
+  load."; the page may add "It is in load L-4." from the drop-off's `load_id`). On success, `reject_preview.html` shows the composed email exactly as
   `mail/compose.py` builds it (To, From, Subject, then the HTML body inside a sandboxed
   frame-free box: the composed HTML is rendered by the composer with autoescape, then
   inserted as markup, with the photos as `/console/drop-offs/{id}/photos/{k}/thumb`
@@ -279,10 +283,11 @@ reason's `needs_message`), and "Preview the email", a GET form to
   Check it and try again." and nothing stored. Logged `event=rejected`,
   `drop_off_id=AC-12`, `user`, `reason=<reason item id>`; never the message.
 - **`POST .../undo-reject`** calls `UndoRejection(id, by, now)`. A rejection from an
-  earlier Austin day: "A rejection can only be undone on the day it was made." Success:
+  earlier Austin day: `UndoTooLate`'s `.message`, "AC-12 was rejected on an earlier day;
+  undo works only the same day." Success:
   `303` with "AC-12 is waiting again. No email was sent." The rejection email already
   queued or sent is not recalled.
-- **`POST .../emails/{kind}/retry`** (hidden field `occasion`: empty for received and ready, the rejection's time for a rejected email) calls `RetryEmail(id, kind, occasion, staff)`; success `303`
+- **`POST .../emails/{kind}/retry`** (hidden field `occasion`: empty for received and ready, and for a rejected email the email's own `occasion` exactly as stored (`rejection_occasion`'s text), never a time the page formats) calls `RetryEmail(id, kind, occasion, staff)`; success `303`
   with "The email to AC-12 will be sent again."; an email that isn't failed: "That
   email isn't failed." Logged `event=email_retried`.
 
