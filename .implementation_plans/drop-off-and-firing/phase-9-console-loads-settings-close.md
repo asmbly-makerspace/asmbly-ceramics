@@ -275,8 +275,10 @@ def handler(event: Mapping[str, object], context: object) -> dict[str, int]:
 ```
 
 It builds `CloseFinished` once per container (`composition.build_closer()`), calls it
-with the clock's now, and returns and logs `event=close_run`, `closed=<n>`,
-`skipped=<n>`, `outcome=ok`, plus one `event=closed` line per drop-off with only its ID.
+with the clock's now, and returns `{"closed": <n>}`. It logs nothing of its own: the
+lines are `CloseFinished`'s (phase 3), one `event=drop_off_closed` with only the
+`drop_off_id` per drop-off and one `event=close_run` with `count` (how many closed), the
+fields `log_event` allows (phase 2a's `LOG_FIELDS`; `closed=` or `skipped=` would raise).
 `CloseFinished` (phase 3) is idempotent: a drop-off already closed is skipped, and a
 photo already deleted is not an error, so a retried or duplicated run does no harm. A
 failure on one drop-off is logged with its ID and the AWS error code and the run goes on;
@@ -590,7 +592,7 @@ the maintainer owns:
    new `asmbly.org` address to yourself; save; check the history shows your username.
    Retire Helios; it isn't offered for a new load and still shows on a past load.
 4. Set stage's pickup window to 1 day. The next morning, the close's log group has a
-   `close_run` line with `closed` of at least the fired test drop-offs, and their pages
+   `close_run` line with `count` of at least the fired test drop-offs, and their pages
    say "Closed" with no contact details or photos. Set the window back to 14.
 5. Open Weekly counts for this week: the test drop-offs, the load and the rejection are
    counted.
@@ -601,7 +603,7 @@ the maintainer owns:
   test email right, the close function, its schedule (enabled), its dead-letter queue
   and alarms.
 - **Check:** the smoke test on each environment; the stage checks above; on prod, the
-  next morning's `close_run` line (with `closed=0` until anything is due) in
+  next morning's `close_run` line (with `count=0` until anything is due) in
   `/aws/lambda/asmbly-ceramics-prod-close`, read with a read-only
   `aws logs filter-log-events` for `close_run`, and no alarm.
 - **Who confirms:** the maintainer, and one ceramics staff member who runs the load

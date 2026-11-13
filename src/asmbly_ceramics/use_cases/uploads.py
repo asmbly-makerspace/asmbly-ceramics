@@ -1,16 +1,15 @@
 """Upload slots for the form's photos (#2): 1 to 6 at a time, rate limited, failing closed."""
 
-import logging
 from dataclasses import dataclass, field
 
-from asmbly_ceramics.domain.errors import InvalidDetails, TooManySubmissions
+from asmbly_ceramics.domain.errors import FORM_EXPIRED_KEY, InvalidDetails
 from asmbly_ceramics.domain.limits import SLOT_ADDRESS_LIMIT, SLOT_DEVICE_LIMIT
 from asmbly_ceramics.domain.photos import PHOTO_COUNT_KEY, UploadSlot, is_photo_count
 from asmbly_ceramics.ports.clock import Clock
-from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.photos import PhotoStore
 from asmbly_ceramics.ports.rate_limit import RateLimiter
 from asmbly_ceramics.use_cases.keys import KeyHasher, is_form_token
+from asmbly_ceramics.use_cases.limits import check_limits
 from asmbly_ceramics.use_cases.log import log_event
 
 
@@ -36,32 +35,20 @@ class RequestUploadSlots:
         if not is_form_token(request.device):
             # Checked before counting, so callers without a cookie never share one bucket.
             _refused("form_expired")
-            raise InvalidDetails({"form": "form.expired"})
+            raise InvalidDetails({"form": FORM_EXPIRED_KEY})
         now = self._clock.now()
         # Hashed before counting: a key that can't be read goes up with nothing counted.
         device_key = self._hasher.slots_device(request.device)
         address_key = self._hasher.slots_address(request.source_address)
-        try:
-            # The device first. A device already over its limit is refused without
-            # counting against the address, so one phone retrying can't fill the bucket
-            # everyone on the studio's wifi shares; a new cookie is counted by both.
-            device_ok = self._limiter.hit(device_key, SLOT_DEVICE_LIMIT, now)
-            address_ok = device_ok and self._limiter.hit(address_key, SLOT_ADDRESS_LIMIT, now)
-        except RecordsUnavailable as error:
-            # Fails closed: no slot without a count.
-            log_event(
-                "upload_slots_refused",
-                level=logging.WARNING,
-                reason="limiter_unavailable",
-                error_code=error.code,
-            )
-            raise
-        if not device_ok:
-            _refused("device_limit")
-            raise TooManySubmissions()
-        if not address_ok:
-            _refused("address_limit")
-            raise TooManySubmissions()
+        check_limits(
+            self._limiter,
+            device_key=device_key,
+            device_limit=SLOT_DEVICE_LIMIT,
+            address_key=address_key,
+            address_limit=SLOT_ADDRESS_LIMIT,
+            now=now,
+            refused_event="upload_slots_refused",
+        )
         slots = self._photos.upload_slots(count, now)
         log_event("upload_slots", count=count)
         return slots

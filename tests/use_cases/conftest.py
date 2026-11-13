@@ -20,6 +20,7 @@ from asmbly_ceramics.adapters.memory.staff_tokens import MemoryStaffTokens
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.received import ReceivedSummary
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
+from asmbly_ceramics.use_cases.submit import SubmitDropOff
 from asmbly_ceramics.use_cases.uploads import RequestUploadSlots
 from tests.domain.builders import NOW, a_sending_address
 
@@ -43,6 +44,14 @@ class World:
     choices: ViewStudioChoices
     received: ReceivedSummary
     upload_slots: RequestUploadSlots
+    submit: SubmitDropOff
+
+    def uploaded(self, *photos: bytes) -> tuple[str, ...]:
+        """Fresh slots holding these made-up photo bytes, as the browser's posts leave them."""
+        slots = self.photos.upload_slots(len(photos), self.clock.now())
+        for slot, data in zip(slots, photos, strict=True):
+            self.photos.put_upload(slot.slot_id, data)
+        return tuple(slot.slot_id for slot in slots)
 
 
 @pytest.fixture
@@ -54,11 +63,13 @@ def world() -> World:
     secrets = MemorySecrets()
     hasher = KeyHasher(secrets)
     studio = CurrentStudio(records, clock, a_sending_address())
+    ids = MemoryIdNumbers()
+    inspector = MemoryPhotoInspector()
     return World(
         records=records,
-        ids=MemoryIdNumbers(),
+        ids=ids,
         photos=photos,
-        inspector=MemoryPhotoInspector(),
+        inspector=inspector,
         mailer=MemoryMailer(),
         staff_tokens=MemoryStaffTokens(),
         limiter=limiter,
@@ -69,4 +80,5 @@ def world() -> World:
         choices=ViewStudioChoices(studio),
         received=ReceivedSummary(records, clock),
         upload_slots=RequestUploadSlots(photos, limiter, hasher, clock),
+        submit=SubmitDropOff(records, ids, photos, inspector, limiter, hasher, clock, studio),
     )

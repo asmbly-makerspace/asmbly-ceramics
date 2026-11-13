@@ -35,7 +35,7 @@
       ],
       "status": "done",
       "base_sha": "ea9dfe15a93bf5c732e31a5bc40ef779ff9093a2",
-      "squashed_sha": null,
+      "squashed_sha": "99341c6",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
@@ -57,17 +57,21 @@
       "depends_on": [
         "2a"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "99341c628c57f182d25b01b74dc1c2a2c6ca3356",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
       "parked_branch": null,
       "closes": [],
-      "refs": [],
-      "admin_actions": [],
-      "notes": ""
+      "refs": [
+        2
+      ],
+      "admin_actions": [
+        "Maintainer, before phase 7 merges: approve the form role deleting/listing under dropoffs/ (decision 0002 gives it to the close) and the backstop in #19"
+      ],
+      "notes": "pytest 1486 passed, 99.54%; opened #18 (per-recipient limit) and #19; privacy NOTEs: #19 backstop must exist before prod takes real drop-offs (orphaned photos otherwise outlive the close); phase 4 adapter must wrap botocore ClientError (its message can quote item values) and phase 6 must never log str(error)"
     },
     {
       "id": "phase-2c-email-composer",
@@ -159,7 +163,7 @@
       "closes": [],
       "refs": [],
       "admin_actions": [],
-      "notes": ""
+      "notes": "From 2b review, for prep: delete_drop_off deletes the 12 known keys (dropoffs/AC-n/1..6.jpg and -thumb.jpg) without listing, so the form role needs no ListBucket; make the timed-out TransactWriteItems re-read an acceptance criterion; wrap botocore ClientError (message can quote item values); state the staff username shape in StaffTokens"
     }
   ],
   "gate": {
@@ -378,6 +382,71 @@
       "ts": "2026-11-13T20:53:43Z",
       "type": "phase_done",
       "phase": "2a"
+    },
+    {
+      "ts": "2026-11-13T20:54:10Z",
+      "type": "squash",
+      "unit": "phase-2a",
+      "sha": "99341c6"
+    },
+    {
+      "ts": "2026-11-13T20:54:10Z",
+      "type": "phase_start",
+      "phase": "2b"
+    },
+    {
+      "ts": "2026-11-13T21:24:52Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "timed-out commit",
+      "choice": "delete photos only if a re-read finds nothing",
+      "reason": "phase 4 confirms"
+    },
+    {
+      "ts": "2026-11-13T21:26:21Z",
+      "type": "cold_review",
+      "phase": "2b",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-13T23:21:22Z",
+      "type": "cold_review",
+      "phase": "2b",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 8
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "Conflict then the read fails",
+      "choice": "trust Conflict: delete kept photos, raise the read error",
+      "reason": "the Conflict contract says nothing was written"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "submit 503 log",
+      "choice": "phase 6 logs drop_off_unavailable with error_code",
+      "reason": "a cleaned-up commit failure logs nothing from the use case"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "topic": "re-review after a WARN-only fix round",
+      "choice": "no re-review; the final whole-branch cold review covers it",
+      "reason": "skill re-spawns only reviewers that raised a BLOCK"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "phase_done",
+      "phase": "2b"
     }
   ]
 }

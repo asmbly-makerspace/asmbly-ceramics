@@ -13,9 +13,23 @@ def test_unknown_log_field_raises(caplog: pytest.LogCaptureFixture) -> None:
         log_event("drop_off_received", drop_off_id="AC-12", email="someone")
     with pytest.raises(ValueError, match="snake_case"):
         log_event("received %s")
-    with pytest.raises(TypeError):
-        log_event("drop_off_received", count=True)
     assert caplog.records == []
+
+
+class _Loud:
+    def __repr__(self) -> str:
+        return "made-up-secret-repr"
+
+
+@pytest.mark.parametrize("value", [True, False, None, 1.5, b"AC-12", ["AC-12"], _Loud()])
+def test_a_value_that_isnt_a_str_or_an_int_is_logged_as_invalid(
+    value: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    for name in sorted(LOG_FIELDS - {"event"}):
+        log_event("x", **{name: value})  # type: ignore[arg-type]  # a caller's bug, on purpose
+        assert vars(caplog.records[-1])[name] == "invalid"
+    assert "made-up-secret-repr" not in str([vars(r) for r in caplog.records])
 
 
 def test_log_event_puts_the_fields_in_extra_and_only_the_event_in_the_message(

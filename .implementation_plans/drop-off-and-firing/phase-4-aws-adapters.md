@@ -362,9 +362,17 @@ class S3PhotoStore:
   deletes what it wrote under `dropoffs/AC-n/` and raises `PhotosUnavailable(code)`:
   `keep` is all or nothing (phase 1d's port). `SubmitDropOff` then stores nothing, and
   after a `keep` that returned, a commit that fails in any way makes it call
-  `delete_drop_off` (phase 2, step 7). Both need `s3:DeleteObject` on `dropoffs/*` for
-  the form's role, which phase 7 doesn't grant yet (phase 1d's hand-off: phases 4 and 7
-  add it and a backstop for a cleanup that fails).
+  `delete_drop_off` (phase 2b, step 7). Both need `s3:DeleteObject` on `dropoffs/*` and
+  `s3:ListBucket` (prefix `dropoffs/*`) for the form's role, which phase 7 grants (from
+  phase 2b's reviews); the backstop for a cleanup that fails is #19.
+- **Commit outcomes (from phase 2b's review, deferred here):** `SubmitDropOff` re-reads
+  the submission after a commit that raised something other than `Conflict`, and deletes
+  the kept photos only when nothing is stored. Confirm against AWS's documentation
+  whether a `TransactWriteItems` that timed out on the client can still land after that
+  strongly consistent read (with the `ClientRequestToken` above); if it can, map that
+  case to an error that tells "outcome unknown" from "nothing written", so the use case
+  leaves the photos to the backstop instead. Also confirm that a `Conflict` is only
+  raised when nothing was written (the use case relies on it).
 - **`discard_uploads(slot_ids)`** (phase 1d's port, from the 1d review): for each
   well-formed slot ID, `PutObject` an empty `uploads/<id>/used` marker, then
   `DeleteObject` on `uploads/<id>/0`. The marker is what makes the slot used up: the
@@ -382,7 +390,8 @@ class S3PhotoStore:
   logged.
 - Rights: `s3:PutObject` on `uploads/*` (signed into the POST: the role that signs
   must hold it), `s3:GetObject` and `s3:DeleteObject` on `uploads/*`, `s3:PutObject` on
-  `dropoffs/*` (form); `s3:GetObject` on `dropoffs/*` (console, mailer);
+  `dropoffs/*`, with `s3:DeleteObject` there and `s3:ListBucket` (prefix `dropoffs/*`)
+  for the submit's cleanup (form); `s3:GetObject` on `dropoffs/*` (console, mailer);
   `s3:ListBucket` with `s3:prefix` `dropoffs/*` and `s3:DeleteObject` on `dropoffs/*`
   (close). Phase 7 splits them by role.
 
@@ -676,7 +685,14 @@ adapter-on-stub, so the fake can't drift from the adapter:
    can't be fetched.
 8. No adapter logs or raises a person's name, email address or phone number, a token,
    or AWS's error message; each adapter's test proves it.
-9. `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` and
+9. A `TransactWriteItems` that timed out on the client and may still land after
+   `SubmitDropOff`'s strongly consistent re-read is handled, with AWS's documentation
+   cited in the test or the adapter: either DynamoDB's behaviour (with
+   `ClientRequestToken`) rules it out, or `DynamoDbRecords.commit` raises an error that
+   tells "outcome unknown" from "nothing written" and the use case leaves the photos to
+   the backstop (#19); and `Conflict` is raised only when nothing was written (phase
+   2b's review).
+10. `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` and
    `uv run pytest --cov` pass, with coverage at or above the floor.
 
 ## Verification
@@ -726,7 +742,7 @@ Phase 7 can rely on:
   | `DynamoDbRecords` | `dynamodb:GetItem`, `Query`, `PutItem`, `UpdateItem`, `ConditionCheckItem` | the table and `index/*` |
   | `DynamoDbIdNumbers` | `dynamodb:UpdateItem` | the table, keys `COUNTER#*` |
   | `DynamoDbRateLimiter` | `dynamodb:GetItem`, `PutItem` | the table, keys `RATE#*` |
-  | `S3PhotoStore` | `s3:PutObject`, `GetObject`, `DeleteObject` on `uploads/*`; `PutObject` on `dropoffs/*` (form); `GetObject` on `dropoffs/*` (console, mailer); `ListBucket` (prefix `dropoffs/`), `DeleteObject` on `dropoffs/*` (close) | the photo bucket |
+  | `S3PhotoStore` | `s3:PutObject`, `GetObject`, `DeleteObject` on `uploads/*`; `PutObject`, `DeleteObject` on `dropoffs/*` and `ListBucket` (prefix `dropoffs/`) (form); `GetObject` on `dropoffs/*` (console, mailer); `ListBucket` (prefix `dropoffs/`), `DeleteObject` on `dropoffs/*` (close) | the photo bucket |
   | `SesMailer` | `ses:SendEmail` | `identity/asmbly.org`, `ses:FromAddress` like `*@asmbly.org` |
   | `SsmSecrets` | `ssm:GetParameter`; `kms:Decrypt` via SSM | `parameter/asmbly-ceramics/<env>/*` |
   | `CognitoStaffTokens`, `PillowPhotoInspector`, `SystemClock` | none | — |

@@ -323,10 +323,16 @@ Form function:
   Effect: Allow
   Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
   Resource: !Sub ${PhotoBucket.Arn}/uploads/*
-- Sid: KeepPhotos
-  Effect: Allow
-  Action: s3:PutObject
+- Sid: KeepPhotos                      # DeleteObject: keep's own rollback and the submit's
+  Effect: Allow                         # cleanup after a failed commit (phase 2b, step 7);
+  Action: [s3:PutObject, s3:DeleteObject] # the backstop for a failed cleanup is #19
   Resource: !Sub ${PhotoBucket.Arn}/dropoffs/*
+- Sid: ListKeptPhotos                  # delete_drop_off lists dropoffs/AC-n/ first (phase 4)
+  Effect: Allow
+  Action: s3:ListBucket
+  Resource: !GetAtt PhotoBucket.Arn
+  Condition:
+    StringLike: {s3:prefix: 'dropoffs/*'}
 - Sid: ReadOwnKeys
   Effect: Allow
   Action: ssm:GetParameter
@@ -711,6 +717,13 @@ that), and no QR code points to it. Nobody is told yet.
 
 ## Admin actions
 
+- Before merging (phase 2b's reviews): the maintainer's word on two points, recorded in
+  a new decision record that amends decision 0002 (CLAUDE.md: a past decision is
+  changed only by a new record that says why; a Risk section is not enough). The form function's
+  role may delete and list photos under `dropoffs/` (for the submit's cleanup), which
+  decision 0002's role table gives the close only; and the backstop for photos left
+  under `dropoffs/` with no record (#19) is decided and built before prod takes real
+  drop-offs, so no photo outlives #7.
 - Before merging: the sending right agreed in AsmblyMCPs (README, Dependencies). The
   same-account IAM statement above is enough for SES to accept the sends; the agreement
   is that the identity's owner knows and accepts another sender and its bounces.

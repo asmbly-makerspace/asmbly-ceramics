@@ -395,8 +395,8 @@ Built on 2026-11-13. What phases 2b, 2d, 3 and later can rely on:
 - `asmbly_ceramics.use_cases.log`: `log_event(event, *, level=logging.INFO, **fields)`
   and `LOG_FIELDS`. The event is a snake_case word (`ValueError` otherwise) and is the
   record's whole message; the fields go in `extra` with `event`; an unknown field name
-  raises `ValueError`, a value that isn't a `str` or `int` (a `bool` included) raises
-  `TypeError`. Logger `asmbly_ceramics`. Callers pass fixed words, IDs, usernames and
+  raises `ValueError`; a value that isn't a `str` or `int` (a `bool` included) is
+  logged as `invalid`, as a wrong shape is (changed in phase 2b, from 2a's review). Logger `asmbly_ceramics`. Callers pass fixed words, IDs, usernames and
   `ports.errors.error_code` codes only. As a backstop each field has its own shape
   (review): `drop_off_id` and `load_id` checked by `domain.ids`'s
   `is_drop_off_id` and `is_load_id`, `count` an `int` only, `kind`, `outcome` and `list`
@@ -428,11 +428,11 @@ Built on 2026-11-13. What phases 2b, 2d, 3 and later can rely on:
   `StudioNotSeeded` instead of seeding. `ViewStudioChoices(studio)()` returns
   `StudioChoices(firing_types, glaze_types)`, active items only, in the studio's order.
 - `asmbly_ceramics.use_cases.received`: `ReceivedView(id, pieces, firing_type,
-  glaze_type, created_at)`, `received_view(submission)`, `SubmissionNotFound` (a
-  `DomainError`, "That page has expired."), `ReceivedSummary(records, clock)(token_hash)`,
+  glaze_type, created_at)`, `received_view(submission)`, `ReceivedSummary(records, clock)(token_hash)`,
   which looks up only an `is_submission_hash` value (anything else is
   `SubmissionNotFound` with nothing read), reads only `records.submission`, and treats
-  `now >= expires_at` as expired.
+  `now >= expires_at` as expired. `SubmissionNotFound` (a `DomainError`, "That page has
+  expired.") is in `asmbly_ceramics.domain.errors` (moved there by phase 2b).
 - `asmbly_ceramics.use_cases.uploads`: `SlotRequest(count, device, source_address)`
   (device and address `repr=False`), `RequestUploadSlots(photos, limiter, hasher,
   clock)(request) -> list[UploadSlot]`. Hashes first (`SecretMissing`,

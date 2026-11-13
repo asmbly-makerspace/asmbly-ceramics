@@ -311,8 +311,9 @@ details under the photos, and every button and link is at least 44 px tall.
 
 ### web: what is logged
 
-One line per request from phase 6's middleware (`event=request`, path template, status,
-`user` when signed in), plus the events above. `drop_off_id`, `load_id`, `user`, `reason` and `error_code`
+No line per request: uvicorn's access log is off (phase 7), phase 6 adds no request
+logger, and `LOG_FIELDS` (phase 2a) has no path or status field. The console logs the
+events above only, through `log_event`, with `user` set to the signed-in staff username. `drop_off_id`, `load_id`, `user`, `reason` and `error_code`
 are the only identifying fields; no name, email, phone, message, query string, cookie or
 token is logged. `q` is never logged.
 

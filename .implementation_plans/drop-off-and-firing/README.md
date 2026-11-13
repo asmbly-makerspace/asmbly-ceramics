@@ -205,7 +205,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
 | [2a](phase-2a-logging-studio-and-form-reads.md) | Use cases: logging, keyed hashes, the studio and the form's reads | app | L | [x] Complete |
-| [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [ ] Pending |
+| [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [x] Complete |
 | [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [ ] Pending |
 | [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
@@ -280,6 +280,7 @@ or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a ti
 | After phase 5 merges | The maintainer, with rights to the `asmbly.org` zone | Deploy `asmbly-ceramics-bootstrap` by hand, following `docs/runbooks/aws-bootstrap.md` (phase 5); check the certificates are issued |
 | After phase 5 merges | The maintainer | Create the GitHub environments `stage` and `prod` (deployments from `main` only) and their variables: `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`. No address is a GitHub variable: the repository's Actions logs are public |
 | Before phase 7 merges | The maintainer, by hand | For stage and prod, set the SecureStrings `/asmbly-ceramics/<env>/hash-key`, `form-key` and `session-key` (32 random bytes each) and the Strings `/asmbly-ceramics/<env>/alert-email` (the maintainers' address) and `initial-sending-address` (the studio's address at `asmbly.org`), by phase 5's runbook |
+| Before phase 7 merges | The maintainer | His word, recorded in a new decision record amending decision 0002, that the form function's role may delete and list photos under `dropoffs/` (the submit's cleanup; 0002 gives that to the close only), and that the backstop for photos left under `dropoffs/` with no record (#19) is decided and built before prod takes real drop-offs (phase 7, Admin actions) |
 | Before phase 7 merges | AsmblyMCPs | Agree the sending right (Dependencies); no change to `mcp-bootstrap` is needed for a same-account sender, but the identity's owner decides |
 | After phase 7's first deploy | The maintainer | Confirm the alarm topic's email subscription |
 | Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
@@ -387,7 +388,9 @@ or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a ti
   person who made the drop-off, or to the signed-in staff member for a test.
 - **AWS**: every name starts with `asmbly-ceramics-`; every resource carries the five
   tags; the deploy roles are scoped by name and tag and denied every other project's
-  resources; the form's role can't read photos or read or list drop-offs, holds only its
+  resources; the form's role can't read photos or read or list drop-off records (it may
+  list and delete objects under `dropoffs/`, only to remove the photos of a submit whose
+  commit failed, once a new decision record amending 0002 allows it; phase 7), holds only its
   own two keys (`hash-key`, `form-key`; the console's `session-key` is the console's
   alone), and its ID page reads only the submission's summary; a taken-over form
   function could still overwrite a drop-off with a `Put`, which IAM can't prevent

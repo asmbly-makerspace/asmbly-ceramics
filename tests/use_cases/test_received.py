@@ -5,11 +5,12 @@ from datetime import timedelta
 
 import pytest
 
+from asmbly_ceramics.domain.errors import SubmissionNotFound
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import SUBMISSION_LIFETIME
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import Put, Submission
-from asmbly_ceramics.use_cases.received import ReceivedView, SubmissionNotFound, received_view
+from asmbly_ceramics.use_cases.received import ReceivedView, live_submission, received_view
 from tests.domain.builders import NOW
 from tests.use_cases.conftest import World
 
@@ -92,3 +93,16 @@ def test_records_unavailable_goes_up(world: World) -> None:
     world.records.fail_reads_with = RecordsUnavailable("InternalServerError")
     with pytest.raises(RecordsUnavailable):
         world.received(token_hash)
+
+
+def test_live_submission_is_none_when_nothing_is_stored(world: World) -> None:
+    assert live_submission(world.records, world.hasher.submission(TOKEN), NOW) is None
+
+
+def test_live_submission_is_none_from_exactly_expires_at(world: World) -> None:
+    token_hash = store_submission(world)
+    expires_at = NOW + SUBMISSION_LIFETIME
+    live = live_submission(world.records, token_hash, expires_at - timedelta(microseconds=1))
+    assert live is not None
+    assert live.drop_off_id == DropOffId(12)
+    assert live_submission(world.records, token_hash, expires_at) is None

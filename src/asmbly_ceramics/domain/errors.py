@@ -32,6 +32,11 @@ class DomainError(Exception):
         return self._message
 
 
+FORM_EXPIRED_KEY = "form.expired"
+"""The message key, under "form", for a submission token or device cookie the form can't
+use (malformed, missing, or an expired submission): the page serves a fresh form and token."""
+
+
 class InvalidDetails(DomainError):
     def __init__(self, errors: FieldErrors) -> None:
         if not errors:
@@ -180,3 +185,10 @@ class EmailNotRetryable(DomainError):
 class TooManySubmissions(DomainError):
     def __init__(self) -> None:
         super().__init__("Too many drop-offs from here in the last few minutes. Try again later.")
+
+
+class SubmissionNotFound(DomainError):
+    """No such submission, or it has expired (the ID page). Fixed text: it names nothing."""
+
+    def __init__(self) -> None:
+        super().__init__("That page has expired.")

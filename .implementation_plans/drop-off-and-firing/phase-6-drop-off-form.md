@@ -122,8 +122,9 @@ def create_app(services: WebServices, settings: WebSettings) -> Starlette: ...
 `create_app` mounts `/static` (`StaticFiles`, `Cache-Control: public, max-age=3600`
 there only), registers the routes below, a middleware that adds the headers from
 `security.py` to every response (errors and 404s included), and handlers for
-`PageError`, `HTTPException` and any other exception (a 500 page "Something went wrong.
-Nothing was saved; please try again." and one log line `page_crashed` with the
+`PageError`, `HTTPException` and any other exception (a 500 page "Something went wrong on our side. Please try again.", the 503's wording:
+not "nothing was saved", since a drop-off can be stored when the use case raises, and
+sending again with the same token answers with it; and one log line `page_crashed` with the
 exception's class and the route, never its text). Phase 8 adds the console routes to
 the same app factory; nothing here assumes there are none.
 
@@ -192,8 +193,11 @@ defer>`; no inline script anywhere.
    `file` last (S3 requires the file to be the last field), two at a time, showing
    "Uploading photo 2 of 4…". A non-2xx answer from S3 shows "Photo 2 couldn't be
    uploaded. Check it is under 10 MB and try again." and stops.
-5. Puts the slot IDs in hidden `slot` inputs, in the person's order, and submits the
-   form normally (a real form POST, so the server's page is what the person sees).
+5. Puts the slot IDs in hidden `slot` inputs, in the person's order, one input per
+   distinct slot (the use case counts distinct slots, and its `photo.<n>` keys number
+   them in their first order, so a repeated slot would shift the numbers the page shows
+   next to the photos), and submits the form normally (a real form POST, so the
+   server's page is what the person sees).
 
 #### `POST /drop-off/uploads`
 
@@ -231,11 +235,11 @@ defer>`; no inline script anywhere.
 
 | From `submit_drop_off` | The page |
 | --- | --- |
-| `Submitted(view, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` |
+| `Submitted(view, token_hash, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` from `token_hash` |
 | `InvalidDetails(errors)` | 400, the form again with each message next to its field, the person's values kept (escaped), photos to choose again, a summary at the top linking to each field ("There are 2 problems with your drop-off.") |
 | `TooManySubmissions` | 429, `error.html` showing `error.message` ("Too many drop-offs from here in the last few minutes. Try again later.": the domain's wording names neither the device nor the address limit, so the page writes no sentence of its own) |
-| `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable` | 503 page: "Something went wrong on our side. Nothing was saved; please try again." |
-| anything else | 500 page, nothing saved (the use case writes everything in one transaction or nothing) |
+| `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable`, and `Conflict` or `PhotosAlreadyKept` after 3 tries | 503 page: "Something went wrong on our side. Please try again." (not "nothing was saved": after a commit whose outcome couldn't be read the drop-off may be stored, and sending again with the same token answers with it; phase 2b). The page logs one line `drop_off_unavailable` with `error_code` (the `Unavailable`'s code through `ports.errors.error_code`, or the exception's class name for `Conflict` and `PhotosAlreadyKept`), never the exception's text: a commit failure the use case cleaned up logs nothing of its own, so without this line a 503 on submit would leave no trace |
+| anything else | 500 page; the use case's records are one transaction, and kept photos without a record are deleted or left to the backstop (#19) |
 
 - `__Host-received`: `<submission token hash>.<expiry>.<hmac>`, HMAC-SHA256 with the
   form key, expiry 30 minutes, `Path=/; Secure; HttpOnly; SameSite=Lax`. It holds the

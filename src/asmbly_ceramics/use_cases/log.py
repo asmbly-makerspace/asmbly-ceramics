@@ -50,23 +50,23 @@ _FIELDS = re.compile(rf"{_FIELD_NAME}(?:,{_FIELD_NAME}){{0,19}}", flags=re.ASCII
 INVALID_VALUE = "invalid"
 
 
-def _matches(pattern: re.Pattern[str]) -> Callable[[str | int], bool]:
+def _matches(pattern: re.Pattern[str]) -> Callable[[object], bool]:
     return lambda value: isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
-def _is_count(value: str | int) -> bool:
+def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _is_reason(value: str | int) -> bool:
+def _is_reason(value: object) -> bool:
     return isinstance(value, str) and (_WORD.fullmatch(value) is not None or is_item_id(value))
 
 
-def _is_code(value: str | int) -> bool:
+def _is_code(value: object) -> bool:
     return isinstance(value, str) and is_error_code(value) and _CODE.fullmatch(value) is not None
 
 
-_SHAPES: dict[str, Callable[[str | int], bool]] = {
+_SHAPES: dict[str, Callable[[object], bool]] = {
     "drop_off_id": is_drop_off_id,
     "load_id": is_load_id,
     "user": _matches(_USER),
@@ -96,8 +96,7 @@ def log_event(event: str, *, level: int = logging.INFO, **fields: str | int) -> 
     unknown = sorted(set(fields) - LOG_FIELDS)
     if unknown:
         raise ValueError("unknown log fields: " + ", ".join(unknown))
-    for value in fields.values():
-        if isinstance(value, bool) or not isinstance(value, str | int):
-            raise TypeError("a log field is a str or an int")
+    # A value of another type (a bool, None, a float, an object) fails every shape, so it
+    # is logged as `invalid` too, never as its repr.
     safe = {name: value if _SHAPES[name](value) else INVALID_VALUE for name, value in fields.items()}
     logger.log(level, event, extra={**safe, "event": event})

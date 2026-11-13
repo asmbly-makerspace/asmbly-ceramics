@@ -5,13 +5,10 @@ reads a drop-off item, and `ReceivedView` has no field a name, email, phone or p
 could go in.
 """
 
-# The error is named for what happened, as the plan's contract names it.
-# ruff: noqa: N818
-
 from dataclasses import dataclass
 from datetime import datetime
 
-from asmbly_ceramics.domain.errors import DomainError
+from asmbly_ceramics.domain.errors import SubmissionNotFound
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.records import Records, Submission
@@ -37,11 +34,19 @@ def received_view(submission: Submission) -> ReceivedView:
     )
 
 
-class SubmissionNotFound(DomainError):
-    """No such submission, or it has expired. Fixed text: it names nothing."""
+def is_live(submission: Submission, now: datetime) -> bool:
+    """The one expiry rule: a submission is live until `expires_at`, not at it. The
+    table's TTL deletes late, so every reader of a submission checks it, here."""
+    return now < submission.expires_at
 
-    def __init__(self) -> None:
-        super().__init__("That page has expired.")
+
+def live_submission(records: Records, token_hash: str, now: datetime) -> Submission | None:
+    """The submission stored under `token_hash`, or `None` when there is none or it has
+    expired (`is_live`)."""
+    submission = records.submission(token_hash)
+    if submission is None or not is_live(submission, now):
+        return None
+    return submission
 
 
 class ReceivedSummary:
@@ -54,8 +59,7 @@ class ReceivedSummary:
         # Only `KeyHasher.submission`'s shape is looked up, so no raw token reaches `Records`.
         if not is_submission_hash(token_hash):
             raise SubmissionNotFound()
-        submission = self._records.submission(token_hash)
-        # The table's TTL deletes late, so the expiry is checked here too.
-        if submission is None or self._clock.now() >= submission.expires_at:
+        submission = live_submission(self._records, token_hash, self._clock.now())
+        if submission is None:
             raise SubmissionNotFound()
         return received_view(submission)
