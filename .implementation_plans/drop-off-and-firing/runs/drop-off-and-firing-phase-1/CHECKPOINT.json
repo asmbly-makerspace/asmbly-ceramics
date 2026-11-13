@@ -5,7 +5,7 @@
   "feature_branch": "feat/drop-off-and-firing-phase-1",
   "worktree": null,
   "status": "in-progress",
-  "stage": "docs",
+  "stage": "qa",
   "selected_phases": [
     "1a",
     "1b",
@@ -136,13 +136,20 @@
   },
   "docs": {
     "base_sha": "7e150dab149f2d31b9e878522d9e3c980101f04a",
-    "squashed_sha": null
+    "squashed_sha": "e4683b0c2e29146f23557d64d6e823644837b22f"
   },
   "qa": {
-    "base_sha": null,
+    "base_sha": "e4683b0c2e29146f23557d64d6e823644837b22f",
     "squashed_sha": null,
     "closes": [],
-    "refs": []
+    "refs": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
   },
   "pr": {
     "number": null,
@@ -304,6 +311,12 @@
       "type": "squash",
       "unit": "final-review",
       "sha": "7e150dab149f2d31b9e878522d9e3c980101f04a"
+    },
+    {
+      "ts": "2026-11-13T18:53:49Z",
+      "type": "squash",
+      "unit": "docs",
+      "sha": "e4683b0c2e29146f23557d64d6e823644837b22f"
     }
   ]
 }
