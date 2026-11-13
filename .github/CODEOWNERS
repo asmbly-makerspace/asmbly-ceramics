@@ -1,0 +1,15 @@
+# Every change needs an approving review from the owner. The ruleset on main
+# (.github/rulesets/main.json) requires a code owner's approval, and the first
+# pattern below makes the owner the code owner of every file. The last matching
+# pattern wins, so keep broad patterns first. The sections after it name the
+# same owner today; they are where another owner for one area would go.
+
+*                           @sababado
+
+# CI and repository automation
+/.github/                   @sababado
+
+# Decisions, and the rules that AI agents follow
+/docs/decisions/            @sababado
+/CLAUDE.md                  @sababado
+/.claude/                   @sababado

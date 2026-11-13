@@ -1,0 +1,54 @@
+# Checks every pull request. "PR check" at the bottom is the one required
+# status check (the main branch ruleset names it). No job here has AWS
+# credentials, and none may: a pull request from a fork runs this workflow too.
+name: PR checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Named so every script runs with `-eo pipefail`.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Tests (coverage floor in pyproject.toml)
+        run: uv run pytest --cov --cov-report=term
+
+  pr-check:
+    name: PR check
+    if: ${{ !cancelled() }}
+    needs: [python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Summarize
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then exit 1; fi
+          done
