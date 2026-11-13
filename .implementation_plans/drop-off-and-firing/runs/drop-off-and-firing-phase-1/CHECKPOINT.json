@@ -5,7 +5,7 @@
   "feature_branch": "feat/drop-off-and-firing-phase-1",
   "worktree": null,
   "status": "in-progress",
-  "stage": "final-review",
+  "stage": "docs",
   "selected_phases": [
     "1a",
     "1b",
@@ -131,11 +131,11 @@
   },
   "final_review": {
     "base_sha": "75ba5c8b86fdf6dca305eed56f8e4d88f139eab7",
-    "result": null,
-    "squashed_sha": null
+    "result": "fixed",
+    "squashed_sha": "7e150dab149f2d31b9e878522d9e3c980101f04a"
   },
   "docs": {
-    "base_sha": null,
+    "base_sha": "7e150dab149f2d31b9e878522d9e3c980101f04a",
     "squashed_sha": null
   },
   "qa": {
@@ -292,6 +292,18 @@
       "ts": "2026-11-13T18:23:56Z",
       "type": "gate_result",
       "result": "clean"
+    },
+    {
+      "ts": "2026-11-13T18:50:05Z",
+      "type": "final_review",
+      "review_lead": "APPROVED, 10 WARN (7 fixed, 3 deferred: index port shape, fired-no-email retention, stale docs)",
+      "privacy": "APPROVED"
+    },
+    {
+      "ts": "2026-11-13T18:50:05Z",
+      "type": "squash",
+      "unit": "final-review",
+      "sha": "7e150dab149f2d31b9e878522d9e3c980101f04a"
     }
   ]
 }

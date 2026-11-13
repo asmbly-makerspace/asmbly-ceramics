@@ -120,7 +120,7 @@ timezone-aware datetimes. Fix the code instead of silencing the check. The rest:
 - **Clean design.** The domain (drop-offs, loads, kilns, settings and their rules) is
   plain Python with no AWS or web framework in it; storage, photos, email and sign-in
   sit behind interfaces with an AWS adapter and a test fake
-  ([Planned shape](CLAUDE.md#planned-shape-not-built-yet)).
+  ([The shape of the code](CLAUDE.md#the-shape-of-the-code)).
 - **Infrastructure.** AWS resource names start with `asmbly-ceramics-`, and every
   resource carries the tags [CLAUDE.md](CLAUDE.md#rules) lists.
 - **Tests.** Every behavior change gets a test. The coverage floor is in

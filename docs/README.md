@@ -5,7 +5,7 @@ and [CLAUDE.md](../CLAUDE.md) for the rules.
 
 ## Architecture
 
-- [architecture.md](architecture.md): what the stories ask for, the planned shape, the
+- [architecture.md](architecture.md): what is built today, what the stories ask for, the shape of the code, the
   work in other repositories, and what is still to be decided.
 
 ## Decisions

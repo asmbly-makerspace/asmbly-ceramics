@@ -13,8 +13,13 @@ If you find a security problem, please report it privately ([SECURITY.md](SECURI
 
 ## Status
 
-**A skeleton.** It has its rules, its checks and its stories, and no app and nothing in
-AWS yet. The next step is the technical plan for epic #1 (`/plan-tech`).
+**The domain is built; the app isn't.** `src/asmbly_ceramics/` holds the domain model
+(drop-offs, photos, the email outbox, loads, the waiting list, search, closing and the
+studio's settings), the ports (storage, photos, email, staff sign-in, rate limit, clock,
+IDs, secrets) and in-memory fakes of them, all tested without AWS. There is no AWS
+adapter, no page and no deploy yet, so no story is delivered and nothing is in AWS. The
+plan's next phases are in
+[.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
 | Story | What changes for people |
 | --- | --- |
@@ -41,7 +46,7 @@ docs/                   architecture, decisions, runbooks (docs/README.md is the
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
-src/asmbly_ceramics/    the app (empty until the plan's first phase)
+src/asmbly_ceramics/    the app: domain/, ports/ and adapters/memory/ so far (no AWS adapter or page yet)
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 
@@ -73,7 +78,7 @@ Every change is a pull request to `main`. `PR check` is the required check, and 
 pull request needs an approving review from the code owner
 ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
-Today a merge deploys nothing: there is no app yet. The plan that adds the first deploy
+Today a merge deploys nothing: there is no deployable app yet. The plan that adds the first deploy
 says what a merge deploys, where, and the smoke test that ends it, and updates this
 section.
 

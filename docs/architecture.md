@@ -7,10 +7,25 @@ decided and why is in
 
 ## Today
 
-Nothing is built. There is no app, nothing in AWS, and no deploy. How it will be
-built is planned in
+Built, and tested without AWS: the domain model (`src/asmbly_ceramics/domain/`), the
+ports (`ports/`) and in-memory fakes of them (`adapters/memory/`). Not built: any AWS
+adapter, any page, the scheduled close, and every use case. Nothing is in AWS and there
+is no deploy. The rest is planned in
 [.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
+
+What the domain code settles, beyond the stories:
+
+- A load refuses a new firing type once it has drop-offs (`FiringTypeLocked`); remove
+  them first.
+- A catalog item (kiln, firing type, glaze type, rejection reason) is deleted only after
+  it is retired; an active one is refused. An item a drop-off or load used can't be
+  deleted.
+- The settings history records that the sending address changed, never the address.
+- The form's rate limit counts hits in a rolling window, refused hits included, and
+  fails closed.
+- `PhotoStore.keep` stores all of a drop-off's photos or none. A caller whose commit
+  fails after `keep` calls `delete_drop_off`.
 
 ## What the stories ask for
 
@@ -40,9 +55,10 @@ drop-offs through a ClickUp form until #8 switches it over.
   are settings, edited in the console with a history of who changed what. Anything a
   drop-off or load has used is retired, not deleted.
 
-## Planned shape
+## The shape of the code
 
-[CLAUDE.md](../CLAUDE.md#planned-shape-not-built-yet) has the rules; in short:
+[CLAUDE.md](../CLAUDE.md#the-shape-of-the-code) has the rules. The domain, the ports and
+the in-memory adapters exist; use cases, AWS adapters and entry points are planned. In short:
 
 ```
 entry points (the form's and the console's pages, the scheduled close)

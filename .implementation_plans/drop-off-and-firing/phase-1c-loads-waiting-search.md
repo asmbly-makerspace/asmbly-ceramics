@@ -273,5 +273,7 @@ Built on 2026-11-13. What phase 1d and later can rely on:
   be aware.
 - `tests/domain/builders.py`: `a_load(number=1, status=LOADING, members=(), *, kiln,
   firing_type, at)`, `members` as drop-off numbers.
+- Decided unattended, needs the maintainer's word: `FiringTypeLocked` reverses the plan's
+  line that a load's firing type could change with members in it.
 - Days waiting per row is `days_waiting` (phases 2 and 8 call it rather than doing the
   arithmetic).
