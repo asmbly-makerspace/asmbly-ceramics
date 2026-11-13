@@ -19,6 +19,16 @@ SLOT_ID_LENGTH = 22  # `secrets.token_urlsafe(16)`: 16 random bytes in unpadded 
 _SLOT_ID = re.compile(rf"[A-Za-z0-9_-]{{{SLOT_ID_LENGTH}}}", flags=re.ASCII)
 
 
+PHOTO_COUNT_KEY = "photos.count"  # the message key for a count outside 1 to 6, under "photos"
+
+
+def is_photo_count(count: int) -> bool:
+    """An `int` (not a `bool`) from `PHOTOS_MIN` to `PHOTOS_MAX`: how many photos a
+    drop-off may have and how many upload slots one request may ask for. The one check
+    both use, refused as `PHOTO_COUNT_KEY`."""
+    return not isinstance(count, bool) and isinstance(count, int) and PHOTOS_MIN <= count <= PHOTOS_MAX
+
+
 def is_slot_id(text: str) -> bool:
     """Exactly 22 of `[A-Za-z0-9_-]`: the one shape an upload slot's ID has, which the use
     case checks before any read and the photo stores check before any storage call, so a

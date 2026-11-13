@@ -341,8 +341,8 @@ its own submissions, the console's `session-key`, or any SES right. IAM can't re
 `attribute_not_exists` on a `PutItem`, so a form function whose code was taken over
 could still overwrite a drop-off item with a `Put`; that is accepted in decision 0002
 (the mailer re-reads each drop-off by key, so only an overwritten one could be
-affected). `STUDIO` writes are for phase 3's
-first-use seeding of the studio from `INITIAL_SENDING_ADDRESS` (a conditional put that
+affected). `STUDIO` writes are for phase 2a's
+`CurrentStudio` first-use seeding of the studio from `INITIAL_SENDING_ADDRESS` (a conditional put that
 does nothing once it exists). Decrypting the SecureStrings uses the AWS managed key for
 SSM, which the boundary allows through `kms:ViaService` (phase 5).
 

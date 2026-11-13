@@ -123,7 +123,7 @@ class ItemRetired(DomainError):          # "Vulcan is retired and can't be picke
 class ItemInUse(DomainError):            # "Helios is used by a load: retire it instead."
 class DuplicateItem(DomainError):        # "There is already a kiln called Helios."
 class EmailNotRetryable(DomainError):    # "That email isn't failed."
-class TooManySubmissions(DomainError):   # "Too many drop-offs from this device. Try again later."
+class TooManySubmissions(DomainError):   # "Too many drop-offs from here in the last few minutes. Try again later."
 ```
 
 Each subclass's constructor takes what its message names (IDs, states, item names, the

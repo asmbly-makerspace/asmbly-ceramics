@@ -3,7 +3,7 @@ phase_id: 6
 title: The drop-off form
 epic: 1
 implements: [2]
-depends_on: [2]
+depends_on: [2b, 2c]
 domain: [web]
 estimated_size: L
 ---
@@ -19,7 +19,7 @@ estimated_size: L
 - [The plan's README](README.md): the domain model, the ports, and the security section.
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md):
   server-rendered Starlette pages, photos straight to S3, the rate limit.
-- [Phase 2](phase-2-drop-off-use-cases.md): `RequestUploadSlots` and `SubmitDropOff`,
+- Phase 2 ([2a](phase-2a-logging-studio-and-form-reads.md), [2b](phase-2b-submit-drop-off.md)): `RequestUploadSlots` and `SubmitDropOff`,
   their requests, results and errors, which this phase only calls.
 - Story #2's acceptance criteria, and the design's "Drop-off form" and "Your ID, on
   screen" screens (epic #1's design comment).
@@ -201,10 +201,21 @@ defer>`; no inline script anywhere.
   from 1 to 6 and `submission` a well-formed token. Anything else: 400
   `{"error": "bad_request"}`.
 - Calls `request_upload_slots(SlotRequest(count, device, source_address))`, where
-  `device` is the `__Host-device` cookie (a request without one gets 400: the form page
-  always sets it) and `source_address` is `security.client_address(request)` (below).
-- Rate limited (phase 2's `TooManySubmissions`): 429 `{"error": "rate_limited"}`, which the
-  script shows as "Too many drop-offs from this device. Try again later."
+  `device` is the `__Host-device` cookie, passed as `""` when the request has none, and
+  `source_address` is `security.client_address(request)` (below). The use case refuses a
+  missing or malformed cookie with `InvalidDetails({"form": "form.expired"})` before
+  counting (phase 2a's decision): 400 `{"error": "expired"}`, which the script shows as
+  "This form needs cookies. Allow them for this site and reload the page." `photos.count`
+  is 400 `{"error": "bad_request"}`.
+- Rate limited (phase 2's `TooManySubmissions`, from the device or the address limit):
+  429 `{"error": "rate_limited", "message": error.message}`, and the script shows the
+  message: the exception's own wording, "Too many drop-offs from here in the last few
+  minutes. Try again later.", which names neither limit (the address limit, shared by a
+  whole network, raises it too, and the exception doesn't say which).
+- `RecordsUnavailable` (the limiter) and `PhotosUnavailable`: 503 `{"error": "unavailable"}`
+  ("Something went wrong on our side. Please try again."). The page logs
+  `PhotosUnavailable` by its code; it doesn't log `RecordsUnavailable` here, which the
+  use case already logged (`upload_slots_refused`, `reason=limiter_unavailable`).
 - Returns `{"slots": [{"id", "url", "fields"}]}`; the slot's fields are the presigned
   POST's, already limited by phase 2 and 4 to 1 byte to 10 MB and `image/` types for
   15 minutes.
@@ -222,7 +233,7 @@ defer>`; no inline script anywhere.
 | --- | --- |
 | `Submitted(view, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` |
 | `InvalidDetails(errors)` | 400, the form again with each message next to its field, the person's values kept (escaped), photos to choose again, a summary at the top linking to each field ("There are 2 problems with your drop-off.") |
-| `TooManySubmissions` | 429, `error.html`: "Too many drop-offs from this device. Try again later." |
+| `TooManySubmissions` | 429, `error.html` showing `error.message` ("Too many drop-offs from here in the last few minutes. Try again later.": the domain's wording names neither the device nor the address limit, so the page writes no sentence of its own) |
 | `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable` | 503 page: "Something went wrong on our side. Nothing was saved; please try again." |
 | anything else | 500 page, nothing saved (the use case writes everything in one transaction or nothing) |
 
@@ -307,8 +318,8 @@ no horizontal scroll at 320 px. The email templates (phase 2) take the same toke
 
 One line per outcome, from the page: `drop_off_page` with `outcome` (`shown`,
 `submitted`, `refused`, `rate_limited`, `expired`, `bad_request`) and, when there is
-one, `drop_off_id` (`AC-12`) and the refused field names (`fields: ["email", "photos"]`,
-the names only). Never a value the person typed, a cookie, a token, an address or an IP.
+one, `drop_off_id` (`AC-12`) and the refused field names (`fields="email,photos"`, comma-joined as `log_event`
+takes them, the names only). Never a value the person typed, a cookie, a token, an address or an IP.
 
 #### Phones
 
@@ -366,10 +377,12 @@ phase 2's use cases; made-up details are built in code (for example
 - `test_uploads.py`
   - `test_upload_slots_are_issued_for_one_to_six_photos`; `0`, `7`, `"3"` and a missing
     token get 400.
-  - `test_upload_slots_need_the_device_cookie`.
-  - `test_upload_slots_are_rate_limited` (429 after the limit).
+  - `test_upload_slots_need_the_device_cookie`: without it, 400 `{"error": "expired"}`
+    (`form.expired`), and nothing counted.
+  - `test_upload_slots_are_rate_limited` (429 after the limit, showing
+    `TooManySubmissions().message`).
   - `test_spoofed_forwarded_for_does_not_change_the_rate_key`: a request with
-    `X-Forwarded-For: 1.2.3.4, <real>` counts against `<real>`; a request without the
+    `X-Forwarded-For: 198.51.100.7, <real>` counts against `<real>`; a request without the
     header gets 400.
   - `test_upload_slots_fail_closed_when_the_limiter_is_unavailable` (the fake records
     raise `RecordsUnavailable`: 503, no slot issued).
@@ -407,7 +420,7 @@ phase 2's use cases; made-up details are built in code (for example
 6. Two submissions in a row from one person (two page loads) get two IDs; the same page
    submitted twice gets one ID (#2).
 7. The 11th submission from one device within 10 minutes answers 429 with "Too many
-   drop-offs from this device. Try again later." and stores nothing (#2).
+   drop-offs from here in the last few minutes. Try again later." and stores nothing (#2).
 8. The received page shows no name, email, phone or photo, and without its signed cookie
    sends the browser back to the form.
 9. Every response carries the CSP, `nosniff`, `no-store`, `no-referrer` and HSTS

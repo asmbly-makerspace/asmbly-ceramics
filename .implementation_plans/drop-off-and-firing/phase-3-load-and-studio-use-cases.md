@@ -3,7 +3,7 @@ phase_id: 3
 title: "Use cases: loads, settings, close, counts"
 epic: 1
 implements: [4, 6, 7]
-depends_on: [2]
+depends_on: [2b, 2d]
 domain: [app]
 estimated_size: L
 ---
@@ -22,8 +22,10 @@ estimated_size: L
 - This plan's [README](README.md#domain-model), phase 1 ([1b](phase-1b-drop-offs-photos-outbox.md), [1c](phase-1c-loads-waiting-search.md),
   [1d](phase-1d-ports-and-fakes.md)) (the
   load, email, studio and closing rules, the ports and fakes) and
-  [phase 2](phase-2-drop-off-use-cases.md) (`log_event`, `CurrentStudio`, `Composer`,
-  `outgoing`, the test `world` fixture). A name that differs from those is a mistake
+  phase 2 ([2a](phase-2a-logging-studio-and-form-reads.md): `log_event`, `CurrentStudio`,
+  the test `world` fixture; [2c](phase-2c-email-composer.md): `Composer`, `outgoing` (from `ports/composer.py`);
+  [2d](phase-2d-waiting-list-and-rejection.md): `FindDropOffs`, and the undone-rejection
+  rule `RetryEmail` and `SendPendingEmail` keep). A name that differs from those is a mistake
   here.
 - Story #4 (loads, the ready email, retry, the alarm), #6 (settings, test email,
   history), #7 (closing, counts), and epic #1's **Decided** list (the 14-day window
@@ -68,6 +70,8 @@ Under `tests/`:
   email address, so a test email can't be sent.") and `TestEmailFailed` ("The test email
   didn't send ({code}). Nothing was saved.", with `.code`).
 - `tests/use_cases/conftest.py`: build this phase's use cases in the `world` fixture.
+- `use_cases/emails.py` and `use_cases/settings.py` import `Composer`, `ComposedEmail`
+  and `outgoing` from `asmbly_ceramics.ports.composer`, never from `mail/`: The use cases import only the domain, the ports and each other (`tests/domain/test_imports.py`, phase 2a), so they never import `mail/` or Jinja2. `ComposedEmail`, the `Composer` Protocol, `outgoing` and `cid` live in `ports/composer.py` (decided in phase 2a's review, like "AWS behind ports": the use cases depend on an interface, the templates are its one implementation); `mail/compose.py` holds `JinjaComposer`, which satisfies `Composer`.
 
 No dependency changes: Jinja2 came with phase 2.
 
@@ -254,9 +258,10 @@ whose new image has `status = pending`. In order:
    pickup window starts (#7).
 7. On `SendFailed(code)` commit `mark_failed(email, code)` and log, at ERROR:
    `event=email_failed`, `kind`, `drop_off_id`, `error_code`. On any other exception,
-   the same with `error_code=unexpected` (the exception's class name in `reason`, never
-   its text), and return instead of raising, so the stream doesn't retry a send that
-   may have half-happened.
+   the same with `reason=unexpected` and the exception's class name as `error_code`
+   (`KeyError`: `error_code`'s log shape takes it; never the exception's text; the
+   email stores `mark_failed(email, "unexpected")`), and return instead of raising, so
+   the stream doesn't retry a send that may have half-happened.
 
 **The log line phase 7's alarm counts** is exactly:
 `{"level": "ERROR", "event": "email_failed", "kind": "<received|ready|rejected>", "drop_off_id": "AC-12", "error_code": "<code>"}`

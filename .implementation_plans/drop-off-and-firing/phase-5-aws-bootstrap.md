@@ -475,7 +475,11 @@ it, by hand, only when they asked for it in the conversation.
    `--tags` for the five tags. The value is made by `openssl` in the command, never
    typed, pasted into a file or a chat, or printed. Changing `session-key` later signs
    everyone out of the console; changing `form-key` only expires open ID pages; changing
-   `hash-key` resets the rate-limit counts. All are safe.
+   `hash-key` resets the rate-limit counts and orphans every live submission: its ID
+   page expires, and a form re-posted with the same submission token is not seen as a
+   repeat, so it makes a second drop-off and sends a second received email (phase 2a's
+   review). The first two are safe at any time; rotate `hash-key` only when the studio
+   is closed and no one is mid-drop-off.
 7. **The two addresses**, for each environment, as String parameters (not in GitHub):
    `aws ssm put-parameter --name /asmbly-ceramics/<env>/alert-email --type String
    --value '<the maintainers' address>'` and `/asmbly-ceramics/<env>/initial-sending-address`

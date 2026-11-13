@@ -126,9 +126,10 @@ as named constants in the domain. Everything #6 calls a setting is in `Studio`.
 
 ### Ports
 
-Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
-`adapters/memory/` (phase 1d) that the use case tests use, and an adapter the app uses
-(phase 4). Besides the errors below, a port that can't reach AWS raises its
+Each is a `Protocol` in `src/asmbly_ceramics/ports/`. Every port but `Composer` has an
+in-memory fake in `adapters/memory/` (phase 1d) that the use case tests use, and an
+adapter the app uses (phase 4); `Composer` touches no AWS, so its one implementation,
+`JinjaComposer` (phase 2c), serves both the tests and the app. Besides the errors below, a port that can't reach AWS raises its
 `Unavailable(code)` subclass (`RecordsUnavailable`, `IdsUnavailable`,
 `PhotosUnavailable`, `SignInUnavailable`, `SecretsUnavailable`), which pages show as
 "try again".
@@ -144,6 +145,7 @@ Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
 | `RateLimiter` | `hit(key, limit, now) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
 | `Clock` | `now() -> datetime` (aware) | `adapters/clock.py` | `adapters/memory/clock.py` |
 | `Secrets` | `get(name) -> bytes` | `adapters/aws/secrets.py` (SSM SecureString) | `adapters/memory/secrets.py` |
+| `Composer` (`ports/composer.py`, phase 2c) | `received`, `ready`, `rejected`, `test`: each returns a `ComposedEmail` | `mail/compose.py` (`JinjaComposer`, Jinja2 with autoescape) | none: the use case tests build `JinjaComposer` |
 
 ### Use cases
 
@@ -151,10 +153,12 @@ One module per thing a person does, in `src/asmbly_ceramics/use_cases/`, each a 
 whose constructor takes the ports and whose `__call__` takes a typed request. They log
 by ID and username only.
 
-- Phase 2: `ViewStudioChoices`, `ReceivedSummary`, `RequestUploadSlots`, `SubmitDropOff`,
-  `WaitingList`, `FindDropOffs`,
-  `ViewDropOff`, `PreviewRejection`, `RejectDropOff`, `UndoRejection`, and the email
-  composer `mail/compose.py` (the three emails, Jinja2 with autoescape).
+- Phase 2a: `CurrentStudio`, `ViewStudioChoices`, `ReceivedSummary`,
+  `RequestUploadSlots` (with `log_event` and `KeyHasher`); 2b: `SubmitDropOff`; 2c: the
+  email composer, the `Composer` port in `ports/composer.py` that the use cases import and
+  `JinjaComposer` in `mail/compose.py` (the three emails and the test email, Jinja2 with
+  autoescape); 2d: `WaitingList`, `FindDropOffs`, `ViewDropOff`, `PreviewRejection`,
+  `RejectDropOff`, `UndoRejection`.
 - Phase 3: `StartLoad`, `ChangeLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
   `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `ViewStudio`,
   `ChangeEmailSettings`, `SendTestEmail`, `AddCatalogItem`, `RetireCatalogItem`,
@@ -181,10 +185,10 @@ use case call and its result into a response. `src/asmbly_ceramics/composition.p
 
 | Story | Title | Phases |
 | --- | --- | --- |
-| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2, 4, 6, 7 |
-| #3 | Ceramics staff sign in and see what's waiting | 1c, 2, 8 |
+| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2a, 2b, 2c, 4, 6, 7 |
+| #3 | Ceramics staff sign in and see what's waiting | 1c, 2d, 8 |
 | #4 | Build a kiln load and fire it | 1c, 1d, 3, 7, 9 |
-| #5 | Reject a drop-off with a reason and a message | 1b, 2, 8 |
+| #5 | Reject a drop-off with a reason and a message | 1b, 2c, 2d, 8 |
 | #6 | Staff manage the studio's settings in the console | 1a, 3, 9 |
 | #7 | Finished drop-offs close and personal details are deleted | 1b, 1c, 3, 9 |
 | #8 | The studio switches from ClickUp | 10 |
@@ -200,7 +204,10 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
 | [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
-| [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
+| [2a](phase-2a-logging-studio-and-form-reads.md) | Use cases: logging, keyed hashes, the studio and the form's reads | app | L | [x] Complete |
+| [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [ ] Pending |
+| [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [ ] Pending |
+| [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [ ] Pending |
@@ -215,17 +222,24 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 Between phases (`depends_on`, direct only):
 
 ```
-1a ──▶ 1b ──▶ 1c ──▶ 1d ──▶ 2 ──▶ 3 ─────────────┐
-                      │     └───▶ 6 ──┐           ▼
-                      └───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
-                            5 ────────┘
+1a ──▶ 1b ──▶ 1c ──▶ 1d ──┬──▶ 2a ──┬──▶ 2b
+                          │         └──▶ 2d        (2d also needs 2c)
+                          ├──▶ 2c
+                          └──▶ 4
+
+2b + 2d ──▶ 3          2b + 2c ──▶ 6          4 + 5 + 6 ──▶ 7
+3 + 7 ──▶ 8 ──▶ 9 ──▶ 10                      5 needs nothing
 ```
 
-- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2 needs 1d; 3 needs 2; 4 needs 1d; 5 needs
-  nothing; 6 needs 2; 7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2a needs 1d; 2b needs 2a; 2c needs 1d; 2d
+  needs 2a and 2c; 3 needs 2b and 2d; 4 needs 1d; 5 needs nothing; 6 needs 2b and 2c;
+  7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
 - Phase 1 (the domain model, ports and fakes) was split into 1a to 1d by `/prep` on
   2026-11-13, because its estimate was near 2,000 changed lines. "Phase 1" elsewhere in
   this plan means all four.
+- Phase 2 (the use cases behind the form and the first half of the console) was split
+  into 2a to 2d by `/prep` on 2026-11-13, because its estimate was about 2,500 changed
+  lines. "Phase 2" elsewhere in this plan means all four.
 
 Outside this repository:
 
@@ -245,13 +259,18 @@ Pairs with no `depends_on` path between them:
 
 | Pair | Verdict | Why |
 | --- | --- | --- |
-| 5 and 1a to 1d, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
+| 5 and 1a to 1d, 2a to 2d, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
 | 3 and 4 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 3 and 6 | sequential-only | both change `pyproject.toml`, `uv.lock` and `src/asmbly_ceramics/mail/templates/` (6 adds the shared brand partials) |
-| 4 and 2 | sequential-only | both change `pyproject.toml` and `uv.lock` |
+| 2c and 2a or 2b | parallel-safe | 2c touches only `mail/`, `ports/composer.py`, `tests/mail/`, its port's test, `pyproject.toml` and `uv.lock`, which 2a and 2b don't |
+| 4 and 2c | sequential-only | both change `pyproject.toml` and `uv.lock` |
+| 4 and 2a | sequential-only | 2a changed `tests/domain/test_imports.py` (it walks `use_cases/`), which phase 4 extends to `mail/`, `web/` and the AWS libraries; 2a is built first |
+| 4 and 2b or 2d | parallel-safe | 2b and 2d touch only `use_cases/` and `tests/use_cases/`, which phase 4 doesn't; 2d's use cases import the `Composer` port from 2c's `ports/composer.py`, never `mail/`, so neither changes the import check (decided in 2a's review) |
+| 6 and 2d | parallel-safe | 6 touches `web/` and `mail/templates/`; 2d touches only `use_cases/` and `tests/use_cases/` (its test fixture builds 2c's `JinjaComposer` but changes nothing in `mail/`) |
 | 4 and 6 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 
-In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time.
+In practice: 5 can be built while 1a to 4 and 6 are; 2c beside 2a or 2b, 4 beside 2b
+or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a time.
 
 ## Admin actions
 

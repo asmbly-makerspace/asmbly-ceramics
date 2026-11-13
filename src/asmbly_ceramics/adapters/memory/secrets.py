@@ -19,5 +19,8 @@ class MemorySecrets:
             raise SecretMissing(name)
         return self._values[name]
 
+    def set(self, name: SecretName, value: bytes) -> None:
+        self._values[name] = value
+
     def remove(self, name: SecretName) -> None:
         self._values.pop(name, None)

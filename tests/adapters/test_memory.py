@@ -408,6 +408,47 @@ def test_records_keep_the_studio_and_submissions() -> None:
         records.commit([Put(a_submission(2))])  # one drop-off per submission token
 
 
+def test_records_logs_each_read_by_method_name() -> None:
+    records = MemoryRecords()
+    records.commit([Put(a_submission())])
+    assert records.reads == []  # a commit is not a read
+    later = NOW + timedelta(days=1)
+    records.drop_off(DropOffId(1))
+    records.load(LoadId(1))
+    records.studio()
+    records.email(DropOffId(1), EmailKind.RECEIVED)
+    records.submission(TOKEN_HASH)
+    records.drop_offs_in({DropOffState.WAITING})
+    records.drop_offs_created_between(NOW, later)
+    records.drop_offs_rejected_between(NOW, later)
+    records.loads_in({LoadStatus.LOADING})
+    records.loads_between(NOW.date(), later.date())
+    records.emails_for(DropOffId(1))
+    records.emails_in({EmailStatus.PENDING})
+    records.history(10)
+    records.is_item_used(CatalogList.FIRING_TYPES, ItemId("bisque"))
+    assert records.reads == [
+        "drop_off",
+        "load",
+        "studio",
+        "email",
+        "submission",
+        "drop_offs_in",
+        "drop_offs_created_between",
+        "drop_offs_rejected_between",
+        "loads_in",
+        "loads_between",
+        "emails_for",
+        "emails_in",
+        "history",
+        "is_item_used",  # once, though it reads drop-offs and loads
+    ]
+    records.fail_reads_with = RecordsUnavailable("InternalServerError")
+    with pytest.raises(RecordsUnavailable):
+        records.submission(TOKEN_HASH)
+    assert records.reads[-1] == "submission"  # a failed read is logged too
+
+
 def test_fakes_refuse_a_naive_time() -> None:
     with pytest.raises(ValueError, match="aware"):
         MemoryPhotoStore().upload_slots(1, NAIVE)
@@ -885,6 +926,8 @@ def test_secrets_get_and_missing() -> None:
     values = {name: secrets.get(name) for name in SecretName}
     assert all(len(value) == 32 for value in values.values())
     assert len(set(values.values())) == len(SecretName)
+    secrets.set(SecretName.SESSION_KEY, b"s" * 32)
+    assert secrets.get(SecretName.SESSION_KEY) == b"s" * 32
     secrets.remove(SecretName.FORM_KEY)
     with pytest.raises(SecretMissing) as missing:
         secrets.get(SecretName.FORM_KEY)

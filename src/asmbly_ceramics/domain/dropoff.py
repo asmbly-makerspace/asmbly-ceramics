@@ -35,7 +35,7 @@ from asmbly_ceramics.domain.limits import (
     PIECES_MIN,
     STUDIO_TZ,
 )
-from asmbly_ceramics.domain.photos import PhotoRef
+from asmbly_ceramics.domain.photos import PHOTO_COUNT_KEY, PhotoRef, is_photo_count
 from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, ItemStatus, Studio, is_valid_email
 
 # What a phone number may be typed with: ASCII digits, spaces and + - . ( ).
@@ -146,12 +146,8 @@ class DropOffDetails:
             if glaze is None:
                 errors["glaze_type"] = "glaze_type.unknown"
 
-        if (
-            isinstance(photo_count, bool)
-            or not isinstance(photo_count, int)
-            or not PHOTOS_MIN <= photo_count <= PHOTOS_MAX
-        ):
-            errors["photos"] = "photos.count"
+        if not is_photo_count(photo_count):
+            errors["photos"] = PHOTO_COUNT_KEY
 
         if errors or firing is None:  # no firing type always comes with its error
             raise InvalidDetails(errors)

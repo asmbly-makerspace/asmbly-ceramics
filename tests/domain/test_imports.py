@@ -1,5 +1,5 @@
-"""The domain, the ports and the in-memory fakes import only the standard library and
-each other.
+"""The domain, the ports, the in-memory fakes and the use cases import only the standard
+library and each other.
 
 CLAUDE.md's planned shape: the domain is plain Python with no AWS library and no web
 framework, so its rules are tested without AWS. The imports are read with `ast`, so a
@@ -15,9 +15,16 @@ import asmbly_ceramics
 PACKAGE = Path(asmbly_ceramics.__file__).parent
 DOMAIN = "asmbly_ceramics.domain"
 PORTS = "asmbly_ceramics.ports"
-# The fakes are what phases 2 and 3 test against without AWS, so they import no AWS
-# library or web framework either.
-ALLOWED = {"domain": (DOMAIN,), "ports": (DOMAIN, PORTS), "adapters/memory": (DOMAIN, PORTS)}
+USE_CASES = "asmbly_ceramics.use_cases"
+ALLOWED = {
+    "domain": (DOMAIN,),
+    "ports": (DOMAIN, PORTS),
+    # The fakes are what phases 2 and 3 test against without AWS, so they import no AWS
+    # library or web framework either.
+    "adapters/memory": (DOMAIN, PORTS),
+    # The use cases call the ports, never an adapter, an AWS library or a web framework.
+    "use_cases": (DOMAIN, PORTS, USE_CASES),
+}
 
 
 def imported_modules(source: str) -> list[str]:

@@ -179,4 +179,4 @@ class EmailNotRetryable(DomainError):
 
 class TooManySubmissions(DomainError):
     def __init__(self) -> None:
-        super().__init__("Too many drop-offs from this device. Try again later.")
+        super().__init__("Too many drop-offs from here in the last few minutes. Try again later.")

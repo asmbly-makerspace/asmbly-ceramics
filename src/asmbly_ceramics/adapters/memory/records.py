@@ -36,6 +36,9 @@ class MemoryRecords:
         self.fail_next_commit_with: Exception | None = None
         self.fail_reads_with: Exception | None = None
         self.commits: list[tuple[Change, ...]] = []  # the commits that succeeded
+        # Every read, by the method's name, once per call (failed ones too), so a test can
+        # prove which items a use case read. `commit` doesn't append.
+        self.reads: list[str] = []
 
     def commit(self, changes: Sequence[Change]) -> None:
         changes = tuple(changes)
@@ -61,52 +64,59 @@ class MemoryRecords:
         self.commits.append(changes)
 
     def drop_off(self, id: DropOffId) -> DropOff | None:
-        return self._get(("drop_off", id), DropOff)
+        return self._get("drop_off", ("drop_off", id), DropOff)
 
     def load(self, id: LoadId) -> Load | None:
-        return self._get(("load", id), Load)
+        return self._get("load", ("load", id), Load)
 
     def studio(self) -> Studio | None:
-        return self._get(_STUDIO_KEY, Studio)
+        return self._get("studio", _STUDIO_KEY, Studio)
 
     def email(self, drop_off_id: DropOffId, kind: EmailKind, occasion: str = "") -> Email | None:
-        return self._get(("email", drop_off_id, kind, occasion), Email)
+        return self._get("email", ("email", drop_off_id, kind, occasion), Email)
 
     def submission(self, token_hash: str) -> Submission | None:
-        return self._get(("submission", token_hash), Submission)
+        return self._get("submission", ("submission", token_hash), Submission)
 
     def drop_offs_in(self, states: Collection[DropOffState]) -> list[DropOff]:
+        self._read("drop_offs_in")
         return _by_created(d for d in self._all(DropOff) if d.state in states)
 
     def drop_offs_created_between(self, start: datetime, end: datetime) -> list[DropOff]:
         _check_range(start, end)
+        self._read("drop_offs_created_between")
         return _by_created(d for d in self._all(DropOff) if start <= d.created_at < end)
 
     def drop_offs_rejected_between(self, start: datetime, end: datetime) -> list[DropOff]:
         _check_range(start, end)
+        self._read("drop_offs_rejected_between")
         return _by_created(
             d for d in self._all(DropOff) if d.rejection is not None and start <= d.rejection.at < end
         )
 
     def loads_in(self, statuses: Collection[LoadStatus]) -> list[Load]:
+        self._read("loads_in")
         return _by_date(load for load in self._all(Load) if load.status in statuses)
 
     def loads_between(self, start: date, end: date) -> list[Load]:
+        self._read("loads_between")
         return _by_date(load for load in self._all(Load) if start <= load.date < end)
 
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]:
+        self._read("emails_for")
         return sorted(
             (e for e in self._all(Email) if e.drop_off_id == drop_off_id), key=lambda e: e.created_at
         )
 
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]:
+        self._read("emails_in")
         return sorted((e for e in self._all(Email) if e.status in statuses), key=lambda e: e.created_at)
 
     def history(self, limit: int, before: str | None = None) -> HistoryPage:
         if limit < 1:
             raise ValueError("history's limit is at least 1")
         start = None if before is None else _parse_cursor(before)
-        self._fail_read()
+        self._read("history")
         keyed = sorted(
             (
                 ((key[1], key[2]), item)
@@ -123,6 +133,7 @@ class MemoryRecords:
         return HistoryPage(tuple(change for _, change in page), older)
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
+        self._read("is_item_used")
         drop_offs = self._all(DropOff)
         loads = self._all(Load)
         match which:
@@ -160,16 +171,16 @@ class MemoryRecords:
             case SettingChange():
                 return ("setting_change", item.at, next(self._suffix))
 
-    def _get[T](self, key: Hashable, kind: type[T]) -> T | None:
-        self._fail_read()
+    def _get[T](self, read: str, key: Hashable, kind: type[T]) -> T | None:
+        self._read(read)
         item = self._items.get(key)
         return item if isinstance(item, kind) else None
 
     def _all[T](self, kind: type[T]) -> list[T]:
-        self._fail_read()
         return [item for item in self._items.values() if isinstance(item, kind)]
 
-    def _fail_read(self) -> None:
+    def _read(self, name: str) -> None:
+        self.reads.append(name)
         if self.fail_reads_with is not None:
             raise self.fail_reads_with
 

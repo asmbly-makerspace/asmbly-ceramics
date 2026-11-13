@@ -42,7 +42,7 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.ItemInUse("Helios"), "Helios is used by a drop-off or a load: retire it instead."),
     (errors.DuplicateItem("kiln", "Helios"), "There is already a kiln called Helios."),
     (errors.EmailNotRetryable(), "That email isn't failed."),
-    (errors.TooManySubmissions(), "Too many drop-offs from this device. Try again later."),
+    (errors.TooManySubmissions(), "Too many drop-offs from here in the last few minutes. Try again later."),
 ]
 
 

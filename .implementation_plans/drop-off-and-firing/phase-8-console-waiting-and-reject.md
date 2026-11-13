@@ -19,7 +19,7 @@ estimated_size: L
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md),
   "Staff sign-in is checked by the app on every request".
 - [Phase 3](phase-3-load-and-studio-use-cases.md) (`RetryEmail`) and
-  [phase 2](phase-2-drop-off-use-cases.md) (`WaitingList`, `FindDropOffs`,
+  [phase 2d](phase-2d-waiting-list-and-rejection.md) (`WaitingList`, `FindDropOffs`,
   `ViewDropOff`, `PreviewRejection`, `RejectDropOff`, `UndoRejection`).
 - [Phase 4](phase-4-aws-adapters.md): `adapters/aws/staff_tokens.py`, the token check
   this phase relies on, and its test keys.
