@@ -1,0 +1,38 @@
+# Known-vulnerability scan of every Python package in uv.lock. Runs when
+# dependencies change and weekly. Not a required check: with path filters, a PR
+# that touches no manifest never starts it.
+#
+# There are no runtime dependencies yet, so today this scans the development
+# tools CI runs. The app adds what it needs to pyproject.toml when its first
+# phase lands, and from then on this scans those too.
+name: Dependency audit
+
+on:
+  pull_request:
+    paths: ['pyproject.toml', 'uv.lock']
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_AUDIT_VERSION: '2.10.1'
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Write the locked requirements
+        run: uv export --frozen --all-groups --no-emit-project --quiet -o "$RUNNER_TEMP/requirements.txt"
+      # To accept an advisory, add `--ignore-vuln <ID>` with a comment and a revisit date.
+      - name: pip-audit
+        run: uvx "pip-audit==$PIP_AUDIT_VERSION" --strict --disable-pip -r "$RUNNER_TEMP/requirements.txt"
