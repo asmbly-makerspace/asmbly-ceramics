@@ -206,8 +206,10 @@ the work cold. Only `scribe` may edit files. While `/offshore` runs,
 pushes other than to the run's own branch, merges, deploys, AWS changes, any `aws`
 command outside the `asmbly` profile, hand edits to `uv.lock`, a lower coverage floor,
 `pull_request_target`, `--no-verify`, and edits to the hook and the settings; it does
-nothing in an ordinary session. Start an `/offshore` run in its own checkout or
-worktree: the hook guards every session in the folder where the run is.
+nothing in an ordinary session. It applies only to the session
+that started an `/offshore` run and the subagents it spawns, never to other sessions in
+the same folder, so several runs (one per issue, each on its own branch) can go on at
+once.
 
 ## Commits and pull requests
 

@@ -1,11 +1,13 @@
 """The /offshore guardrail hook blocks what an unattended run must never do, and nothing else.
 
-`.claude/hooks/offshore-guardrails.sh` runs before every tool call. While
-`.offshore/active.sentinel` exists it blocks questions, pushes to `main`, merges, deploys,
-AWS changes (and any AWS command not run with the `asmbly` profile), hook bypasses, hand
-edits to `uv.lock`, a lower coverage floor and `pull_request_target`; without the
-sentinel it allows everything. Each case below pipes a PreToolUse payload into the hook
-and checks its exit code: 0 allows the call, 2 blocks it.
+`.claude/hooks/offshore-guardrails.sh` runs before every tool call. For a session that
+claimed itself with `: offshore-start <run>` (and the subagents it spawns, which carry its
+session_id) it blocks questions, pushes to `main`, merges, deploys, AWS changes (and any
+AWS command not run with the `asmbly` profile), hook bypasses, hand edits to `uv.lock`, a
+lower coverage floor and `pull_request_target`. Every other session, in the same folder
+or not, is allowed everything, and several runs can go on at once. Each case below pipes
+a PreToolUse payload into the hook and checks its exit code: 0 allows the call, 2
+blocks it.
 
 Every case runs twice: once reading the payload with jq, and once with jq off the PATH,
 where the hook falls back to its awk reader. On macOS the second run uses /bin/bash,
@@ -26,9 +28,11 @@ from tests.repo.files import REPO
 
 HOOK = REPO / ".claude" / "hooks" / "offshore-guardrails.sh"
 SETTINGS = REPO / ".claude" / "settings.json"
-BRANCH = "feat/drop-off-and-firing"
+RUN = "3-drop-off-form"
+BRANCH = f"feat/{RUN}"
+SESSION = "session-run-1"
 # What the hook needs besides bash; jq is left out of the fallback PATH on purpose.
-TOOLS = ("awk", "cat", "date", "git", "grep", "head", "sed", "sort", "tr")
+TOOLS = ("awk", "cat", "cut", "date", "find", "git", "grep", "head", "ls", "mkdir", "rm", "sed", "sort", "tr")
 
 
 @dataclass(frozen=True)
@@ -83,20 +87,34 @@ def setup(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFacto
     return Setup("awk", bash, str(bin_dir))
 
 
-def run(
+def claims(project: Path) -> Path:
+    return project / ".git" / "offshore" / "sessions"
+
+
+def reset(project: Path) -> None:
+    shutil.rmtree(project / ".offshore", ignore_errors=True)
+    shutil.rmtree(project / ".git" / "offshore", ignore_errors=True)
+
+
+def claim(project: Path, session: str = SESSION, run: str = RUN) -> None:
+    """What `: offshore-start <run>` leaves behind, written directly to keep the tests quick."""
+    claims(project).mkdir(parents=True, exist_ok=True)
+    state = project / ".offshore" / run
+    (claims(project) / session).write_text(f"run={run}\nroot={project}\nstate={state}\nstarted=then\n")
+
+
+def call(
     setup: Setup,
     project: Path,
     payload: dict[str, Any] | str,
-    sentinel: bool = True,
     env: dict[str, str] | None = None,
+    session: str = SESSION,
 ) -> Result:
-    state = project / ".offshore"
-    shutil.rmtree(state, ignore_errors=True)
-    if sentinel:
-        state.mkdir()
-        (state / "active.sentinel").write_text("plan=drop-off-and-firing\n")
+    """Pipe one payload into the hook, as `session` unless the payload names one."""
     environment = {"PATH": setup.path, "CLAUDE_PROJECT_DIR": str(project), "HOME": str(project)}
     environment.update(env or {})
+    if isinstance(payload, dict):
+        payload = {"session_id": session, **payload}
     stdin = payload if isinstance(payload, str) else json.dumps(payload)
     done = subprocess.run(  # noqa: S603
         [setup.bash, str(HOOK)],
@@ -110,9 +128,24 @@ def run(
     return Result(done.returncode, done.stderr)
 
 
+def run(
+    setup: Setup,
+    project: Path,
+    payload: dict[str, Any] | str,
+    claimed: bool = True,
+    env: dict[str, str] | None = None,
+    session: str = SESSION,
+) -> Result:
+    """One call in a fresh state: the run's session claimed, or no claim at all."""
+    reset(project)
+    if claimed:
+        claim(project)
+    return call(setup, project, payload, env, session)
+
+
 def assert_checked(project: Path) -> None:
     """An allowed call was checked: the hook didn't fall over and allow it by default."""
-    log = (project / ".offshore" / "guardrails.log").read_text()
+    log = (project / ".offshore" / RUN / "guardrails.log").read_text()
     assert "internal error" not in log, log
 
 
@@ -250,11 +283,13 @@ BLOCKED_COMMANDS = [
     "cp /tmp/settings.json .claude/settings.json",
     "python3 -c \"open('.claude/settings.local.json', 'w').write('{}')\"",
     "rm -rf .claude",
-    "rm -f .offshore/active.sentinel",
-    'rm -f "$ROOT/.offshore/active.sentinel"',
+    "rm -rf .git/offshore",
+    f'rm -f "$(git rev-parse --git-common-dir)/offshore/sessions/{SESSION}"',
+    "echo run=other > .git/offshore/sessions/someone-else",
+    "mv .git/offshore/sessions /tmp/claims",
     "rm -rf .offshore",
-    "mv .offshore/active.sentinel /tmp/sentinel",
-    'rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel" && git push origin main',
+    "rm -rf .git",
+    f": offshore-end {RUN} && git push origin main",
     # Abbreviated long options, which git accepts.
     "git commit --no-verif -m wip",
     "git commit --amen --no-edit",
@@ -364,7 +399,11 @@ ALLOWED_COMMANDS = [
     "# aws s3 rm s3://b/a",
     'grep -rn "aws s3 rm" docs/',
     "cat samconfig.toml",
-    'rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"',
+    ": offshore-end some-other-run",
+    'ls "$(git rev-parse --git-common-dir)/offshore/sessions"',
+    f"cat .git/offshore/sessions/{SESSION}",
+    "git worktree add .claude/worktrees/offshore-9-kiln-schedule -b feat/9-kiln-schedule origin/main",
+    "git worktree list",
     "cat .claude/settings.json",
     "grep -n exit .claude/hooks/offshore-guardrails.sh",
     "cat .offshore/guardrails.log",
@@ -411,19 +450,156 @@ def test_a_push_while_main_is_checked_out_is_blocked(setup: Setup, repos: dict[s
     assert "main is checked out" in result.stderr
 
 
-def test_the_sentinel_counts_at_the_top_of_the_checkout_the_call_runs_in(
+def test_the_claim_is_found_from_any_folder_of_the_repository(
     setup: Setup, repos: dict[str, Path], tmp_path: Path
 ) -> None:
-    # /offshore writes the sentinel at `git rev-parse --show-toplevel`; Claude Code's
-    # project folder may be elsewhere.
+    # The claim lives in the repository's common git folder, so a call from a subfolder
+    # finds it even when Claude Code's project folder is somewhere else.
     project = repos["project"]
     inside = project / "src"
     inside.mkdir(exist_ok=True)
     elsewhere = {"CLAUDE_PROJECT_DIR": str(tmp_path)}
     assert run(setup, project, bash("git push origin main", inside), env=elsewhere).code == 2
-    assert run(setup, project, bash("git push origin main", inside), sentinel=False, env=elsewhere).code == 0
+    assert run(setup, project, bash("git push origin main", inside), claimed=False, env=elsewhere).code == 0
     assert not (project / ".offshore").exists()
     assert not (tmp_path / ".offshore").exists()
+
+
+def test_another_session_in_the_same_folder_is_untouched(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    for payload in (
+        bash("git push origin main", project),
+        {"tool_name": "AskUserQuestion", "tool_input": {}},
+        edit(str(project / "uv.lock"), "a", "b"),
+    ):
+        assert run(setup, project, payload, session="someone-else").code == 0
+    assert not (project / ".offshore").exists(), "the hook wrote state for another session"
+
+
+def test_the_runs_subagents_are_guarded(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    subagent = {**bash("git push origin main", project), "agent_id": "a1", "agent_type": "general-purpose"}
+    assert run(setup, project, subagent).code == 2
+    # Should a subagent ever carry its own session_id, its transcript still sits in the
+    # folder of the session that spawned it.
+    transcript = f"/home/u/.claude/projects/p/{SESSION}/subagents/agent-a1.jsonl"
+    assert run(setup, project, {**subagent, "transcript_path": transcript}, session="other").code == 2
+    assert run(setup, project, subagent, session="other").code == 0
+
+
+def start(setup: Setup, cwd: Path, session: str, run: str, project: Path | None = None) -> Result:
+    return call(setup, project or cwd, bash(f": offshore-start {run}", cwd), session=session)
+
+
+def end(setup: Setup, cwd: Path, session: str, run: str, project: Path | None = None) -> Result:
+    return call(setup, project or cwd, bash(f": offshore-end {run}", cwd), session=session)
+
+
+def test_starting_claims_this_session_and_ending_releases_it(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    push = bash("git push origin main", project)
+    reset(project)
+    assert call(setup, project, push).code == 0
+    assert start(setup, project, SESSION, RUN).code == 0
+    claimed = (claims(project) / SESSION).read_text()
+    assert f"run={RUN}\n" in claimed
+    assert (project / ".offshore" / RUN).is_dir()
+    assert call(setup, project, push).code == 2
+    assert call(setup, project, push, session="someone-else").code == 0
+    # A resume claims again without harm, and keeps the start time.
+    assert start(setup, project, SESSION, RUN).code == 0
+    assert (claims(project) / SESSION).read_text() == claimed
+    assert end(setup, project, SESSION, RUN).code == 0
+    assert not (claims(project) / SESSION).exists()
+    assert call(setup, project, push).code == 0
+
+
+def test_two_runs_go_on_at_once(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    push = bash("git push origin main", project)
+    reset(project)
+    assert start(setup, project, "session-a", "2-drop-off-form").code == 0
+    assert start(setup, project, "session-b", "6-studio-settings").code == 0
+    assert call(setup, project, push, session="session-a").code == 2
+    assert call(setup, project, push, session="session-b").code == 2
+    assert end(setup, project, "session-a", "2-drop-off-form").code == 0
+    assert call(setup, project, push, session="session-a").code == 0
+    assert call(setup, project, push, session="session-b").code == 2
+    logs = project / ".offshore"
+    assert "BLOCK" in (logs / "2-drop-off-form" / "guardrails.log").read_text()
+    assert "BLOCK" in (logs / "6-studio-settings" / "guardrails.log").read_text()
+
+
+def test_one_run_belongs_to_one_session(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    reset(project)
+    assert start(setup, project, "session-a", RUN).code == 0
+    taken = start(setup, project, "session-b", RUN)
+    assert taken.code == 2
+    assert "held by another session" in taken.stderr
+    assert not (claims(project) / "session-b").exists()
+    # And one session runs one run at a time.
+    assert start(setup, project, "session-a", "9-kiln-schedule").code == 2
+    # Ending someone else's run does nothing.
+    assert end(setup, project, "session-b", RUN).code == 0
+    assert (claims(project) / "session-a").exists()
+
+
+@pytest.mark.parametrize(
+    ("command", "session"),
+    [
+        (f": offshore-start {RUN}", ""),
+        (": offshore-start Bad_Slug", SESSION),
+        (": offshore-start -x", SESSION),
+    ],
+)
+def test_a_start_the_hook_cant_scope_is_refused(
+    setup: Setup, repos: dict[str, Path], command: str, session: str
+) -> None:
+    project = repos["project"]
+    reset(project)
+    assert call(setup, project, bash(command, project), session=session).code == 2
+    assert not claims(project).exists()
+
+
+def test_a_new_session_takes_over_a_silent_run_to_resume_it(setup: Setup, repos: dict[str, Path]) -> None:
+    project = repos["project"]
+    reset(project)
+    assert start(setup, project, "session-a", RUN).code == 0
+    assert start(setup, project, "session-b", RUN).code == 2
+    log = project / ".offshore" / RUN / "guardrails.log"
+    an_hour_ago = log.stat().st_mtime - 3600
+    os.utime(log, (an_hour_ago, an_hour_ago))
+    assert start(setup, project, "session-b", RUN).code == 0
+    assert not (claims(project) / "session-a").exists()
+    assert "TAKEOVER" in log.read_text()
+
+
+def test_a_run_in_its_own_worktree_is_guarded_everywhere_in_the_repository(
+    setup: Setup, tmp_path: Path
+) -> None:
+    git = which("git")
+    repo = tmp_path / "repo"
+    identity = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t" + "@" + "example.org",
+        "GIT_COMMITTER_EMAIL": "t" + "@" + "example.org",
+        "PATH": os.environ["PATH"],
+    }
+    for command in (
+        ["init", "-q", "-b", "main", str(repo)],
+        ["-C", str(repo), "commit", "-q", "--allow-empty", "-m", "init"],
+        ["-C", str(repo), "worktree", "add", "-q", "-b", "feat/9-kiln-schedule", ".claude/worktrees/w"],
+    ):
+        subprocess.run([git, *command], check=True, env=identity)  # noqa: S603
+    worktree = repo / ".claude" / "worktrees" / "w"
+    assert start(setup, worktree, SESSION, "9-kiln-schedule", project=repo).code == 0
+    assert (repo / ".git" / "offshore" / "sessions" / SESSION).exists()
+    assert (worktree / ".offshore" / "9-kiln-schedule").is_dir()
+    push = bash("git push origin main", repo)
+    assert call(setup, repo, push).code == 2
+    assert call(setup, repo, push, session="someone-else").code == 0
 
 
 def test_an_aws_profile_in_the_environment_counts(setup: Setup, repos: dict[str, Path]) -> None:
@@ -484,7 +660,7 @@ BLOCKED_TOOLS: list[tuple[str, dict[str, Any]]] = [
         {"tool_name": "mcp__github__create_or_update_file", "tool_input": {}},
     ),
     ("auto-merge with the GitHub tool", {"tool_name": "mcp__github__enable_pr_auto_merge", "tool_input": {}}),
-    ("editing the sentinel", write("{root}/.offshore/active.sentinel", "")),
+    ("writing a claim", write("{root}/.git/offshore/sessions/someone-else", "run=x")),
     ("editing local settings", write("{root}/.claude/settings.local.json", '{"disableAllHooks": true}')),
 ]
 
@@ -553,18 +729,19 @@ def test_a_payload_it_cant_read_is_allowed(setup: Setup, repos: dict[str, Path],
         edit("uv.lock", "a", "b"),
     ],
 )
-def test_nothing_is_blocked_without_the_sentinel(
+def test_nothing_is_blocked_without_a_claim(
     setup: Setup, repos: dict[str, Path], payload: dict[str, Any]
 ) -> None:
     project = repos["project"]
-    assert run(setup, project, payload, sentinel=False).code == 0
+    assert run(setup, project, payload, claimed=False).code == 0
     assert not (project / ".offshore").exists(), "the hook wrote state outside a run"
+    assert not claims(project).exists(), "the hook wrote a claim outside a run"
 
 
 def test_decisions_and_spawns_are_logged(setup: Setup, repos: dict[str, Path]) -> None:
     project = repos["project"]
     assert run(setup, project, bash("git push origin main", project)).code == 2
-    state = project / ".offshore"
+    state = project / ".offshore" / RUN
     blocked = (state / "guardrails.log").read_text()
     spawn = {
         "tool_name": "Agent",

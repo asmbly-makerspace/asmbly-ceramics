@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
 # PreToolUse guardrail for unattended /offshore runs (.claude/skills/offshore/SKILL.md).
 #
-# Active only while .offshore/active.sentinel exists at the project root. /offshore
-# creates that file when a run starts and deletes it whenever the run ends, so in an
-# ordinary session this hook allows everything and writes nothing.
+# Active only for the Claude Code session that runs /offshore, and the subagents it
+# spawns; every other session, in this folder or any other, is left alone, and several
+# runs can go on at once.
 #
-# While a run is active it blocks (exit code 2; the message on stderr says what to do
+# How a session is claimed. The run starts with the exact Bash command
+#     : offshore-start <run-slug>
+# (a shell no-op). Seeing it, this hook writes a claim for the call's session_id at
+#     $(git rev-parse --git-common-dir)/offshore/sessions/<session_id>
+# which every worktree of the repository shares, and makes the run's state folder
+# <checkout>/.offshore/<run-slug>/. Claiming again is harmless (a resume). The run ends
+# with the exact command
+#     : offshore-end <run-slug>
+# which removes that session's claim and nothing else. Claude Code gives a subagent's
+# tool calls the session_id of the session that spawned it (hooks reference, SubagentStop
+# input: "The transcript_path is the main session's transcript"), and, as a fallback, a
+# subagent's transcript_path lies under <session_id>/subagents/, so either one finds the
+# claim. A session without a claim is allowed everything, and the hook writes nothing
+# for it. Two runs can't claim the same run slug.
+#
+# While a session is claimed, it blocks (exit code 2; the message on stderr says what to do
 # instead):
 #   - the AskUserQuestion tool: no one is there to answer
 #   - git push to main: plain names, refspecs (HEAD:main, x:refs/heads/main), deletes
@@ -24,7 +39,7 @@
 #   - editing uv.lock by hand (Edit/Write tools, or a shell write to it)
 #   - lowering the coverage floor (fail_under in pyproject.toml, or --cov-fail-under)
 #   - writing `pull_request_target` into anything under .github/
-#   - editing this hook or .claude/settings.json
+#   - changing this hook, .claude/settings*.json, or the claims, by any tool
 #
 # Quoted strings are neutralized and heredoc bodies dropped before commands are
 # matched, so a commit message that mentions a flag ("never use --no-verify") is not a
@@ -36,7 +51,8 @@
 # Portable: bash 3.2 (macOS) and Linux. Reads the payload with jq when it is installed,
 # otherwise with a small awk JSON reader, so the checks hold either way.
 #
-# Logs: .offshore/guardrails.log (every decision), .offshore/agents.log (Agent spawns).
+# Logs, per run: .offshore/<run-slug>/guardrails.log (every decision) and
+# .offshore/<run-slug>/agents.log (Agent spawns).
 # Exit codes: 0 allow, 2 block. An internal error never blocks: it is logged and the
 # call is allowed.
 #
@@ -135,44 +151,173 @@ json_first() { # $1: key; the first value only, on one line
   json_all "$1" | head -n 1
 }
 
-# Where the run's sentinel is. /offshore writes it at the repository's top level
-# (git rev-parse --show-toplevel); Claude Code's project folder is usually the same
-# place, but a call can run in another checkout, so both are looked at.
 CWD=$(json_first cwd)
-ROOT=""
-SENTINEL_CANDIDATES="${CLAUDE_PROJECT_DIR:-}"
-if [ -n "$CWD" ] && [ -d "$CWD" ]; then
-  SENTINEL_CANDIDATES="$SENTINEL_CANDIDATES
-$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
+[ -d "${CWD:-/nonexistent}" ] || CWD=""
+SESSION=$(json_first session_id)
+TRANSCRIPT=$(json_first transcript_path)
+TOOL=$(json_first tool_name)
+
+# A session ID as a file name: letters, digits, dot, dash and underscore only.
+sanitize() {
+  printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | cut -c1-128
+}
+
+# The repository's common git directory (shared by all its worktrees), as an absolute
+# path, for a directory; nothing outside a repository.
+common_dir() { # $1: a directory
+  local d
+  [ -n "$1" ] && [ -d "$1" ] || return 0
+  d=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 0
+  case $d in
+    /*) printf '%s' "$d" ;;
+    *) (cd "$1" && cd "$d" && pwd) 2>/dev/null || true ;;
+  esac
+}
+
+# The IDs that identify this call's session: its session_id, and the session whose
+# transcript folder holds a subagent's transcript.
+SESSION_IDS=$(sanitize "$SESSION")
+case $TRANSCRIPT in
+  */subagents/*)
+    parent=${TRANSCRIPT%%/subagents/*}
+    SESSION_IDS="$SESSION_IDS $(sanitize "${parent##*/}")"
+    ;;
+  *.jsonl)
+    base=${TRANSCRIPT##*/}
+    SESSION_IDS="$SESSION_IDS $(sanitize "${base%.jsonl}")"
+    ;;
+esac
+
+# Where claims can be: the repository of the call's folder, and of Claude Code's
+# project folder.
+CLAIM_DIRS=""
+for d in "$CWD" "${CLAUDE_PROJECT_DIR:-}"; do
+  c=$(common_dir "$d")
+  [ -n "$c" ] || continue
+  case "
+$CLAIM_DIRS
+" in
+    *"
+$c/offshore/sessions
+"*) ;;
+    *) CLAIM_DIRS="$CLAIM_DIRS
+$c/offshore/sessions" ;;
+  esac
+done
+
+# How long a claimed run may be silent before another session may take it over.
+STALE_MINUTES=30
+TAKEN_OVER=""
+
+claim_value() { # $1: claim file, $2: key
+  [ -f "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1 || true
+}
+
+# The exact start and end commands. Anything else that touches a claim is blocked
+# below, for a claimed session.
+COMMAND=""
+if [ "$TOOL" = Bash ]; then
+  COMMAND=$(json_all command | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 fi
-if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
-  SENTINEL_CANDIDATES="$SENTINEL_CANDIDATES
-$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-fi
-while IFS= read -r candidate; do
-  if [ -n "$candidate" ] && [ -f "$candidate/.offshore/active.sentinel" ]; then
-    ROOT=$candidate
-    break
-  fi
+case $COMMAND in
+  ": offshore-start "* | ": offshore-end "*)
+    verb=${COMMAND#: offshore-}
+    verb=${verb%% *}
+    slug=${COMMAND#: offshore-"$verb" }
+    own=$(sanitize "$SESSION")
+    here=$(common_dir "${CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}")
+    top=$(git -C "${CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}" rev-parse --show-toplevel 2>/dev/null || true)
+    refuse() {
+      BLOCKED=1
+      printf 'OFFSHORE GUARDRAIL: blocked offshore-%s %s.\n%s\n' "$verb" "$slug" "$1" >&2
+      exit 2
+    }
+    case $slug in
+      *[!a-z0-9-]* | '' | -*) refuse "A run slug is lowercase letters, digits and dashes, for example 3-drop-off-form." ;;
+    esac
+    [ -n "$own" ] || refuse "This call carries no session_id, so the guardrail can't be scoped to this session. Stop the run: it can't start safely here."
+    [ -n "$here" ] && [ -n "$top" ] || refuse "Start the run inside a git checkout of the repository."
+    sessions="$here/offshore/sessions"
+    claim="$sessions/$own"
+    if [ "$verb" = end ]; then
+      if [ -f "$claim" ]; then
+        mkdir -p "$(claim_value "$claim" state)" 2>/dev/null || true
+        LOG="$(claim_value "$claim" state)/guardrails.log"
+        if [ "$(claim_value "$claim" run)" = "$slug" ]; then
+          log "END run=$slug session=$own"
+          rm -f "$claim"
+        else
+          log "END run=$slug ignored: this session runs $(claim_value "$claim" run)"
+        fi
+      fi
+      exit 0
+    fi
+    [ "$verb" = start ] || refuse "The commands are : offshore-start <run-slug> and : offshore-end <run-slug>."
+    if [ -f "$claim" ] && [ "$(claim_value "$claim" run)" != "$slug" ]; then
+      refuse "This session already runs $(claim_value "$claim" run). End it with : offshore-end $(claim_value "$claim" run) first."
+    fi
+    if [ -d "$sessions" ]; then
+      for name in $(ls "$sessions" 2>/dev/null); do # globbing is off; IDs have no spaces
+        other="$sessions/$name"
+        [ -f "$other" ] && [ "$other" != "$claim" ] || continue
+        if [ "$(claim_value "$other" run)" = "$slug" ]; then
+          # A live run logs every tool call of its session and subagents, polls included
+          # (every few minutes at most). Silent for STALE_MINUTES: that session is gone,
+          # and a new session may take the run over to resume it.
+          activity="$(claim_value "$other" state)/guardrails.log"
+          [ -f "$activity" ] || activity=$other
+          if [ -n "$(find "$activity" -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
+            rm -f "$other"
+            mkdir -p "$(claim_value "$claim" state)" 2>/dev/null || true
+            TAKEN_OVER=$name
+          else
+            refuse "Run $slug is held by another session that is still active (claimed $(claim_value "$other" started)). Two sessions never work on one run: start a run for different work, or wait. A run silent for $STALE_MINUTES minutes can be taken over to resume it."
+          fi
+        fi
+      done
+    fi
+    started=$(claim_value "$claim" started)
+    [ -n "$started" ] || started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    state="$top/.offshore/$slug"
+    mkdir -p "$sessions" "$state"
+    printf 'run=%s\nroot=%s\nstate=%s\nstarted=%s\n' "$slug" "$top" "$state" "$started" >"$claim"
+    LOG="$state/guardrails.log"
+    [ -z "$TAKEN_OVER" ] || log "TAKEOVER run=$slug from silent session $TAKEN_OVER"
+    log "START run=$slug session=$own"
+    exit 0
+    ;;
+esac
+
+# Is this call's session claimed?
+CLAIM=""
+while IFS= read -r dir; do
+  [ -n "$dir" ] || continue
+  for id in $SESSION_IDS; do
+    if [ -n "$id" ] && [ -f "$dir/$id" ]; then
+      CLAIM="$dir/$id"
+      break 2
+    fi
+  done
 done <<EOF
-$SENTINEL_CANDIDATES
+$CLAIM_DIRS
 EOF
 
-# No run in progress: allow everything, and write nothing.
-[ -n "$ROOT" ] || exit 0
+# Not an /offshore run's session: allow everything, and write nothing.
+[ -n "$CLAIM" ] || exit 0
 
-STATE_DIR="$ROOT/.offshore"
+RUN=$(claim_value "$CLAIM" run)
+ROOT=$(claim_value "$CLAIM" root)
+STATE_DIR=$(claim_value "$CLAIM" state)
+[ -n "$ROOT" ] || ROOT=${CWD:-${CLAUDE_PROJECT_DIR:-$PWD}}
+[ -n "$STATE_DIR" ] || STATE_DIR="$ROOT/.offshore/${RUN:-run}"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
 LOG="$STATE_DIR/guardrails.log"
 AGENTS_LOG="$STATE_DIR/agents.log"
 [ "$READER" = jq ] || log "WARN jq not found; reading the payload with awk"
-
-TOOL=$(json_first tool_name)
 [ -n "$CWD" ] || CWD=$ROOT
 
-# The one way the run turns its guardrail off (SKILL.md, Step 10 and partial exits).
-SENTINEL_OFF='rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"'
-
-FOOTER="(This guardrail is on because .offshore/active.sentinel exists: an unattended /offshore run is in progress in this folder. Never delete that file or edit this hook to get past a block; the run removes the file itself when it ends. If no run is in progress, a person can delete it.)"
+FOOTER="(This guardrail is on because this session runs /offshore ($RUN): it claimed itself with : offshore-start $RUN. Other sessions aren't affected. Never touch the claim or edit this hook to get past a block; the run ends its claim with : offshore-end $RUN when it stops.)"
 
 block() { # $1: short reason for the log, $2: what to do instead
   BLOCKED=1
@@ -182,7 +327,7 @@ block() { # $1: short reason for the log, $2: what to do instead
 }
 
 MSG_ASK="No one is there to answer. Decide using CLAUDE.md, the docs for the area, and the plan, and record the decision (orchestrator: a decision event in CHECKPOINT.json; sub-agent: the decisions list in your result). If the decision truly isn't yours (a product, privacy or security call the plan doesn't settle), stop that unit as blocked with the question, so the briefing asks it."
-MSG_PROTECTED="Offshore work is pushed only to its own branch, feat/<plan> (and offshore/<plan>/<phase> for a parked phase). main changes only through a pull request that the maintainer merges. Push your branch by name: git push --force-with-lease origin feat/<plan> (plain git push origin feat/<plan> if you didn't rewrite history)."
+MSG_PROTECTED="Offshore work is pushed only to its own branch, feat/<run> (and offshore/<run>/<phase> for a parked phase). main changes only through a pull request that the maintainer merges. Push your branch by name: git push --force-with-lease origin feat/<run> (plain git push origin feat/<run> if you didn't rewrite history)."
 MSG_FORCE="A bare force push can overwrite work someone else pushed. Use --force-with-lease on your own branch. If the lease is rejected: git fetch origin, look at what arrived (git log HEAD..origin/<branch>), rebase onto it, and push with --force-with-lease again."
 MSG_HOOKS="Hooks must run on every commit and push (CLAUDE.md: never bypass hooks). Fix what the hook reports and try again. If you can't fix it, record the failure (a blocked result, or an Action Item for the briefing) instead of bypassing the hook."
 MSG_RESET="git reset --hard throws work away. To squash, use git reset --soft <sha> and commit. To drop a file's changes, git restore <path>. To set work aside, git stash."
@@ -196,10 +341,10 @@ MSG_SECRET="Offshore never reads secret values. Check that a parameter or secret
 MSG_LOCK="uv.lock is written only by uv (CLAUDE.md). Change pyproject.toml with uv add or uv remove, or run uv lock, and commit the uv.lock it writes."
 MSG_COVERAGE="The coverage floor (fail_under in pyproject.toml) is raised as coverage grows and never lowered (CLAUDE.md). Add the tests that bring coverage back up. If you can't, record it as blocked so the briefing raises it."
 MSG_PRT="Workflows run pull requests with pull_request, never pull_request_target: the repository is public and a fork's pull request is untrusted code (CLAUDE.md). Use pull_request."
-MSG_SELF="This hook, .claude/settings*.json and .offshore/active.sentinel hold the run's guardrails. Don't change, move or delete them during a run. If one is wrong, list it as an Action Item for the briefing. The run turns the guardrail off only at its end, with exactly: $SENTINEL_OFF"
+MSG_SELF="This hook, .claude/settings*.json, the session claims (<git common dir>/offshore/sessions/) and the runs' state folders (.offshore/) hold the guardrails. Don't change, move or delete them during a run. If one is wrong, list it as an Action Item for the briefing. The run ends its own claim only with : offshore-end <run-slug>."
 MSG_AWS_READ="CLAUDE.md forbids reading a drop-off's personal details or photos, even read-only. Look at a table's or a bucket's shape with describe-table, list-objects-v2 or head-object, and test with the in-memory fakes."
 MSG_MCP_AWS="Offshore reaches AWS only through the aws CLI with --profile asmbly, read-only, where this hook can check it. The AWS MCP tools that run code or touch resources aren't checked, so they are off during a run; its documentation tools are fine."
-MSG_MCP_GITHUB="Offshore changes GitHub only through git and the gh CLI, where this hook can check it: push feat/<plan> with git, and open or update the pull request with gh. The GitHub tools that merge, push or write files are off during a run."
+MSG_MCP_GITHUB="Offshore changes GitHub only through git and the gh CLI, where this hook can check it: push feat/<run> with git, and open or update the pull request with gh. The GitHub tools that merge, push or write files are off during a run."
 
 lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
@@ -259,7 +404,7 @@ $(json_all new_source)"
   old=$(json_all old_string)
 
   case /$rel in
-    */.claude/hooks/* | */.claude/settings*.json | */.offshore/active.sentinel)
+    */.claude/hooks/* | */.claude/settings*.json | */offshore/sessions/* | */offshore/sessions)
       block "editing $rel" "$MSG_SELF"
       ;;
   esac
@@ -559,7 +704,7 @@ check_push() { # $1: directory, then the push arguments
   if [ -z "$specs" ] && [ "$delete" -eq 0 ]; then
     dst=$(current_branch "$dir")
     if [ "$dst" = main ]; then
-      block "git push while main is checked out" "This push would update main. Switch to your branch (git switch feat/<plan>) and push it by name. $MSG_PROTECTED"
+      block "git push while main is checked out" "This push would update main. Switch to your branch (git switch feat/<run>) and push it by name. $MSG_PROTECTED"
     fi
   fi
 }
@@ -972,7 +1117,7 @@ check_text() { # $1: command text, $2: depth
   if writes_to "$text" 'uv\.lock($|[^A-Za-z0-9._-])'; then
     block "writing uv.lock by hand" "$MSG_LOCK"
   fi
-  # The guardrail itself: the hook, the settings that run it, and the sentinel.
+  # The guardrail itself: the hook, the settings that run it, the claims, the runs' state.
   if touches "$text" '\.claude/hooks(/|$|[[:space:]"'"'"';&|)])'; then
     block "changing .claude/hooks/ from the shell" "$MSG_SELF"
   fi
@@ -980,9 +1125,10 @@ check_text() { # $1: command text, $2: depth
     touches "$text" '\.claude/?($|[[:space:]"'"'"';&|)])'; then
     block "changing .claude/settings from the shell" "$MSG_SELF"
   fi
-  if touches "$text" '\.offshore/active\.sentinel' ||
+  if touches "$text" 'offshore/sessions' || touches "$text" '\.git/offshore' ||
+    touches "$text" '\.git/?($|[[:space:]"'"'"';&|)])' ||
     touches "$text" '\.offshore/?($|[[:space:]"'"'"';&|)])'; then
-    block "changing .offshore/active.sentinel from the shell" "$MSG_SELF"
+    block "changing the session claims or the runs' state from the shell" "$MSG_SELF"
   fi
   # GraphQL mutations that merge or write to a branch, before quotes hide them.
   case $cmd in
@@ -1019,14 +1165,9 @@ check_text() { # $1: command text, $2: depth
 }
 
 check_bash() {
-  local cmd trimmed
+  local cmd
   cmd=$(json_all command)
   [ -n "$cmd" ] || return 0
-  trimmed=$(printf '%s' "$cmd" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-  if [ "$trimmed" = "$SENTINEL_OFF" ]; then
-    SEEN=" the run's own sentinel removal;"
-    return 0
-  fi
   check_text "$cmd" 0
 }
 

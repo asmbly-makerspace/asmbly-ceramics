@@ -1,15 +1,15 @@
 ---
 name: offshore
 description: Run a plan for the ceramics studio app (or an epic, a story, or a description of work) end to end with no one watching - plan if needed, then prep, build and review each phase, the full checks, a cold whole-branch review, docs, a manual QA document, a green pull request to main that it leaves open, and a briefing. Use only when the user types /offshore or explicitly asks for an offshore run in words ("offshore this", "offshore #1", "run drop-off-and-firing offshore"). Never start it on your own initiative. It never merges, never deploys and never changes AWS.
-argument-hint: "<plan name [phases N-M] | epic or story number | description of the work>"
+argument-hint: "<#issue (epic or story) | plan name [phases N-M] | description of the work>"
 model: sonnet
 effort: high
 ---
 
 # /offshore: an unattended run from plan to green pull request
 
-The work to do (a plan name, optionally with a range of phases; an epic or story number;
-or a description):
+The work to do (an issue number, epic or story, such as `#3`; a plan name, optionally
+with a range of phases; or a description):
 
 ```
 $ARGUMENTS
@@ -47,6 +47,10 @@ Before you start from a spoken request, tell the user in one or two lines what t
 will and won't do (it changes nothing in AWS, deploys nothing, opens one pull request to
 `main` and leaves it open for him to merge), then go ahead. Don't wait for a reply.
 
+Several runs can go on at once, in separate chats, for different issues: each has its own
+run slug, branch, working tree, state folder and pull request, and the guardrail applies
+only to the session that runs it (see "The guardrail hook").
+
 ## The sequence
 
 ```
@@ -61,7 +65,7 @@ plan-product (if needed) → plan-tech (if needed)
 
 The run is complete only when all of these are true:
 
-1. A pull request from `feat/<plan>` to `main` is open, marked ready for review, and not
+1. A pull request from `feat/<run>` to `main` is open, marked ready for review, and not
    merged. Never to any other base: there is no `stage` or `develop` branch here.
 2. Its checks are green on the latest head commit (`PR check` is the required one), and
    every review comment on it is fixed or answered.
@@ -77,8 +81,8 @@ briefing and ends with `OFFSHORE STOPPED` and the reason (Step 10).
 | Never | Instead |
 | --- | --- |
 | Merge a pull request, with or without `--admin`, or turn on auto-merge | Leave it open and green. The maintainer merges, on his word, for that pull request. |
-| Push to `main` in any form (`HEAD:main`, deleting with `:main`, `--all`) | Push `feat/<plan>` (and `offshore/<plan>/<phase-id>` for a parked phase) only. |
-| Push with bare `--force`, `-f`, or a `+` refspec | `--force-with-lease` on `feat/<plan>`, for the squash, park and rebase steps. |
+| Push to `main` in any form (`HEAD:main`, deleting with `:main`, `--all`) | Push `feat/<run>` (and `offshore/<run>/<phase-id>` for a parked phase) only. |
+| Push with bare `--force`, `-f`, or a `+` refspec | `--force-with-lease` on `feat/<run>`, for the squash, park and rebase steps. |
 | Open the pull request against anything but `main` | `--base main`. |
 | Skip, delete or weaken a test or a lint rule, or lower the coverage floor (`fail_under` in `pyproject.toml`) | Fix the code, and add the tests that keep coverage up. |
 | Bypass hooks (`--no-verify`, `core.hooksPath`), or edit `.claude/hooks/`, `.claude/settings.json` or `.offshore/` to get past a block | Fix what the hook reports. |
@@ -110,37 +114,44 @@ Also:
 ### The guardrail hook
 
 `.claude/hooks/offshore-guardrails.sh` runs before every tool call (it is registered in
-`.claude/settings.json` for every tool) and does nothing unless
-`.offshore/active.sentinel` exists, either in Claude Code's project folder or at the top
-level of the git checkout the call runs in. While it does, the hook blocks
-AskUserQuestion, pushes to `main`, bare force pushes, hook bypasses (abbreviated options
-too, such as `--no-verif`), `git reset --hard`, `git commit --amend`, merging a pull
-request (by `gh`, the API, a GraphQL mutation or a GitHub tool), starting a workflow or
-changing the repository's settings, `sam deploy` and its relatives (`cdk deploy`,
-`terraform apply`, `pulumi up`), any `aws` command that isn't read-only or doesn't use the
-profile `asmbly`, reads CLAUDE.md forbids (a secret's value, the table's items, photos,
-staff accounts), the AWS tools that run code, editing `uv.lock` by hand, lowering the
-coverage floor, `pull_request_target` under `.github/`, and any change to itself,
-`.claude/settings*.json` or the sentinel. It exits 2 with a message that says what
-to do instead: do what the message says. It logs every decision to
-`.offshore/guardrails.log` and every sub-agent spawn to `.offshore/agents.log`. It reads
-its input with `jq`, or with `awk` when `jq` isn't installed, so it works either way.
+`.claude/settings.json` for every tool). It guards only the session that runs `/offshore`
+and the sub-agents it spawns; every other session, in this checkout or any other, is left
+alone, so several runs and ordinary work go on side by side.
 
-The hook is a safety net, not the rulebook: the table above applies whether or not the
-hook catches something, and a script that calls AWS or git from inside gets past it. You
-create the sentinel in Step 1 and remove it whenever the run ends, always with this exact
-command, which is the one form of removal the hook allows:
+A run claims its session with this exact Bash command, and nothing else on the line:
 
 ```bash
-rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"
+: offshore-start <run>
 ```
 
-Never remove it any other way, and never to get past a block.
+It is a shell no-op. Seeing it, the hook records a claim for the call's `session_id` in
+`$(git rev-parse --git-common-dir)/offshore/sessions/`, which every worktree of the
+repository shares, and makes the run's state folder `.offshore/<run>/` at the top level of
+the working tree the command ran in. Claude Code gives a sub-agent's tool calls the
+session's `session_id` (and its transcript sits under the session's folder), so the
+sub-agents are guarded too. Claiming again from the same session is harmless (a resume).
+The hook refuses a run slug another live session holds; a run silent for 30 minutes (its
+session is gone) can be taken over by a new session to resume it. The run releases its
+claim, and only its own, with the exact command `: offshore-end <run>`.
 
-The sentinel applies to the whole folder: while it exists, the hook guards every session
-started in this checkout, not only this run. Start a run in its own checkout or git
-worktree when other work goes on in the main one, and say so to the user if you see the
-sentinel left behind by a run that died.
+While the session is claimed, the hook blocks AskUserQuestion, pushes to `main`, bare
+force pushes, hook bypasses (abbreviated options too, such as `--no-verif`),
+`git reset --hard`, `git commit --amend`, merging a pull request (by `gh`, the API, a
+GraphQL mutation or a GitHub tool), starting a workflow or changing the repository's
+settings, `sam deploy` and its relatives (`cdk deploy`, `terraform apply`, `pulumi up`),
+any `aws` command that isn't read-only or doesn't use the profile `asmbly`, reads
+CLAUDE.md forbids (a secret's value, the table's items, photos, staff accounts), the AWS
+tools that run code, editing `uv.lock` by hand, lowering the coverage floor,
+`pull_request_target` under `.github/`, and any change to itself, `.claude/settings*.json`,
+the claims or the `.offshore/` folder. It exits 2 with a message that says what to do
+instead: do what the message says. It logs every decision to
+`.offshore/<run>/guardrails.log` and every sub-agent spawn to `.offshore/<run>/agents.log`.
+It reads its input with `jq`, or with `awk` when `jq` isn't installed. `git worktree add`
+is allowed during a run.
+
+The hook is a safety net, not the rulebook: the table above applies whether or not the
+hook catches something, and a script that calls AWS or git from inside gets past it.
+Never touch a claim or the hook to get past a block.
 
 ## Sub-agents: how you stay small
 
@@ -190,6 +201,8 @@ verbatim:
 
 ```text
 Rules for this sub-agent (an unattended /offshore run in asmbly-ceramics; no person is watching):
+- Work only in the run's working tree, <ROOT> (cd there first), on branch feat/<run>.
+  Other runs may be working in other worktrees of this repository: never touch them.
 - Read CLAUDE.md first, then the document for each area you touch, before changing
   anything. The repository is public: no secrets, no AWS account ID, no internal
   addresses, and no person's name, email, phone number, rejection message or photo
@@ -202,7 +215,7 @@ Rules for this sub-agent (an unattended /offshore run in asmbly-ceramics; no per
   stop there and put the question in your result (as the reason of a "blocked" or
   "stuck" result where your task has one, otherwise in "notes").
 - Never merge a pull request or turn on auto-merge. Never push to main. Never push with
-  bare --force, -f, or a + refspec (--force-with-lease on feat/<plan> only). Push only
+  bare --force, -f, or a + refspec (--force-with-lease on feat/<run> only). Push only
   when your task says to.
 - Never use --no-verify, git reset --hard, or git commit --amend. Never skip, delete or
   weaken a test or lint rule, and never lower the coverage floor in pyproject.toml.
@@ -216,7 +229,7 @@ Rules for this sub-agent (an unattended /offshore run in asmbly-ceramics; no per
 - If the guardrail hook blocks a command, do what its message says. Never edit
   .claude/hooks/, .claude/settings.json, or CHECKPOINT.json, and never touch .offshore/
   except where your task says to.
-- Commit early and often on feat/<plan> with Conventional Commit messages; the
+- Commit early and often on feat/<run> with Conventional Commit messages; the
   orchestrator squashes them later. Leave none of your work uncommitted when you return
   (CHECKPOINT.json isn't yours; leave it as it is).
 - Retry transient errors (timeouts, rate limits, 5xx) up to 3 times with backoff before
@@ -239,15 +252,19 @@ After that, treat the chunk as blocked.
 ## CHECKPOINT.json
 
 The checkpoint is how a run resumes. It lives at
-`.implementation_plans/<plan>/CHECKPOINT.json` and is committed with the plan, so it is
-public: IDs, SHAs, phase names and short reasons only. Update it on disk after every step
+`.implementation_plans/<plan>/runs/<run>/CHECKPOINT.json`, next to the run's
+`MANUAL_QA.md` and `BRIEFING.md`, so two runs of one plan never write the same file. It
+is committed on the run's branch, so it is public: IDs, SHAs, phase names and short reasons only. Update it on disk after every step
 (with `jq`, or by rewriting the file; keep it valid JSON). A resume reads it from disk,
 not from git.
 
 ```json
 {
   "plan_name": "drop-off-and-firing",
-  "feature_branch": "feat/drop-off-and-firing",
+  "run": "3-staff-sign-in",
+  "issue": 3,
+  "feature_branch": "feat/3-staff-sign-in",
+  "worktree": ".claude/worktrees/offshore-3-staff-sign-in",
   "status": "in-progress",
   "stage": "phases",
   "selected_phases": ["1", "2", "3", "4"],
@@ -288,7 +305,7 @@ commits.
 
 ## Squash recipe
 
-Every unit of work ends as exactly one commit on `feat/<plan>`: the plan, each phase,
+Every unit of work ends as exactly one commit on `feat/<run>`: the plan, each phase,
 the cold-review fixes for the branch, the gate fixes, the docs, the QA document, and each
 pull request round. `main` takes the pull request as one squash merge, but until then
 one commit per unit keeps the pull request readable for the maintainer and makes
@@ -301,7 +318,7 @@ and store it in the checkpoint. When the sub-agent returns:
 BASE=<the unit's base SHA>
 SUBJECT="<type>(<scope>): <summary>"
 TRAILERS="<Closes/Refs lines for this unit, or nothing>"
-CHECKPOINT=".implementation_plans/$PLAN_NAME/CHECKPOINT.json"
+CHECKPOINT=".implementation_plans/$PLAN_NAME/runs/$RUN/CHECKPOINT.json"
 
 git status --porcelain          # only CHECKPOINT.json may be uncommitted (see below)
 BODY=$(git log --reverse --format='- %s' "$BASE"..HEAD)
@@ -314,7 +331,7 @@ $BODY
 
 $TRAILERS
 EOF
-git push -q --force-with-lease origin "feat/$PLAN_NAME"
+git push -q --force-with-lease origin "feat/$RUN"
 git rev-parse HEAD              # the squashed SHA
 ```
 
@@ -328,8 +345,8 @@ Never amend it into the commit you just made.
   `git stash push -u -m "offshore: leftovers from <unit>" -- <paths>`, log `dirty_tree`
   with the paths, and list the stash in the briefing.
 - **`--force-with-lease` rejected:** someone else pushed. `git fetch origin`, look at
-  what arrived (`git log --oneline HEAD..origin/feat/$PLAN_NAME`), rebase onto it
-  (`git rebase origin/feat/$PLAN_NAME`), and push with `--force-with-lease` again. Never
+  what arrived (`git log --oneline HEAD..origin/feat/$RUN`), rebase onto it
+  (`git rebase origin/feat/$RUN`), and push with `--force-with-lease` again. Never
   fall back to bare `--force`.
 - **A hook fails on the squashed commit:** fix the cause (often the message) and commit
   again. Never skip the hook.
@@ -338,14 +355,86 @@ Never amend it into the commit you just made.
   cell closes it); otherwise `Refs #N`. Cold-review and pull request round commits carry
   no trailers; the pull request's description says what it closes.
 
-## Step 0: Environment
+## Step 0: Resolve the work, the run and its plan
 
-Run this first, on every start and every resume, from the repository root.
+Derive the plan, the run slug `RUN` and the phases to run from `$ARGUMENTS`. The run slug
+names everything the run owns: the branch `feat/<run>`, the state folder
+`.offshore/<run>/`, the run folder `.implementation_plans/<plan>/runs/<run>/`, the
+worktree (if any) and the pull request. Two runs for different issues get different
+slugs, so they never share any of these.
+
+| Input | Plan | Run slug | Phases |
+| --- | --- | --- | --- |
+| An epic number (`#1`, an issue URL on asmbly-makerspace/asmbly-ceramics) | The plan whose README frontmatter says `epic: N`; none yet: Step 4 writes it, named from the epic's title | `<N>-<plan>`, e.g. `1-drop-off-and-firing` | All |
+| A story number (`#3`) | The plan whose phase `implements` lists it; none yet: `gh issue view N --json title,body`, and Step 4 plans it | `<N>-<2 to 5 kebab-case words from its title>`, e.g. `3-staff-sign-in` | Those whose `implements` lists N, plus their dependencies not yet `[x] Complete` |
+| A plan name (`drop-off-and-firing`) | That folder | the plan name | All |
+| A plan name with a range (`drop-off-and-firing phases 1-4`) | That folder | `<plan>-phases-1-4` | The range |
+| A description of the work | A short kebab-case name, 2 to 5 words, without "plan" | the same name | All |
+| Nothing | The one run folder whose checkpoint has `status: in-progress` and that no live session holds | its slug | its own |
+
+With nothing to go on, or more than one candidate, print
+`Usage: /offshore <#issue, plan name [phases N-M], or description>` and stop. Phases
+outside the selection are `not-selected`.
+
+**Work another run already covers.** List the other runs: the claims
+(`cat "$(git rev-parse --git-common-dir)"/offshore/sessions/* 2>/dev/null`) and the open
+pull requests from `feat/*` (`gh pr list --state open --json number,headRefName,body`).
+A selected phase that another open run or pull request already builds (its Phases table
+lists it) is not built twice: mark it `skipped` ("being built by run <slug> / #<N>"); its
+dependents are skipped in their turn, and the briefing says to run this again once that
+pull request merges.
+
+**The run's branch is already held.** If a live session holds this run slug, the hook
+refuses `: offshore-start <run>` (Step 1) with "held by another session": print
+`OFFSHORE STOPPED: run <run> is being run by another chat` and stop; never work on its
+branch. If `feat/<run>` exists but no live session holds it, it is this run from earlier:
+resume it (Step 1 takes over a claim left by a session that has gone silent).
+
+## Step 1: Working tree, claim, environment
+
+A run needs a working tree to itself: two runs in one checkout would overwrite each
+other's files. Decide where this run works:
+
+- **This checkout**, when no other claim names it as its `root`
+  (`grep -l "^root=$(git rev-parse --show-toplevel)$" "$(git rev-parse --git-common-dir)"/offshore/sessions/* 2>/dev/null`
+  prints nothing), `git status --porcelain` is empty, and the checked-out branch is
+  `main`, `feat/<run>` or a harness session branch (`claude/*`).
+- **Its own worktree** otherwise (recommended whenever other work goes on in this
+  checkout), inside the project so that `cd` carries from one command to the next:
+
+  ```bash
+  git fetch -q origin main
+  WT=".claude/worktrees/offshore-$RUN"            # git-ignored
+  if [ -d "$WT" ]; then :                          # an earlier attempt of this run
+  elif git show-ref --verify --quiet "refs/heads/feat/$RUN"; then git worktree add -q "$WT" "feat/$RUN"
+  elif git show-ref --verify --quiet "refs/remotes/origin/feat/$RUN"; then git worktree add -q --track -b "feat/$RUN" "$WT" "origin/feat/$RUN"
+  else git worktree add -q -b "feat/$RUN" "$WT" origin/main
+  fi
+  cd "$WT"
+  ```
+
+  If `git worktree add` says the branch is checked out in another worktree, that
+  worktree is this run's from earlier: `cd` into it (`git worktree list` names it).
+  Record the path in the checkpoint's `worktree`, and say in the briefing that the
+  maintainer can remove it after the merge (`git worktree remove <path>`).
+
+From the working tree, claim this session. Run the command on its own:
+
+```bash
+: offshore-start <run>
+```
+
+If the hook refuses it, do what its message says: a slug another live session holds
+stops the run (Step 0); a session that already runs another slug ends that one first.
+From here on, every way the run ends (complete, stopped, or partial) runs
+`: offshore-end <run>` from the same working tree, as its last command.
+
+Then check the environment, from the working tree's top level, on every start and every
+resume:
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
-mkdir -p .offshore                      # git-ignored: the sentinel, the hook's logs, scratch files
 uv sync --locked -q && echo "uv: ready" || echo "uv: FAILED"
 command -v jq >/dev/null 2>&1 && echo "jq: yes" || echo "jq: no (the hook reads with awk)"
 gh auth status >/dev/null 2>&1 && echo "github: gh" || echo "github: none"
@@ -354,7 +443,8 @@ aws --profile asmbly sts get-caller-identity >/dev/null 2>&1 && echo "aws read: 
 ```
 
 Never print the caller identity's output: it holds the account ID, which must not reach
-a file or the briefing.
+a file or the briefing. Every later step, and every sub-agent, works in `ROOT` (pass it
+as `<ROOT>` in each prompt); the run's scratch files go in `.offshore/<run>/`.
 
 Record the results in the checkpoint's `environment`:
 
@@ -372,85 +462,58 @@ Record the results in the checkpoint's `environment`:
   `no_github`; Step 9 then ends the run as stopped, with the commands the maintainer runs
   to open the pull request.
 
-## Step 1: Resolve the plan and start the run
-
-Derive `PLAN_NAME` and the phases to run from `$ARGUMENTS`:
-
-| Input | Plan name |
-| --- | --- |
-| A folder name in `.implementation_plans/` (e.g. `drop-off-and-firing`) | That folder. |
-| A folder name with a range (`drop-off-and-firing phases 1-4`, `... phase 6`) | That folder; `selected_phases` is the range. Other phases are `not-selected`. |
-| An epic or story number (`#1`, `1`, an issue URL on asmbly-makerspace/asmbly-ceramics) | The plan whose README frontmatter says `epic: N`, or whose phase `implements` lists the story. If none does, `gh issue view N --json title,labels,body` and derive a kebab-case name from its title (see `.implementation_plans/readme.md`); Step 4 writes the plan. |
-| A description of the work | A short kebab-case name, 2 to 5 words, without "plan" or "implementation". |
-| Nothing | The one plan whose `CHECKPOINT.json` has `status: in-progress`. If there isn't exactly one, print `Usage: /offshore <plan name [phases N-M], epic or story number, or description>` and stop. |
-
-With no range, every phase of the plan is selected.
-
-If `.offshore/active.sentinel` exists and names a different plan, print that a run for
-that plan is in progress (or died without cleaning up, in which case a person deletes
-`.offshore/active.sentinel`) and stop. If it names this plan, an earlier run died:
-resume.
-
 Load or create the checkpoint:
 
 ```bash
-PLAN_DIR=".implementation_plans/$PLAN_NAME"
-CHECKPOINT="$PLAN_DIR/CHECKPOINT.json"
-mkdir -p "$PLAN_DIR"
-[ -f "$CHECKPOINT" ] || printf '%s\n' '{"plan_name":"","feature_branch":"","status":"new","stage":"plan","phases":[],"events":[]}' > "$CHECKPOINT"
+RUN_DIR=".implementation_plans/$PLAN_NAME/runs/$RUN"
+CHECKPOINT="$RUN_DIR/CHECKPOINT.json"
+mkdir -p "$RUN_DIR"
+[ -f "$CHECKPOINT" ] || printf '%s\n' '{"plan_name":"","run":"","feature_branch":"","status":"new","stage":"plan","phases":[],"events":[]}' > "$CHECKPOINT"
 cat "$CHECKPOINT"
 ```
 
+Shell variables don't carry from one Bash call to the next: write the values
+(`<plan>`, `<run>`, `<ROOT>`) into each command.
+
 | `status` | Do this |
 | --- | --- |
-| `complete` | Print `OFFSHORE COMPLETE: see <PLAN_DIR>/BRIEFING.md`, make sure `.offshore/active.sentinel` is gone, and exit. |
-| `stopped` | The maintainer re-ran it after dealing with the reason. Set `in-progress`, log `resumed`, and continue at `stage`. If `stage` is `phases`, set `blocked`, `review-stuck` and `skipped` phases back to `pending` and clear their `base_sha` (keep `parked_branch`, so the next attempt can reuse the earlier one). A new range in `$ARGUMENTS` replaces `selected_phases`. |
+| `complete` | Print `OFFSHORE COMPLETE: see <RUN_DIR>/BRIEFING.md`, run `: offshore-end <run>`, and exit. |
+| `stopped` | The maintainer re-ran it after dealing with the reason. Set `in-progress`, log `resumed`, and continue at `stage`. If `stage` is `phases`, set `blocked`, `review-stuck` and `skipped` phases back to `pending` and clear their `base_sha` (keep `parked_branch`, so the next attempt can reuse the earlier one). |
 | `in-progress` | Log `resumed` and continue at `stage`. |
-| `new` | Fill `plan_name`, `feature_branch` (`feat/<plan>`) and `selected_phases`, set `in-progress`, log `run_start`. |
-
-Then turn the guardrail on, at the top level of the checkout (where the hook looks,
-whatever directory a command runs in). Only when the sentinel isn't there yet: on a
-resume it already names this plan, and the hook blocks rewriting it.
-
-```bash
-printf 'plan=%s\nstarted=%s\n' "<plan>" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"
-```
-
-From here on, every way the run ends (complete, stopped, or partial) removes
-`.offshore/active.sentinel`.
+| `new` | Fill `plan_name`, `run`, `issue`, `feature_branch` (`feat/<run>`), `worktree` and `selected_phases`, set `in-progress`, log `run_start`. |
 
 ## Step 2: The branch
 
-The pull request's head is always `feat/<plan>`, after the repository's
-`<type>/<short-description>` convention (CONTRIBUTING.md). A harness (a cloud session,
-for example) may start you on its own session branch, such as `claude/<slug>-<id>`. That
-branch is fine for in-flight work, but it is never the pull request's head, and the local
-branch itself must be named `feat/<plan>`, because every push below names it.
+The pull request's head is always `feat/<run>`, after the repository's
+`<type>/<short-description>` convention (CONTRIBUTING.md). In a worktree, Step 1 already
+checked it out. In this checkout, a harness (a cloud session, for example) may start you
+on its own session branch, such as `claude/<slug>-<id>`: fine for in-flight work, never
+the pull request's head.
 
 ```bash
 git fetch -q origin main
-git fetch -q origin "feat/$PLAN_NAME" 2>/dev/null || true       # exists when resuming
+git fetch -q origin "feat/$RUN" 2>/dev/null || true             # exists when resuming
 CURRENT=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT" = "feat/$PLAN_NAME" ]; then
+if [ "$CURRENT" = "feat/$RUN" ]; then
   :                                                              # already on it
-elif git show-ref --verify --quiet "refs/heads/feat/$PLAN_NAME"; then
-  git switch -q "feat/$PLAN_NAME"                                # from an earlier run
-elif git show-ref --verify --quiet "refs/remotes/origin/feat/$PLAN_NAME"; then
-  git switch -q -c "feat/$PLAN_NAME" --track "origin/feat/$PLAN_NAME"   # resume in a fresh checkout
+elif git show-ref --verify --quiet "refs/heads/feat/$RUN"; then
+  git switch -q "feat/$RUN"                                      # from an earlier run
+elif git show-ref --verify --quiet "refs/remotes/origin/feat/$RUN"; then
+  git switch -q -c "feat/$RUN" --track "origin/feat/$RUN"        # resume in a fresh checkout
 else
   case "$CURRENT" in
-    claude/*) git branch -m "feat/$PLAN_NAME" ;;                 # rename the harness session branch
-    *) git switch -q -c "feat/$PLAN_NAME" origin/main ;;
+    claude/*) git branch -m "feat/$RUN" ;;                       # rename the harness session branch
+    *) git switch -q -c "feat/$RUN" origin/main ;;
   esac
 fi
 ```
 
-Never rename `main` or someone else's branch: if you are on either, switch away as above.
+Never rename `main` or another run's branch.
 
 Someone (the maintainer) may have pushed to the branch since the last run. If
-`origin/feat/<plan>` has commits that aren't in the local branch, rebase onto it
-(`git rebase origin/feat/$PLAN_NAME`); if that conflicts, `git rebase --abort`, log it,
-and go to Step 10: his work isn't yours to overwrite.
+`origin/feat/<run>` has commits that aren't in the local branch, rebase onto it
+(`git rebase origin/feat/$RUN`); if that conflicts, `git rebase --abort`, log it, and go
+to Step 10: his work isn't yours to overwrite.
 
 Bring the branch up to date with `main`, but only while `stage` is `plan` or `phases` and
 no phase is `in-progress` (a running phase's `base_sha` must stay valid; later stages
@@ -461,13 +524,13 @@ if ! git rebase -q --autostash origin/main; then
   git rebase --abort
   git merge -q --no-edit origin/main     # conflicts: resolve them in this one merge commit
 fi
-git push -q -u --force-with-lease origin "feat/$PLAN_NAME"
+git push -q -u --force-with-lease origin "feat/$RUN"
 ```
 
 Rebase, don't merge: a merge commit sits outside every squash and stays on the branch.
 Merge only when the rebase conflicts, and log `main_merged`.
 
-If the remote refuses the push of `feat/<plan>` (some harnesses only allow their session
+If the remote refuses the push of `feat/<run>` (some harnesses only allow their session
 branch), log `push_refused`, keep working, and try again at each squash. Don't make the
 session branch the pull request's head. If pushes are still refused at Step 9, the run
 ends as stopped, and the briefing gives the maintainer the commands to push the branch
@@ -516,7 +579,7 @@ Agent(
     Plan the work below for an unattended run.
     Work: <$ARGUMENTS>
     Plan name: <plan>. The plan folder must be .implementation_plans/<plan>/.
-    Branch: feat/<plan> (checked out).
+    Branch: feat/<run> (checked out).
 
     1. Unless the work is already an epic with story issues on
        asmbly-makerspace/asmbly-ceramics, follow the steps of
@@ -576,7 +639,7 @@ Agent(
   prompt: """
     Run one phase of plan <plan>, start to finish, in your own context.
     Phase doc: .implementation_plans/<plan>/<phase-id>.md
-    Branch: feat/<plan> (checked out and current with main).
+    Branch: feat/<run> (checked out and current with main).
     Base SHA: <base_sha>. Measure this phase's diff from it, never from main or HEAD~N.
     <On a resume: "Commits after the base SHA are earlier work on this phase. Read
     git log <base_sha>..HEAD and continue from there.">
@@ -654,7 +717,7 @@ Agent(
   description: "Cold review <phase-id>",
   subagent_type: review-lead,
   prompt: """
-    Repository: <ROOT>. Branch: feat/<plan>. Base: <base_sha>.
+    Repository: <ROOT>. Branch: feat/<run>. Base: <base_sha>.
     Review git diff <base_sha>..HEAD cold. The phase doc is
     .implementation_plans/<plan>/<phase-id>.md. Read CLAUDE.md first.
     This is an unattended run: no one will answer a question.
@@ -687,7 +750,7 @@ Agent(
   model: opus,
   prompt: """
     Fix these findings from a cold review of phase <number> of plan <plan>
-    (base <base_sha>, branch feat/<plan>):
+    (base <base_sha>, branch feat/<run>):
     <the BLOCK and WARN lines, verbatim>
     For each: fix it with a test that would have caught it, or, if it is wrong, say
     why with a reference to the code or document that shows it. Then run the three
@@ -713,21 +776,21 @@ Agent(
 | `blocked`, `review-stuck` | Mark it with the result, the reason or remaining findings, and `parked_branch`; log `phase_parked`. Then park it (below) and go on to the next phase. |
 | `needs-split` | Replace the phase in `phases` with the new ones (`pending`, each with `split_from: <old id>`, selected if the old one was). The first new phase keeps the old `base_sha`, so the split commit folds into its squash. A later phase that depended on the old one now depends on all the new ones. Log `phase_split` and start the first new phase. |
 
-**Parking.** Only phases that finish `done` stay on `feat/<plan>`. A parked phase's
+**Parking.** Only phases that finish `done` stay on `feat/<run>`. A parked phase's
 commits move to a side branch, kept for the post-mortem, and the run's branch goes back
 to the phase's base. Update the checkpoint first (the block carries it across), and deal
 with leftovers as in the squash recipe.
 
 ```bash
 BASE=<the phase's base_sha>
-PARKED="offshore/$PLAN_NAME/$PHASE_ID"
+PARKED="offshore/$RUN/$PHASE_ID"
 git branch -f "$PARKED" HEAD
 git push -q -u origin "$PARKED"           # if this is refused, log it; the branch stays local
-cp "$CHECKPOINT" .offshore/checkpoint.json
+cp "$CHECKPOINT" .offshore/$RUN/checkpoint.json
 git checkout HEAD -- "$CHECKPOINT" 2>/dev/null || true
-git switch -q -C "feat/$PLAN_NAME" "$BASE"
-cp .offshore/checkpoint.json "$CHECKPOINT"
-git push -q --force-with-lease origin "feat/$PLAN_NAME"
+git switch -q -C "feat/$RUN" "$BASE"
+cp .offshore/$RUN/checkpoint.json "$CHECKPOINT"
+git push -q --force-with-lease origin "feat/$RUN"
 ```
 
 Later phases that depend on a parked phase are skipped in their turn (item 1).
@@ -745,7 +808,7 @@ Agent(
   subagent_type: general-purpose,
   model: opus,
   prompt: """
-    Run the full check suite on feat/<plan>, from a clean install, as CI does
+    Run the full check suite on feat/<run>, from a clean install, as CI does
     (.github/workflows/pr-checks.yml):
       uv sync --locked
       uv run ruff check . && uv run ruff format --check .
@@ -813,7 +876,7 @@ Agent(
   subagent_type: scribe,
   prompt: """
     Follow .claude/skills/write-docs/SKILL.md for these finished phases of plan
-    <plan>: <ids of the done phases>. Repository: <ROOT>. Branch: feat/<plan>.
+    <plan>: <ids of the done phases>. Repository: <ROOT>. Branch: feat/<run>.
     This is an unattended run: decide rather than ask, and list each decision.
     There is no CHANGELOG.md in this repository: don't create one. Update README.md,
     docs/, the decision records the phases call for, and the runbooks the phases' admin
@@ -853,9 +916,9 @@ Agent(
   description: "Write the manual QA doc",
   subagent_type: scribe,
   prompt: """
-    Write .implementation_plans/<plan>/MANUAL_QA.md from the template
+    Write .implementation_plans/<plan>/runs/<run>/MANUAL_QA.md from the template
     .claude/skills/offshore/MANUAL_QA.template.md. Repository: <ROOT>.
-    Branch: feat/<plan>. It is the by-story acceptance document the maintainer works
+    Branch: feat/<run>. It is the by-story acceptance document the maintainer works
     through before merging: organize it by story, not by phase. Don't run the steps.
 
     Read only:
@@ -901,7 +964,7 @@ Set `stage: pr`.
 
 ## Step 9: The pull request, draft first
 
-If `environment.github` is `none`, or pushes of `feat/<plan>` are still refused, don't
+If `environment.github` is `none`, or pushes of `feat/<run>` are still refused, don't
 open a pull request: log `pr_stuck` with the reason and go to Step 10 (the run stops at
 `stage: pr`).
 
@@ -919,12 +982,12 @@ Agent(
   prompt: """
     Open the pull request for plan <plan> and drive it to green. Never merge it, and
     don't mark it ready: the orchestrator does that when the run ends.
-      gh pr create --draft --base main --head feat/<plan> --title "<type>: <plan title>"
-        --body-file .offshore/pr-body.md
+      gh pr create --draft --base main --head feat/<run> --title "<type>: <plan title>"
+        --body-file .offshore/<run>/pr-body.md
     <If pr.number is set: "Pull request #<N> is already open. Don't open another;
-    update its body with gh pr edit <N> --body-file .offshore/pr-body.md.">
+    update its body with gh pr edit <N> --body-file .offshore/<run>/pr-body.md.">
 
-    Body (.offshore/pr-body.md): follow .github/PULL_REQUEST_TEMPLATE.md and fill every
+    Body (.offshore/<run>/pr-body.md): follow .github/PULL_REQUEST_TEMPLATE.md and fill every
     section.
     - Summary: the plan README's overview in 1-3 sentences.
     - Closes: Closes #N for <qa.closes>, Refs #N for <qa.refs>, one per line; Refs #<epic>
@@ -936,17 +999,17 @@ Agent(
       "What a merge deploys, the smoke test to watch, and the undo.">
     - Test plan: the checks from the template, ticked with what the gate printed
       (<gate.test_count> passed, coverage <gate.coverage>); the cold reviews' verdicts;
-      manual QA in .implementation_plans/<plan>/MANUAL_QA.md.
+      manual QA in .implementation_plans/<plan>/runs/<run>/MANUAL_QA.md.
     Then add three sections:
       ## Phases
       | Phase | Status | Notes |      (one row per phase: <phase rows>)
       ## Before and after you merge
       <the admin actions, grouped by when>
       ## Briefing
-      .implementation_plans/<plan>/BRIEFING.md (added when the run ends)
+      .implementation_plans/<plan>/runs/<run>/BRIEFING.md (added when the run ends)
     No person's details, no account ID, no internal address: the pull request is public.
 
-    Right after opening it, write the number to .offshore/final-pr.txt.
+    Right after opening it, write the number to .offshore/<run>/final-pr.txt.
 
     Opening the pull request and each push start CI. Don't post comments to trigger
     anything, and don't subscribe to its activity.
@@ -990,7 +1053,7 @@ Agent(
 
       $BODY
       EOF
-      git push --force-with-lease origin "feat/<plan>"
+      git push --force-with-lease origin "feat/<run>"
     Use feat, fix, refactor or test, whichever dominates. No Closes/Refs lines. A round
     that changed no code (replies only) has nothing to squash and pushes nothing: never
     push an empty commit to re-run CI. At most 5 rounds; after that, return "stuck" with
@@ -1012,7 +1075,7 @@ Agent(
 )
 ```
 
-Store `pr.number` (from `.offshore/final-pr.txt` if the sub-agent died), `pr.result` and
+Store `pr.number` (from `.offshore/<run>/final-pr.txt` if the sub-agent died), `pr.result` and
 `pr.rounds`. Log `pr_opened` and a `pr_round` per round.
 
 - `green`: set `stage: briefing`.
@@ -1022,7 +1085,7 @@ Store `pr.number` (from `.offshore/final-pr.txt` if the sub-agent died), `pr.res
 ## Step 10: Briefing, then stop
 
 Every run ends here, complete or stopped. A stopped run keeps the `stage` it stopped at,
-so typing `/offshore <plan>` again resumes there.
+so typing `/offshore <the same issue or plan>` again, in any chat, resumes there.
 
 1. **Commits.** Run `git log --oneline origin/main..HEAD | tail -n 40`. Update the
    checkpoint's SHAs from the subjects (a rebase in Step 9 may have rewritten them).
@@ -1036,11 +1099,11 @@ Agent(
   description: "Write the briefing",
   subagent_type: scribe,
   prompt: """
-    Write .implementation_plans/<plan>/BRIEFING.md from the template
+    Write .implementation_plans/<plan>/runs/<run>/BRIEFING.md from the template
     .claude/skills/offshore/BRIEFING.template.md. Repository: <ROOT>.
-    Branch: feat/<plan>. Fill every section from these sources only, never from the
-    source code: .implementation_plans/<plan>/CHECKPOINT.json,
-    .offshore/guardrails.log (count the BLOCK lines; quote the reason, never a command
+    Branch: feat/<run>. Fill every section from these sources only, never from the
+    source code: .implementation_plans/<plan>/runs/<run>/CHECKPOINT.json,
+    .offshore/<run>/guardrails.log (count the BLOCK lines; quote the reason, never a command
     that holds a value), and git log --oneline origin/main..HEAD.
     Result: <COMPLETE | STOPPED: reason>. Pull request: <#N or none: reason>.
     Merge deploys: <yes, to what | no>.
@@ -1050,7 +1113,7 @@ Agent(
     through MANUAL_QA.md, merge when ready". No person's details, no account ID, no
     internal address: the briefing is public.
     Commit it together with the checkpoint in one commit:
-      git add .implementation_plans/<plan>/BRIEFING.md .implementation_plans/<plan>/CHECKPOINT.json
+      git add .implementation_plans/<plan>/runs/<run>/BRIEFING.md .implementation_plans/<plan>/runs/<run>/CHECKPOINT.json
       git commit -m "docs(<plan>): offshore briefing"
     Don't push.
 
@@ -1059,30 +1122,31 @@ Agent(
 )
 ```
 
-4. **Push and update the description.** `git push -q origin "feat/$PLAN_NAME"`. If there
+4. **Push and update the description.** `git push -q origin "feat/$RUN"`. If there
    is no remote branch (pushes refused), the commit stays local and the briefing says so.
    When there's a pull request, make its description show what it finally contains
-   (CLAUDE.md): regenerate `.offshore/pr-body.md` with the final Phases table and the
-   briefing's path, and `gh pr edit <N> --body-file .offshore/pr-body.md`.
+   (CLAUDE.md): regenerate `.offshore/<run>/pr-body.md` with the final Phases table and the
+   briefing's path, and `gh pr edit <N> --body-file .offshore/<run>/pr-body.md`.
 5. **Confirm green.** Wait for the checks on the new head commit (`gh pr checks <N>
    --watch`, up to 30 minutes; the commit only adds documents). If a check fails, go back
    to Step 9 with the pull request number, then have the scribe update the briefing in
    one more commit.
 6. **Mark it ready** (complete runs only): `gh pr ready <N>`, and log `pr_ready`. A
    stopped run leaves its pull request as a draft.
-7. **Turn the guardrail off:** `rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"`,
-   exactly so (the hook allows no other form). Leave the logs
-   in `.offshore/` for the maintainer; git ignores them.
+7. **Release the session:** run `: offshore-end <run>` on its own, from the run's
+   working tree. It ends this session's claim and nothing else; other runs carry on.
+   Leave the logs in `.offshore/<run>/` for the maintainer; git ignores them.
 8. **Print:**
 
    ```
    OFFSHORE COMPLETE | OFFSHORE STOPPED
    Plan:     <plan>
+   Run:      <run> on feat/<run><, in worktree <path>>
    PR:       #<N> to main, green, ready for your review (not merged) | draft, stuck: <reason> | none: <reason>
    Phases:   <done> done, <blocked> blocked, <stuck> review-stuck, <skipped> skipped, of <selected>
    Merging:  deploys nothing | deploys <what> (see the briefing)
    Time:     <Xh Ym>
-   Briefing: .implementation_plans/<plan>/BRIEFING.md
+   Briefing: .implementation_plans/<plan>/runs/<run>/BRIEFING.md
    Action items: <count>
    ```
 
@@ -1094,8 +1158,7 @@ If your context is getting heavy, stop between units: never mid-phase or mid-pul
 cycle. (The maintainer's explicit "stop" is the exception; it stops you at once.)
 
 1. Make sure the checkpoint on disk is current. It doesn't need a commit.
-2. Log `partial_exit`, and remove the sentinel with
-   `rm -f "$(git rev-parse --show-toplevel)/.offshore/active.sentinel"`.
+2. Log `partial_exit`, and release the session with `: offshore-end <run>`.
 3. Print:
 
    ```
@@ -1103,7 +1166,7 @@ cycle. (The maintainer's explicit "stop" is the exception; it stops you at once.
    Plan:   <plan>
    Done:   <N>/<selected> phases
    Next:   <phase-id | integration gate | final review | docs | manual QA | pull request | briefing>
-   Resume: type /offshore <plan>, or ask for it in words
+   Resume: type /offshore <the same issue or plan>, in this chat or a new one
    ```
 
 A phase (with its cold review), the gate, the final review, the docs, the QA document and
@@ -1113,12 +1176,12 @@ checkpoint may lag one unit behind; trust the commit subjects over it (a unit wh
 commit exists is done).
 
 For a plan too large for one session, the maintainer can type
-`/loop 5m /offshore <plan>` once. Each fire resumes from the checkpoint; fires after
+`/loop 5m /offshore <the same issue or plan>` once. Each fire resumes from the checkpoint; fires after
 completion print the COMPLETE line and do nothing. Never start `/loop` yourself.
 
 ## Commit shape
 
-After a good run, `git log --oneline origin/main..feat/<plan>` reads like this:
+After a good run, `git log --oneline origin/main..feat/<run>` reads like this:
 
 ```
 docs(drop-off-and-firing): offshore briefing

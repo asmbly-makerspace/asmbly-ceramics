@@ -1,6 +1,6 @@
 # Manual QA: <plan title>
 
-Manual acceptance steps for `feat/<plan>`, organized by story so each check maps back to
+Manual acceptance steps for `feat/<run>`, organized by story so each check maps back to
 an issue (<#N, #N, …>).
 
 > **Automated coverage** already passed the integration gate: <N> tests passed, coverage

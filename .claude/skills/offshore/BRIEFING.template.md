@@ -2,7 +2,7 @@
 
 **Date:** <date>
 **Result:** <COMPLETE | STOPPED: one-line reason>
-**Branch:** `feat/<plan>`
+**Run:** `<run>` on `feat/<run>` <(worktree `<path>`; remove it after the merge with `git worktree remove <path>`)>
 **Pull request to main:** #<N>, green, ready for your review (not merged) | #<N>, draft, stuck: <reason> | none: <reason>
 **Phases done:** <N> of <selected> selected (<total> in the plan)
 **Merging deploys:** nothing | <what a merge deploys, to which environment>
@@ -23,7 +23,7 @@
 | --- | --- |
 | Total run time | <Xh Ym> |
 | Sub-agent retries | <count, or 0> |
-| Guardrail blocks | <count of BLOCK lines in `.offshore/guardrails.log`, or 0> |
+| Guardrail blocks | <count of BLOCK lines in `.offshore/<run>/guardrails.log`, or 0> |
 | Phase review rounds | <total across phases> |
 | Cold reviews | <per phase and final: clean / fixed / stuck> |
 | Pull request rounds | <N> |
@@ -34,7 +34,7 @@
 | Phase | Title | Status | Commit | Review rounds | Cold review | Time |
 | --- | --- | --- | --- | --- | --- | --- |
 | phase-1-<slug> | <title> | Done | `<sha>` | 2 | clean | 41m |
-| phase-2-<slug> | <title> | Blocked (see below) | parked on `offshore/<plan>/phase-2-<slug>` | 0 | — | 18m |
+| phase-2-<slug> | <title> | Blocked (see below) | parked on `offshore/<run>/phase-2-<slug>` | 0 | — | 18m |
 | phase-3-<slug> | <title> | Skipped: depends on phase 2 | — | — | — | — |
 | phase-4-<slug> | <title> | Not selected for this run | — | — | — | — |
 
@@ -62,7 +62,7 @@
 ## Deferrals and blockers
 
 - **<item>:** <context in one or two sentences>. Options: (a) ... (b) ... Recommendation: ...
-  Earlier attempt: `git log --oneline origin/main..offshore/<plan>/<phase-id>`.
+  Earlier attempt: `git log --oneline origin/main..offshore/<run>/<phase-id>`.
 
 ## Skipped for the environment
 
@@ -89,7 +89,7 @@ Before the merge, each phase and each pull request round is one commit on the br
 one revert drops one unit:
 
 ```bash
-git log --oneline origin/main..feat/<plan>
+git log --oneline origin/main..feat/<run>
 git revert <sha>
 ```
 
