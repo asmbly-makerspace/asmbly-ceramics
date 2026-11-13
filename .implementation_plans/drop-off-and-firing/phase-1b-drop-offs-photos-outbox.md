@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 1b: The domain: drop-offs, photos, the outbox and closing
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-13 on branch feat/drop-off-and-firing-phase-1
 
 Part of phase 1, split into 1a to 1d by `/prep` (see
 [phase 1a](phase-1a-domain-core-and-studio.md)). The conventions in phase 1a's
@@ -363,8 +363,49 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done.
+Built on 2026-11-13. What phases 1c and later can rely on:
 
-What phase 1c can rely on, as planned: `DropOff`, `DropOffState`, `new_drop_off`,
-`Email`, `EmailKind`, `new_email`, and `details()`/`a_drop_off()` in
-`tests/domain/builders.py`.
+- `asmbly_ceramics.domain.photos`: `PhotoSize`, `PhotoRef(drop_off_id, index)` (index 1
+  to 6, else `ValueError`; ordered), `PresignedPost(url, fields)`,
+  `UploadSlot(slot_id, post, expires_at)`, `CheckedPhoto(full, thumb)` and
+  `PhotoRefusal` (`photo.<value>` is its message key). `PresignedPost` and
+  `CheckedPhoto` print none of their fields in a `repr`, and `UploadSlot` leaves out its
+  `slot_id` (a bearer handle); `tests/domain/test_photos.py` checks this.
+- `asmbly_ceramics.domain.dropoff`: `DropOffState` (with `.label`, the state as words
+  for messages: `in load`), `Contact`, `Rejection`, `DropOffDetails.create(...)`,
+  `DropOff`, `new_drop_off`, `reject`, `undo_rejection`, as sketched. `Contact`'s fields
+  and `Rejection.message` are `repr=False`. `reject` turns CRLF and CR in the message
+  into LF, then removes every other control character (Unicode Cc but LF and tab),
+  before stripping it. `DropOffDetails.create` removes control and format characters
+  (Unicode C*) and the line and paragraph separators (U+2028, U+2029) from the name, and
+  refuses a `photo_count` that isn't an `int` (a `bool` or a `float`). `NotWaiting` is given `state.label`, never form text.
+  `DropOffDetails.create` checks pieces with at most three ASCII digits before `int()`.
+- `asmbly_ceramics.domain.email`: `EmailKind`, `EmailStatus`, `Email`, `ERROR_CODE_MAX`
+  (64), `new_email`, `claim`, `mark_sent`, `mark_failed`, `mark_cancelled`, `retry`,
+  `needs_attention`, as sketched. A `ValueError` for a disallowed move names the
+  drop-off, the kind and the status only. `retry` records no time: the entry goes back
+  to `PENDING` with `claimed_at` cleared; a "retried at" field, if the console needs one,
+  is for a later phase to add.
+- `asmbly_ceramics.domain.closing`: `is_closable(drop_off, ready_sent_at,
+  pickup_window_days, now)` (`ValueError` for a window under 1 day) and
+  `close(drop_off, at)`. The caller still deletes the photos themselves
+  (`PhotoStore.delete_drop_off`, phase 1d).
+- Every function in these modules that takes a time (`new_drop_off`, `reject`,
+  `undo_rejection`, `new_email`, `claim`, `mark_sent`, `retry`, `needs_attention`,
+  `is_closable`, for `now` and a given `ready_sent_at`, and `close`) raises `ValueError`
+  for a naive one, whatever the entry's status. The records themselves (`DropOff`,
+  `Email`, `UploadSlot`) don't check their fields' times.
+- `tests/domain/builders.py`: `details(**overrides)` (typed by `DetailsArgs`),
+  `photo_refs(id, count=2)`, `a_drop_off(number=1, state=WAITING, *, at=NOW, load=1,
+  reason="other")`, and the made-up person `TEST_NAME`, `TEST_EMAIL`, `TEST_PHONE`,
+  `TEST_PHONE_DIGITS`, `TEST_MESSAGE`, for checks that none of them leaks.
+
+For phase 4's prep: phase 4's sketch of `UploadSlot(id, url, fields, expires_at)`,
+`UploadSlotId`, `CheckedPhoto(full, thumbnail, width, height)` and the refusal kinds
+`unsupported_type`/`not_an_image` differ from the names here; the names here are the
+contract.
+
+For phase 4's and phase 6's prep: `phase-6-drop-off-form.md` (line 347) uses the refusal
+kind `not_an_image` where `PhotoRefusal` has `not_image`, and phase 4's `unsupported_type`
+(a HEIC or GIF file) has no `PhotoRefusal` member and no `photo.*` message key. Prep for
+those phases settles one name for each and adds the missing member and key here.

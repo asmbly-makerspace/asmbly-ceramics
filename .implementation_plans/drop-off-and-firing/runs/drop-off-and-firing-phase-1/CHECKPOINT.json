@@ -29,20 +29,16 @@
         "app"
       ],
       "depends_on": [],
-      "status": "in-progress",
+      "status": "done",
       "base_sha": "75ba5c8b86fdf6dca305eed56f8e4d88f139eab7",
-      "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "squashed_sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39",
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-1-domain-model",
       "parked_branch": null,
       "closes": [],
       "refs": [
-        2,
-        4,
-        5,
-        6,
-        7
+        6
       ],
       "admin_actions": [],
       "notes": ""
@@ -57,8 +53,8 @@
       "depends_on": [
         "1a"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "in-progress",
+      "base_sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39",
       "squashed_sha": null,
       "review_rounds": null,
       "cold_review": null,
@@ -197,6 +193,29 @@
       "topic": "split",
       "choice": "4 sub-phases",
       "reason": "prep size rule"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "cold_review",
+      "phase": "1a",
+      "review_lead": "APPROVED, 3 WARN",
+      "privacy": "APPROVED, 0 WARN"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "phase_done",
+      "phase": "1a"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "squash",
+      "phase": "1a",
+      "sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "phase_start",
+      "phase": "1b"
     }
   ]
 }

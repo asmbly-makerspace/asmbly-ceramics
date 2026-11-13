@@ -194,7 +194,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
 | [1a](phase-1a-domain-core-and-studio.md) | The domain's core: errors, IDs, limits and the studio | app | L | [x] Complete |
-| [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [ ] Pending |
+| [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
 | [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [ ] Pending |
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [ ] Pending |
 | [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
