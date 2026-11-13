@@ -110,7 +110,7 @@ as "L-4 changed while you were working. Here it is now; try again." Logs carry
 | `/console/loads/{load}` | GET | `ViewLoad`, `WaitingList` (filtered), `FindDropOffs` |
 | `/console/loads/{load}/add` | POST | `AddToLoad(load, drop_off, confirm_mismatch, by)` |
 | `/console/loads/{load}/remove` | POST | `RemoveFromLoad(load, drop_off, by)` |
-| `/console/loads/{load}/edit` | POST | `StartLoad`'s edit form: kiln, firing type, date, while loading |
+| `/console/loads/{load}/edit` | POST | `ChangeLoad(load, kiln, firing_type, date, version, by)`, while loading |
 | `/console/loads/{load}/start-firing` | POST | `StartFiring(load, by)` |
 | `/console/loads/{load}/fire` | POST | `MarkFired(load, by)` |
 | `/console/loads/{load}/emails/{drop_off}/retry` | POST | `RetryEmail(drop_off, "ready", "", staff)` |
@@ -129,7 +129,17 @@ is 404.
   `IdNumbers`). Logged `event=load_started`.
 - **`GET /console/loads/{load}`**, as the design's "Building a load":
   - the heading "Athena · Glaze · Fri Nov 13", "Load started by <username> at 9:20 AM",
-    and while loading "Change kiln, firing or date" (the edit form);
+    and while loading "Change kiln, firing or date" (the edit form). The kiln and the
+    date can change while the load is loading. The firing type can change only while
+    the load is empty: once it has drop-offs the firing-type select is shown read-only
+    (`disabled`, with its value sent in a hidden field) and under it "Remove its
+    drop-offs to change the firing type." A POST that changes it anyway gets
+    `FiringTypeLocked` from `ChangeLoad` and the page shows its message, "Load L-4 has
+    drop-offs in it: remove them before changing its firing type.", and changes
+    nothing. A retired or unknown kiln or firing type: "Pick a kiln from the list." /
+    "Pick a firing type from the list."; a load that is firing or fired: the
+    `LoadNotLoading` message. Success: `303` back to the load, logged
+    `event=load_changed`;
   - the status steps 1 Loading, 2 Firing, 3 Fired (`aria-current="step"` on the current
     one), and the next action: "Start firing" while loading (disabled with "Add a
     drop-off first" when empty), "Mark fired" while firing;
@@ -154,9 +164,13 @@ is 404.
     on Nov 9." or "AC-61 is already in load L-3." or "AC-70 was rejected.";
   - `LoadNotLoading`: "L-4 is firing: nothing can be added or removed.";
   - `LoadFull`: "L-4 holds 48 drop-offs, the most one load can.";
-  - `NeedsConfirmation` (different firing type, no `confirm`): the page again with a
-    warning panel "AC-61 is bisque. This load is glaze." and two buttons, "Add anyway"
-    (the same POST with `confirm=1`) and "Don't add";
+  - `FiringTypeMismatch` (different firing type, no `confirm`): the page again with a
+    warning panel "AC-61 is Bisque. This load is Glaze." and two buttons, "Add anyway"
+    (the same POST with `confirm=1`) and "Don't add". The page names the two firing
+    types from the studio's items, by the error's `.drop_off_firing_type` and
+    `.load_firing_type` (phase 1c's hand-off). This is the one domain error whose page
+    text isn't its `.message`: that message holds the item IDs (slugs), which are not
+    for staff to read;
   - success: "AC-61 added." and the field cleared and focused for the next scan.
     Logged `event=added_to_load`, `drop_off_id`, `load_id`, `user`.
 - **Removing**: "AC-61 is back in the waiting list."; refused once firing.
@@ -429,6 +443,11 @@ first night's run is checked under Rollout.
   load, rejected: each message names the IDs and, for fired, the kiln and date)
 - `test_a_different_firing_type_asks_for_confirmation_then_adds_on_confirm`
 - `test_dont_add_leaves_the_load_unchanged`
+- `test_change_kiln_and_date_of_a_load_with_drop_offs_in_it`
+- `test_the_firing_type_is_read_only_once_the_load_has_drop_offs`: the select is
+  `disabled` with "Remove its drop-offs to change the firing type."; a POST that
+  changes it anyway shows "Load L-4 has drop-offs in it: remove them before changing
+  its firing type." and leaves the load unchanged; an empty load's firing type changes.
 - `test_the_load_page_shows_contents_and_totals`
 - `test_remove_puts_it_back_in_the_waiting_list`
 - `test_nothing_can_be_added_or_removed_once_firing`

@@ -116,7 +116,7 @@ class StartLoad:
         # on defaults to today, Austin; commit Put(load); log event=load_started, load_id, user
 
 
-class ChangeLoad:  # "Change kiln, firing or date", only while loading
+class ChangeLoad:  # "Change kiln, firing or date", only while loading; firing type only while empty (FiringTypeLocked)
     def __call__(
         self, load_id: LoadId, kiln: ItemId, firing_type: ItemId, on: date, version: int, staff: StaffMember
     ) -> Load: ...
@@ -176,11 +176,22 @@ class ListLoads:
   `Update(drop_off)`. `FiringTypeMismatch` passes up for the page to ask "Add anyway?";
   the page calls again with `confirmed=True`. `NotWaiting` and `AlreadyInLoad` pass up
   with their reason ("AC-88 isn't waiting: it is fired."). Typed or scanned IDs are
-  parsed by the page with `parse_query`; a name search uses `FindDropOffs(...,
+  parsed by the page with `parse_query` (its `query.id`, or nothing to add when it is
+  `None`); a name search uses `FindDropOffs(...,
   waiting_only=True)` from phase 2 and then adds by ID. Logs `event=added_to_load`,
   `load_id`, `drop_off_id`, `user`.
 - `RemoveFromLoad`: the reverse; the drop-off is back in the waiting list. Logs
   `event=removed_from_load`.
+- `ChangeLoad`: reads the load (`NotFound`), `change_load(load, kiln, firing_type, on,
+  studio)`, and commits `Update(load)` with the version the page read. Its outcomes:
+  - a new kiln, or a new date, is allowed while the load is loading, with or without
+    drop-offs in it; members are kept;
+  - a new firing type is allowed only while the load is empty; once it has drop-offs,
+    `FiringTypeLocked` passes up ("Load L-4 has drop-offs in it: remove them before
+    changing its firing type.") and nothing is committed;
+  - a retired or unknown kiln or firing type it changes to raises the studio's error;
+  - a load that is firing or fired raises `LoadNotLoading` and nothing is committed.
+  Logs `event=load_changed`, `load_id`, `user`.
 - `StartFiring`: `start_firing`; commit `Update(load)`. Logs `event=load_firing`.
 - `MarkFired`: reads the load and every member drop-off (strongly consistent, one by
   one; at most 48), `fire(load, members, now)`, and commits `Update(load)`, an
@@ -404,6 +415,11 @@ rows.
   `test_add_refuses_one_already_in_another_load_naming_it`.
 - `test_a_different_firing_type_asks_then_adds_when_confirmed`.
 - `test_remove_puts_it_back_in_the_waiting_list`.
+- `test_change_load_changes_kiln_and_date_with_drop_offs_in_it`.
+- `test_change_load_refuses_a_new_firing_type_once_it_has_drop_offs` (`FiringTypeLocked`,
+  nothing committed); `test_change_load_changes_the_firing_type_of_an_empty_load`.
+- `test_change_load_refuses_a_load_that_isnt_loading` (`LoadNotLoading` once firing or
+  fired, nothing committed).
 - `test_nothing_can_be_added_or_removed_once_firing`.
 - `test_mark_fired_marks_every_member_and_queues_one_ready_email_each_in_one_commit`.
 - `test_marking_fired_again_queues_nothing`.
@@ -476,7 +492,10 @@ rows.
    both IDs and commits nothing (#4).
 2. `AddToLoad` with a different firing type raises `FiringTypeMismatch` unless
    `confirmed=True` (#4).
-3. After `StartFiring`, `AddToLoad` and `RemoveFromLoad` raise `LoadNotLoading` (#4).
+3. After `StartFiring`, `AddToLoad`, `RemoveFromLoad` and `ChangeLoad` raise
+   `LoadNotLoading` (#4). `ChangeLoad` changes the kiln and date of a loading load with
+   drop-offs in it, and refuses a new firing type with `FiringTypeLocked` once it has
+   any (#4).
 4. `MarkFired` commits the load, every member drop-off and one ready email each in a
    single commit; a second `MarkFired` raises `AlreadyFired` and commits nothing (#4).
 5. `SendPendingEmail` called twice for one email sends one message, to the drop-off's

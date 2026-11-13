@@ -110,7 +110,8 @@ class LoadFull(DomainError):             # "Load L-4 already holds 48 drop-offs.
 class EmptyLoad(DomainError):            # "Load L-4 is empty: add a drop-off before firing."
 class WrongLoadStatus(DomainError):      # "Load L-4 is loading, not firing."
 class AlreadyFired(DomainError):         # "Load L-4 is already fired; nothing was sent again."
-class FiringTypeMismatch(DomainError):   # "AC-61 is bisque. This load is glaze." (.drop_off_id)
+class FiringTypeMismatch(DomainError):   # "AC-61's firing type is bisque; this load's is glaze." (item IDs; .drop_off_id, .drop_off_firing_type, .load_firing_type: the page names the types)
+class FiringTypeLocked(DomainError):     # "Load L-4 has drop-offs in it: remove them before changing its firing type."
 class MessageRequired(DomainError):      # "This reason needs a message."
 class MessageTooLong(DomainError):       # "The message is longer than 1,000 characters."
 class NotRejected(DomainError):          # "AC-12 isn't rejected."
@@ -395,12 +396,12 @@ None.
 Built on 2026-11-13. What phases 1b to 1d can rely on:
 
 - `asmbly_ceramics.domain.errors`: `DomainError` (`.message`) and the 23 subclasses
-  above, each constructor taking only what its message names. Signatures that the
+  above (phase 1c added `FiringTypeLocked`), each constructor taking only what its message names. Signatures that the
   sketch left open: `NotFound(id: DropOffId | LoadId)`, `NotWaiting(drop_off_id, state)`,
   `LoadNotLoading(load_id, status)`, `LoadFull(load_id, capacity)`,
   `WrongLoadStatus(load_id, status, expected)`,
-  `FiringTypeMismatch(drop_off_id, drop_off_firing_type, load_firing_type)` (pass the
-  items' names), `MessageTooLong(limit)`, `SendingAddressOutsideAsmbly(domain)`,
+  `FiringTypeMismatch(drop_off_id, drop_off_firing_type, load_firing_type)` (phase 1c
+  changed it to take both firing types' `ItemId`s, kept as attributes), `MessageTooLong(limit)`, `SendingAddressOutsideAsmbly(domain)`,
   `InvalidSetting(field, message)`, `UnknownItem(kind)`, `ItemRetired(name)`,
   `ItemInUse(name)`, `DuplicateItem(kind, name)`. `InvalidDetails(errors)` needs at
   least one field and holds a read-only copy of the message keys. `ItemInUse` says "used

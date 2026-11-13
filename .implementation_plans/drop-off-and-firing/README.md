@@ -80,8 +80,9 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
      └──undo (same Austin day)──┘
   ```
 
-  *Overdue* is not a state: a drop-off still `waiting` 60 days after `created_at` is
-  shown as overdue, never deleted.
+  *Overdue* is not a state: a drop-off still `waiting` 60 or more whole Austin days
+  after the Austin date of its `created_at` (`days_waiting`) is shown as overdue, never
+  deleted.
 - **Load**: `id: LoadId` (`L-n`), `kiln: ItemId`, `firing_type: ItemId`, `date`
   (today by default), `status`, `members: tuple[DropOffId, ...]`, `started_by`
   (username), `fired_at`, `version`. `loading → firing → fired`; members are added and
@@ -109,12 +110,12 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | No two drop-offs share an ID (#2) | `IdNumbers` port contract; `AC-n` formatting in `domain/ids.py` |
 | 10 submissions per device, 30 per address, in 10 minutes (#2) | `domain/limits.py`; counted by the `RateLimiter` port |
 | Search: `AC-12`, `ac12`, `12` or part of a name (#3) | `domain/search.py`, `parse_query` and `matches` |
-| Waiting oldest first; bisque and glaze totals in pieces (#3) | `domain/waiting.py` |
+| Waiting oldest first; bisque and glaze totals in pieces (#3); overdue at 60 days waiting, in whole Austin days (#7) | `domain/waiting.py` |
 | Add only a waiting drop-off not in a load; a different firing type needs confirming; nothing changes once firing; at most 48 (#4) | `domain/load.py` |
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
-| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest; overdue at 60 days (#7) | `domain/closing.py` |
+| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py` |
 | Weekly counts Monday to Sunday, Austin time (#7) | `domain/counts.py` |
 
 The fixed numbers above (pieces, photos, sizes, rate limits, 60 days, 1,000 characters,
@@ -195,7 +196,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | --- | --- | --- | --- | --- |
 | [1a](phase-1a-domain-core-and-studio.md) | The domain's core: errors, IDs, limits and the studio | app | L | [x] Complete |
 | [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
-| [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [ ] Pending |
+| [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [ ] Pending |
 | [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |

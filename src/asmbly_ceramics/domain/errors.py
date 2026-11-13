@@ -14,7 +14,7 @@ The class names are the plan's contract with the later phases and read as what h
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from asmbly_ceramics.domain.ids import DropOffId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 
 FieldErrors = Mapping[str, str]
 """A field's name mapped to its message key (`email.invalid`), never to the field's value."""
@@ -100,9 +100,23 @@ class AlreadyFired(DomainError):
 
 
 class FiringTypeMismatch(DomainError):
-    def __init__(self, drop_off_id: DropOffId, drop_off_firing_type: str, load_firing_type: str) -> None:
-        super().__init__(f"{drop_off_id} is {drop_off_firing_type}. This load is {load_firing_type}.")
+    """Both firing types are kept by ID, so a page can name them from the studio's items."""
+
+    def __init__(
+        self, drop_off_id: DropOffId, drop_off_firing_type: ItemId, load_firing_type: ItemId
+    ) -> None:
+        super().__init__(
+            f"{drop_off_id}'s firing type is {drop_off_firing_type}; this load's is {load_firing_type}."
+        )
         self.drop_off_id = drop_off_id
+        self.drop_off_firing_type = drop_off_firing_type
+        self.load_firing_type = load_firing_type
+
+
+class FiringTypeLocked(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__(f"Load {load_id} has drop-offs in it: remove them before changing its firing type.")
+        self.load_id = load_id
 
 
 class MessageRequired(DomainError):

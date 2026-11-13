@@ -4,6 +4,7 @@ The repository is public and `tests/repo/test_personal_data.py` fails on a liter
 address or phone number, so addresses are put together from parts here.
 """
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TypedDict, Unpack
@@ -12,6 +13,7 @@ from asmbly_ceramics.domain.closing import close
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffDetails, DropOffState, Rejection, new_drop_off
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
+from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
 from asmbly_ceramics.domain.studio import Studio, starting_studio
 
@@ -107,3 +109,26 @@ def a_drop_off(
             )
         case DropOffState.CLOSED:
             return close(a_drop_off(number, DropOffState.REJECTED, at=at, reason=reason), at)
+
+
+def a_load(
+    number: int = 1,
+    status: LoadStatus = LoadStatus.LOADING,
+    members: Sequence[int] = (),
+    *,
+    kiln: str = "athena",
+    firing_type: str = "bisque",
+    at: datetime = NOW,
+) -> Load:
+    """A load in `status` holding the drop-offs numbered `members`."""
+    return Load(
+        id=LoadId(number),
+        kiln=ItemId(kiln),
+        firing_type=ItemId(firing_type),
+        date=at.date(),
+        status=status,
+        members=tuple(DropOffId(member) for member in members),
+        started_by=STAFF,
+        started_at=at,
+        fired_at=at if status is LoadStatus.FIRED else None,
+    )

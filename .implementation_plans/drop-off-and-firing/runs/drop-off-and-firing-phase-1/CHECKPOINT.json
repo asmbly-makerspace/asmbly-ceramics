@@ -53,19 +53,17 @@
       "depends_on": [
         "1a"
       ],
-      "status": "in-progress",
+      "status": "done",
       "base_sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39",
-      "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "squashed_sha": "37e062f32e9d56ffa40cc074747156484029b80d",
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-1-domain-model",
       "parked_branch": null,
       "closes": [],
       "refs": [
         2,
-        4,
         5,
-        6,
         7
       ],
       "admin_actions": [],
@@ -81,8 +79,8 @@
       "depends_on": [
         "1b"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "in-progress",
+      "base_sha": "37e062f32e9d56ffa40cc074747156484029b80d",
       "squashed_sha": null,
       "review_rounds": null,
       "cold_review": null,
@@ -216,6 +214,29 @@
       "ts": "2026-11-13T17:09:01Z",
       "type": "phase_start",
       "phase": "1b"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "cold_review",
+      "phase": "1b",
+      "review_lead": "APPROVED, 6 WARN",
+      "privacy": "CHANGES REQUESTED, 1 WARN"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "phase_done",
+      "phase": "1b"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "squash",
+      "phase": "1b",
+      "sha": "37e062f32e9d56ffa40cc074747156484029b80d"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "phase_start",
+      "phase": "1c"
     }
   ]
 }

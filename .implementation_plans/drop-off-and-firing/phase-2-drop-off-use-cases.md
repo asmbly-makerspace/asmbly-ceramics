@@ -298,7 +298,7 @@ phase 7 sizes the form function's memory for one 10 MB decode.
 @dataclass(frozen=True, slots=True)
 class WaitingRow:
     drop_off: DropOff
-    days_waiting: int  # whole Austin days since created_at
+    days_waiting: int  # whole Austin days since created_at: domain `days_waiting`
     overdue: bool
     firing_type: str  # the item's name
     glaze_type: str | None
@@ -324,7 +324,7 @@ class FindDropOffs:
 - `WaitingList` (#3): `records.drop_offs_in({WAITING})`, `waiting_order`, `totals`
   over all waiting drop-offs (the totals ignore the filter), the filter by firing type
   applied to the rows only. Overdue rows are marked (#7).
-- `FindDropOffs` (#3): `parse_query`. A number reads `records.drop_off(DropOffId(n))`
+- `FindDropOffs` (#3): `parse_query`. An ID reads `records.drop_off(query.id)`
   (any state, closed included, so staff can look up an old slip). Text searches
   waiting, in-load, fired and rejected drop-offs with `matches`, oldest first, at most
   50 rows. `waiting_only=True` is what the load page's search uses (phase 9).

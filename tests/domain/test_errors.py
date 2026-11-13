@@ -3,7 +3,7 @@ from types import MappingProxyType
 import pytest
 
 from asmbly_ceramics.domain import errors
-from asmbly_ceramics.domain.ids import DropOffId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 
 AC12 = DropOffId(12)
 L4 = LoadId(4)
@@ -20,7 +20,14 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.EmptyLoad(L4), "Load L-4 is empty: add a drop-off before firing."),
     (errors.WrongLoadStatus(L4, "loading", "firing"), "Load L-4 is loading, not firing."),
     (errors.AlreadyFired(L4), "Load L-4 is already fired; nothing was sent again."),
-    (errors.FiringTypeMismatch(DropOffId(61), "Bisque", "Glaze"), "AC-61 is Bisque. This load is Glaze."),
+    (
+        errors.FiringTypeMismatch(DropOffId(61), ItemId("bisque"), ItemId("cone-6-glaze")),
+        "AC-61's firing type is bisque; this load's is cone-6-glaze.",
+    ),
+    (
+        errors.FiringTypeLocked(L4),
+        "Load L-4 has drop-offs in it: remove them before changing its firing type.",
+    ),
     (errors.MessageRequired(), "This reason needs a message."),
     (errors.MessageTooLong(1000), "The message is longer than 1,000 characters."),
     (errors.NotRejected(AC12), "AC-12 isn't rejected."),
@@ -72,5 +79,11 @@ def test_invalid_details_needs_an_error() -> None:
 
 def test_errors_keep_the_ids_they_name() -> None:
     assert errors.NotFound(L4).id == L4
-    assert errors.FiringTypeMismatch(AC12, "Bisque", "Glaze").drop_off_id == AC12
+    mismatch = errors.FiringTypeMismatch(AC12, ItemId("bisque"), ItemId("glaze"))
+    assert (mismatch.drop_off_id, mismatch.drop_off_firing_type, mismatch.load_firing_type) == (
+        AC12,
+        ItemId("bisque"),
+        ItemId("glaze"),
+    )
+    assert errors.FiringTypeLocked(L4).load_id == L4
     assert errors.InvalidSetting("name", "Enter a name.").field == "name"
