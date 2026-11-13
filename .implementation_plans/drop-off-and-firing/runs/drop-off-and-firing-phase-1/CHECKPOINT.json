@@ -4,8 +4,8 @@
   "issue": 1,
   "feature_branch": "feat/drop-off-and-firing-phase-1",
   "worktree": null,
-  "status": "in-progress",
-  "stage": "qa",
+  "status": "complete",
+  "stage": "briefing",
   "selected_phases": [
     "1a",
     "1b",
@@ -140,7 +140,7 @@
   },
   "qa": {
     "base_sha": "e4683b0c2e29146f23557d64d6e823644837b22f",
-    "squashed_sha": null,
+    "squashed_sha": "8fa0e92536111358cff0d795c4de3afac174e33c",
     "closes": [],
     "refs": [
       2,
@@ -152,8 +152,8 @@
     ]
   },
   "pr": {
-    "number": null,
-    "result": null,
+    "number": 16,
+    "result": "green",
     "rounds": []
   },
   "events": [
@@ -317,6 +317,26 @@
       "type": "squash",
       "unit": "docs",
       "sha": "e4683b0c2e29146f23557d64d6e823644837b22f"
+    },
+    {
+      "ts": "2026-11-13T18:55:30Z",
+      "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-13T18:55:30Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "8fa0e92536111358cff0d795c4de3afac174e33c"
+    },
+    {
+      "ts": "2026-11-13T18:56:38Z",
+      "type": "pr_opened",
+      "number": 16,
+      "note": "harness auto-subscribed this session to the PR; unsubscribed"
+    },
+    {
+      "ts": "2026-11-13T19:00:36Z",
+      "type": "complete"
     }
   ]
 }
