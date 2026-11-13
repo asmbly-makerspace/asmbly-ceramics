@@ -1,0 +1,13 @@
+{% extends "_layout.html" %}
+{% block content %}
+<h1 style="margin:0 0 16px 0;font-size:22px;color:#171d1a;">Ready for pickup</h1>
+<p style="margin:0 0 12px 0;">Hi {{ name }},</p>
+<p style="margin:0 0 12px 0;">Your pieces from drop-off <span style="font-family:'Courier New',Courier,monospace;font-weight:bold;color:#944180;">{{ id }}</span> have exited the kiln and are ready for pickup!</p>
+<p style="margin:0 0 16px 0;"><strong>Pick up by {{ pickup_by }}.</strong> You have {{ window }} to collect them; after that, they may be subject to disposal.</p>
+<h2 style="margin:0 0 8px 0;font-size:18px;color:#171d1a;">Pickup hours</h2>
+{% for line in hours_lines %}
+<p style="margin:0 0 8px 0;">{{ line }}</p>
+{% endfor %}
+<p style="margin:16px 0 12px 0;">If you have any questions, reach out to our Kiln Ops team at {{ sending_address }}.</p>
+<p style="margin:0;">~ Kiln Ops</p>
+{% endblock %}

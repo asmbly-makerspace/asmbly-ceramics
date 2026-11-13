@@ -8,27 +8,50 @@ themselves through the `PhotoStore` port in the same run.
 """
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
+from asmbly_ceramics.domain.limits import STUDIO_TZ
+
+
+def pickup_day(start: datetime, pickup_window_days: int) -> date:
+    """The last Austin day of the pickup window that started at `start`: Austin's date
+    at `start` plus `pickup_window_days` calendar days. The ready email's "Pick up by"."""
+    _check_aware(start)
+    if pickup_window_days < 1:
+        raise ValueError("the pickup window is at least a day")
+    return start.astimezone(STUDIO_TZ).date() + timedelta(days=pickup_window_days)
+
+
+def pickup_deadline(start: datetime, pickup_window_days: int) -> datetime:
+    """When the pickup window that started at `start` ends: the start of the Austin day
+    after `pickup_day`, so the whole day the email names is the person's, whatever the
+    time of day it went out and across a change of daylight saving time. An aware time;
+    the same `start` in any zone gives the same instant. (Midnight is never skipped or
+    repeated in Austin: the clocks change at 2 AM.)"""
+    following = pickup_day(start, pickup_window_days) + timedelta(days=1)
+    return datetime.combine(following, time(0), tzinfo=STUDIO_TZ)
 
 
 def is_closable(
     drop_off: DropOff, ready_sent_at: datetime | None, pickup_window_days: int, now: datetime
 ) -> bool:
-    """Whether the pickup window has passed. A fired drop-off whose ready email never went
-    out never closes: the console shows the failed email instead."""
+    """Whether the pickup window has passed (`pickup_deadline`, the end of the Austin day
+    the ready email named). For a fired drop-off, `pickup_window_days` is the window its
+    ready email gave, kept with it, not the studio's later setting. A fired
+    drop-off whose ready email never went out never closes: the console shows the failed
+    email instead."""
     _check_aware(now)
     if ready_sent_at is not None:
         _check_aware(ready_sent_at)
     if pickup_window_days < 1:
         raise ValueError("the pickup window is at least a day")
-    window = timedelta(days=pickup_window_days)
     match drop_off.state:
         case DropOffState.FIRED:
-            return ready_sent_at is not None and ready_sent_at + window <= now
+            return ready_sent_at is not None and pickup_deadline(ready_sent_at, pickup_window_days) <= now
         case DropOffState.REJECTED:
-            return drop_off.rejection is not None and drop_off.rejection.at + window <= now
+            rejection = drop_off.rejection
+            return rejection is not None and pickup_deadline(rejection.at, pickup_window_days) <= now
         case DropOffState.WAITING | DropOffState.IN_LOAD | DropOffState.CLOSED:
             return False
 

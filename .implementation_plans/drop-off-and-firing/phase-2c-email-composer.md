@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 2c: The email composer and its templates
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-13 on branch feat/drop-off-and-firing-phases-2-4
 
 Part of phase 2, split into 2a to 2d by `/prep` (see
 [phase 2a](phase-2a-logging-studio-and-form-reads.md)). It needs only phase 1's types,
@@ -133,7 +133,7 @@ Ops templates, with the ID, the reason and the staff message added):
 | Email | Subject | Body |
 | --- | --- | --- |
 | received | `We received your drop-off (AC-12)` | "Hi {name}, thanks for dropping off. Here's your ID:", the ID large, "Make sure each piece has a slip with this ID and your name.", pieces, firing (and glaze type), dropped off (Austin time, "Fri Nov 13, 10:42 AM"), the photos, "We'll email you again when it's fired and ready for pickup." |
-| ready | `Ready for pickup (AC-12)` | "Your pieces from drop-off AC-12 have exited the kiln and are ready for pickup!", "Pick up by {sent_at + window, Austin date}. You have {window} days to collect them; after that, they may be subject to disposal.", "Pickup hours" and the hours text, "If you have any questions, reach out to our Kiln Ops team at {sending address}.", "~ Kiln Ops", the photos |
+| ready | `Ready for pickup (AC-12)` | "Your pieces from drop-off AC-12 have exited the kiln and are ready for pickup!", "Pick up by {Austin date of sent_at + window}. You have {window} days to collect them; after that, they may be subject to disposal.", "Pickup hours" and the hours text, "If you have any questions, reach out to our Kiln Ops team at {sending address}.", "~ Kiln Ops", the photos |
 | rejected | `Your drop-off needs attention (AC-12)` | "One or more of your pieces from drop-off AC-12 has been rejected from kiln firing due to:", the reason, the staff message under "From Kiln Ops" when there is one, "Please make adjustments and resubmit for firing with the drop-off form; you'll get a new ID. If you have questions, please reach out to the kiln lead at {sending address}.", the pickup hours, "~ Kiln Ops", the photos |
 | test | `Test email from Asmbly Ceramics` | "This is a test email from the ceramics studio's console. Emails to people who drop off are sent from {sending address}.", the pickup hours as they will appear |
 
@@ -209,12 +209,51 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done.
+What the next phase can rely on (built):
 
-What the next phase can rely on, as planned:
-
-- `ports.composer`: `Composer` (`received`, `ready`, `rejected`, `test`),
-  `ComposedEmail`, `outgoing` and `cid`, which the use cases import; `mail.compose`:
-  `JinjaComposer`, which composition and the use case tests build. Phase 3's mailer
-  composes with them; 2d's and the console's preview pass their own `image_src`.
-- Jinja2 is a runtime dependency.
+- `asmbly_ceramics.ports.composer`: `Composer` (`received(drop_off, studio, image_src)`,
+  `ready(drop_off, studio, sent_at, image_src)`, `rejected(drop_off, studio, image_src)`,
+  `test(studio)`), `ComposedEmail(subject, html, text)` (bodies `repr=False`),
+  `outgoing(composed, *, to, sending_address, photos)`, `cid(ref)` (`cid:photo-<n>`),
+  `content_id(ref)`, `FROM_NAME = "Asmbly Ceramics"`. Every `Composer` method raises
+  `ValueError` naming only the ID for a closed drop-off, a `rejected` without a
+  rejection, a naive `sent_at`, or an item the studio doesn't have (a retired item still
+  shows its name). `outgoing` raises `ValueError` for a sender outside `asmbly.org` or a
+  `to` that `is_valid_email` refuses, naming neither address.
+- `asmbly_ceramics.mail.compose`: `JinjaComposer()` (no arguments; composition and use
+  case tests build it), and the helpers `austin_time`, `austin_day`, `pickup_by`,
+  `counted`, `lines`, `FOOTER`.
+- `domain.closing.pickup_day(start, window_days)` and `pickup_deadline(start,
+  window_days)` (from the review): the pickup-by day is Austin's date at `start` plus
+  `window_days` calendar days, and the window ends at the start of the Austin day after
+  it (an aware time), so across a daylight saving change the date agrees with "You have
+  N days". The ready email shows `pickup_day`; `is_closable` compares with
+  `pickup_deadline`, so the close never deletes before the end of the emailed day
+  (`tests/domain/test_closing.py` pins fall back, spring forward and a 00:30 send
+  against phase 9's 03:17 close).
+- `ComposedEmail.drop_off_id` (from the review): the drop-off the email is about, `None`
+  for the test email. `outgoing` refuses a photo whose ref names another drop-off (any
+  photo for the test email) or a repeated index, with `ValueError`.
+- Jinja2 (`jinja2>=3.1.6`) is a runtime dependency. `uv build --wheel` ships
+  `asmbly_ceramics/mail/templates/*` with no `[tool.uv.build-backend]` setting (checked:
+  the wheel lists `_layout.html` and the eight `received|ready|rejected|test` `.html`
+  and `.txt` files).
+- For phase 3 (review): pass the same instant to `ready(sent_at=...)` and to
+  `mark_sent(email, at)`, so the date in the email and the close's window start agree.
+  The sender passes `to=drop_off.contact.email`, re-read by key, never another address.
+- For phase 8 (privacy review): a preview's `image_src` (for example
+  `/console/drop-offs/AC-12/photos/1`) must point at a route with the token and
+  `ceramics` group check.
+- Settled in the review (was open): "Pick up by <date>" names a whole Austin day, so the
+  window ends with that day, not at the time of day the ready email went out: a ready
+  email sent at 00:30 keeps its details through the 03:17 close on the pick-up-by day
+  and closes at the next morning's run. One `pickup_deadline` gives both.
+- For phase 3 (review): the ready email states a date from the window in force when it
+  is sent. Phase 3 keeps that window (or the deadline) with the sent ready email or the
+  drop-off, and `CloseFinished` passes the kept window to `is_closable`, never the
+  studio's current one, so shortening the window later never deletes details before an
+  emailed date.
+- For phase 3 (review): the sender reads the photos it passes to `outgoing` by the same
+  drop-off key it reads the recipient by; `outgoing` refuses another drop-off's ref, but
+  only the sender can make the bytes match the refs.
+- Deferred, as planned: phase 4 extends `tests/domain/test_imports.py` to `mail/`.

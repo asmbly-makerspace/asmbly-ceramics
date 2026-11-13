@@ -1,0 +1,19 @@
+Ready for pickup
+
+Hi {{ name }},
+
+Your pieces from drop-off {{ id }} have exited the kiln and are ready for pickup!
+
+Pick up by {{ pickup_by }}. You have {{ window }} to collect them; after that, they may be subject to disposal.
+
+Pickup hours
+{% for line in hours_lines %}
+{{ line }}
+{% endfor %}
+
+If you have any questions, reach out to our Kiln Ops team at {{ sending_address }}.
+
+~ Kiln Ops
+
+--
+{{ footer }}

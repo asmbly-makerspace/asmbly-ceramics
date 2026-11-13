@@ -561,7 +561,9 @@ first night's run is checked under Rollout.
 12. Every change records the username and time, and staff can see the history (#6).
 13. Every email after a change uses the new settings (#6).
 14. Once a day, at 03:17 Austin time, drop-offs whose pickup window has passed are
-    closed: their name, email, phone, rejection message and photos are deleted; ID,
+    closed (the window ends at the start of the Austin day after the ready email's
+    "Pick up by" date, `domain.closing.pickup_deadline`, so the 03:17 run on that date
+    keeps them; a fired one's window is the one kept with its sent ready email): their name, email, phone, rejection message and photos are deleted; ID,
     dates, firing type, pieces, load and reason are kept (#7).
 15. A drop-off waiting 60 days or more shows as overdue in the console and is not
     deleted (#7).

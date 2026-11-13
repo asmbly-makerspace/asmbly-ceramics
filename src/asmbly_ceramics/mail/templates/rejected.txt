@@ -1,0 +1,26 @@
+Your drop-off needs attention
+
+Hi {{ name }},
+
+One or more of your pieces from drop-off {{ id }} has been rejected from kiln firing due to:
+
+{{ reason }}
+{% if message_lines %}
+
+From Kiln Ops
+{% for line in message_lines %}
+{{ line }}
+{% endfor %}
+{% endif %}
+
+Please make adjustments and resubmit for firing with the drop-off form; you'll get a new ID. If you have questions, please reach out to the kiln lead at {{ sending_address }}.
+
+Pickup hours
+{% for line in hours_lines %}
+{{ line }}
+{% endfor %}
+
+~ Kiln Ops
+
+--
+{{ footer }}

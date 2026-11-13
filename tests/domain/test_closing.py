@@ -1,24 +1,32 @@
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 
-from asmbly_ceramics.domain.closing import close, is_closable
+from asmbly_ceramics.domain.closing import close, is_closable, pickup_day, pickup_deadline
 from asmbly_ceramics.domain.dropoff import DropOffState, Rejection
 from asmbly_ceramics.domain.ids import ItemId, LoadId
+from asmbly_ceramics.domain.limits import STUDIO_TZ
 from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off
 
 WINDOW = 14
 DAYS = timedelta(days=WINDOW)
 READY = NOW + timedelta(hours=2)  # the ready email went out after the firing
+# NOW is 12:30 PM CST on Fri 13 Nov 2026, READY 2:30 PM: the windows end at Austin midnight.
+READY_END = datetime(2026, 11, 28, 6, 0, tzinfo=UTC)  # 00:00 CST Sat 28 Nov
+REJECTED_END = READY_END  # the rejection (NOW) is the same Austin day
+SECOND = timedelta(seconds=1)
 
 
 def test_fired_closes_after_the_window_from_the_ready_email() -> None:
     fired = a_drop_off(state=DropOffState.FIRED)
-    assert not is_closable(fired, READY, WINDOW, READY + DAYS - timedelta(seconds=1))
-    assert is_closable(fired, READY, WINDOW, READY + DAYS)
+    assert pickup_deadline(READY, WINDOW) == READY_END
+    assert not is_closable(fired, READY, WINDOW, READY_END - SECOND)
+    assert is_closable(fired, READY, WINDOW, READY_END)
     # Counted from the ready email, not from the firing: a late email moves the close.
-    assert not is_closable(fired, READY, WINDOW, NOW + DAYS)
+    late = NOW + timedelta(days=2)
+    assert not is_closable(fired, late, WINDOW, READY_END)
+    assert is_closable(fired, late, WINDOW, READY_END + timedelta(days=2))
 
 
 def test_fired_without_a_sent_ready_email_never_closes() -> None:
@@ -28,14 +36,15 @@ def test_fired_without_a_sent_ready_email_never_closes() -> None:
 
 def test_rejected_closes_after_the_window_from_the_rejection() -> None:
     rejected = a_drop_off(state=DropOffState.REJECTED)
-    assert not is_closable(rejected, None, WINDOW, NOW + DAYS - timedelta(seconds=1))
-    assert is_closable(rejected, None, WINDOW, NOW + DAYS)
+    assert not is_closable(rejected, None, WINDOW, REJECTED_END - SECOND)
+    assert is_closable(rejected, None, WINDOW, REJECTED_END)
 
 
 def test_the_window_is_the_studios_setting() -> None:
     rejected = a_drop_off(state=DropOffState.REJECTED)
-    assert is_closable(rejected, None, 1, NOW + timedelta(days=1))
-    assert not is_closable(rejected, None, 30, NOW + DAYS)
+    assert not is_closable(rejected, None, 1, REJECTED_END - timedelta(days=13) - SECOND)
+    assert is_closable(rejected, None, 1, REJECTED_END - timedelta(days=13))
+    assert not is_closable(rejected, None, 30, NOW + timedelta(days=30))
 
 
 @pytest.mark.parametrize("state", [DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.CLOSED])
@@ -104,3 +113,62 @@ def test_close_refuses_a_waiting_drop_off(state: DropOffState, said: str) -> Non
 def test_close_needs_an_aware_time() -> None:
     with pytest.raises(ValueError, match="aware"):
         close(a_drop_off(state=DropOffState.FIRED), NOW.replace(tzinfo=None))
+
+
+def test_the_pickup_deadline_is_the_same_instant_in_any_zone() -> None:
+    start = datetime(2026, 10, 25, 5, 30, tzinfo=UTC)
+    assert pickup_deadline(start.astimezone(STUDIO_TZ), 14) == pickup_deadline(start, 14)
+    assert pickup_deadline(start, 14).utcoffset() is not None
+
+
+@pytest.mark.parametrize(
+    ("start", "day", "end"),
+    [
+        # Fall back (1 Nov 2026): 00:30 CDT on Sun 25 Oct (05:30 UTC). 14 days counted in
+        # UTC would end at 23:30 CST on 7 Nov, the 13th day; the window keeps all of 8 Nov.
+        (datetime(2026, 10, 25, 5, 30, tzinfo=UTC), "2026-11-08", datetime(2026, 11, 9, 6, 0, tzinfo=UTC)),
+        # Fall back, late in the day: 23:30 CDT on Sat 24 Oct (04:30 UTC on the 25th).
+        (datetime(2026, 10, 25, 4, 30, tzinfo=UTC), "2026-11-07", datetime(2026, 11, 8, 6, 0, tzinfo=UTC)),
+        # Spring forward (14 Mar 2027): 23:30 CST on Sat 6 Mar (05:30 UTC on the 7th).
+        # Counted in UTC it would reach 00:30 CDT on 21 Mar, a 15th day; the window ends
+        # with the 14th, 20 Mar, at midnight CDT.
+        (datetime(2027, 3, 7, 5, 30, tzinfo=UTC), "2027-03-20", datetime(2027, 3, 21, 5, 0, tzinfo=UTC)),
+        # Spring forward, early in the day: 00:30 CST on Sun 7 Mar (06:30 UTC).
+        (datetime(2027, 3, 7, 6, 30, tzinfo=UTC), "2027-03-21", datetime(2027, 3, 22, 5, 0, tzinfo=UTC)),
+    ],
+)
+def test_the_window_ends_with_the_austin_day_across_daylight_saving(
+    start: datetime, day: str, end: datetime
+) -> None:
+    assert str(pickup_day(start, 14)) == day
+    assert pickup_deadline(start, 14) == end
+    assert pickup_deadline(start, 14).astimezone(STUDIO_TZ).time() == time(0)
+    fired = a_drop_off(12, DropOffState.FIRED)
+    local = start.astimezone(STUDIO_TZ)
+    assert not is_closable(fired, local, 14, end - SECOND)
+    assert is_closable(fired, local, 14, end)
+    rejected = replace(
+        a_drop_off(12, DropOffState.REJECTED), rejection=Rejection(ItemId("other"), None, STAFF, local)
+    )
+    assert not is_closable(rejected, None, 14, end - SECOND)
+    assert is_closable(rejected, None, 14, end)
+
+
+def test_the_daily_close_never_deletes_on_the_pick_up_by_day() -> None:
+    # A ready email sent at 00:30 Austin, before the close's 03:17 run: the close at 03:17
+    # on the pick-up-by day keeps everything; the one the next morning closes it.
+    sent_at = datetime(2026, 11, 13, 0, 30, tzinfo=STUDIO_TZ)
+    assert str(pickup_day(sent_at, 14)) == "2026-11-27"
+    fired = a_drop_off(12, DropOffState.FIRED)
+    assert not is_closable(fired, sent_at, 14, datetime(2026, 11, 27, 3, 17, tzinfo=STUDIO_TZ))
+    assert not is_closable(fired, sent_at, 14, datetime(2026, 11, 27, 23, 59, 59, tzinfo=STUDIO_TZ))
+    assert is_closable(fired, sent_at, 14, datetime(2026, 11, 28, 3, 17, tzinfo=STUDIO_TZ))
+
+
+def test_the_pickup_deadline_needs_a_window_and_an_aware_time() -> None:
+    with pytest.raises(ValueError, match="at least a day"):
+        pickup_deadline(NOW, 0)
+    with pytest.raises(ValueError, match="at least a day"):
+        pickup_day(NOW, 0)
+    with pytest.raises(ValueError, match="aware"):
+        pickup_deadline(NOW.replace(tzinfo=None), 14)

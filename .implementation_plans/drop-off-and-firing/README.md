@@ -206,7 +206,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
 | [2a](phase-2a-logging-studio-and-form-reads.md) | Use cases: logging, keyed hashes, the studio and the form's reads | app | L | [x] Complete |
 | [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [x] Complete |
-| [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [ ] Pending |
+| [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [x] Complete |
 | [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |

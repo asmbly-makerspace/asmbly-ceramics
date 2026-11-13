@@ -3,9 +3,10 @@ name = "asmbly-ceramics"
 version = "0.1.0"
 description = "Asmbly Makerspace's ceramics studio: drop-offs, kiln loads and firings"
 requires-python = ">=3.14,<3.15"
-# No runtime dependencies yet: the app comes with the plan for epic #1. Add what it
-# needs with `uv add`, never by editing uv.lock.
-dependencies = []
+# Add what the app needs with `uv add`, never by editing uv.lock.
+dependencies = [
+    "jinja2>=3.1.6",
+]
 
 [dependency-groups]
 dev = [

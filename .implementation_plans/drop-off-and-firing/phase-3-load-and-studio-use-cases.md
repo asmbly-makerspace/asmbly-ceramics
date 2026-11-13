@@ -255,7 +255,11 @@ whose new image has `status = pending`. In order:
    drop-off's own email: no other address is possible here.
 6. `mailer.send(...)`. On success commit `mark_sent(email, now)` and log
    `event=email_sent`, `kind`, `drop_off_id`. For a ready email, `sent_at` is when the
-   pickup window starts (#7).
+   pickup window starts (#7). The ready email's record keeps the pickup window it was
+   composed with (`studio.pickup_window_days` at send, committed with `mark_sent`), so
+   the close counts from the same window the email's date came from (phase 2c's
+   review). Read the photos (step 4) by the same drop-off key as the recipient;
+   `outgoing` refuses a ref naming another drop-off or a repeated index.
 7. On `SendFailed(code)` commit `mark_failed(email, code)` and log, at ERROR:
    `event=email_failed`, `kind`, `drop_off_id`, `error_code`. On any other exception,
    the same with `reason=unexpected` and the exception's class name as `error_code`
@@ -376,7 +380,12 @@ class CloseFinished:
 
 1. `records.drop_offs_in({FIRED, REJECTED})`; the studio's current pickup window.
 2. For each: the ready email's `sent_at` when fired (`records.email(id, READY)`);
-   `is_closable(...)`. A fired drop-off whose ready email never sent is skipped; the
+   `is_closable(...)`, which compares now with `pickup_deadline` (phase 2c's review):
+   the start of the Austin day after the pickup-by day the email named, so the close
+   never deletes on that day. For a fired drop-off the window passed is the one kept
+   with its sent ready email (below), never the studio's current window: staff
+   shortening it afterwards must not delete details before an emailed date. A fired
+   drop-off whose ready email never sent is skipped; the
    console's load and drop-off pages show its failed email (phase 9), and it closes
    once the email is sent and the window has passed.
 3. For each closable one: first `photos.delete_drop_off(id)` (idempotent), then commit
@@ -483,7 +492,9 @@ rows.
 `tests/use_cases/test_close.py` (#7):
 
 - `test_a_fired_drop_off_closes_once_the_window_has_passed_since_the_ready_email`
-  (not one minute before).
+  (not one second before the end of the Austin pick-up-by day, at the next run).
+- `test_a_shorter_window_set_after_the_ready_email_doesnt_close_early` (the close uses
+  the window kept with the sent email).
 - `test_a_rejected_drop_off_closes_once_the_window_has_passed_since_the_rejection`.
 - `test_closing_deletes_name_email_phone_message_and_photos_and_keeps_the_rest`
   (asserts on the stored item and on `MemoryPhotoStore`).
@@ -530,8 +541,8 @@ rows.
    from the unsaved address to the signed-in staff member only, and saves nothing (#6).
 8. Every settings change commits a `SettingChange` with the staff username and time
    (#6); a used item can be retired, not deleted (#6).
-9. `CloseFinished` closes a fired drop-off once the pickup window has passed since its
-   ready email went out, and a rejected one once it has passed since the rejection;
+9. `CloseFinished` closes a fired drop-off once the Austin day its ready email named
+   as "Pick up by" has ended, counted with the window kept with that email, and a rejected one once it has passed since the rejection;
    the closed record has no name, email, phone, message or photos, and its photos are
    gone from the store (#7).
 10. `WeeklyCounts` counts Monday to Sunday, Austin time (#7).

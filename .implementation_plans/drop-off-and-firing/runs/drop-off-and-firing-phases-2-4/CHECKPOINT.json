@@ -59,7 +59,7 @@
       ],
       "status": "done",
       "base_sha": "99341c628c57f182d25b01b74dc1c2a2c6ca3356",
-      "squashed_sha": null,
+      "squashed_sha": "12b711d",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
@@ -83,17 +83,20 @@
       "depends_on": [
         "1d"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "12b711d7aa16e76cc89734415f6dbf8842884d50",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
       "parked_branch": null,
       "closes": [],
-      "refs": [],
+      "refs": [
+        2,
+        5
+      ],
       "admin_actions": [],
-      "notes": ""
+      "notes": "pytest 1537 passed, 99.57% before fixes; pickup-date question settled (end of the Austin day); rejected email has hours but no pick-up-by date, per the plan: maintainer call"
     },
     {
       "id": "phase-2d-waiting-list-and-rejection",
@@ -141,7 +144,7 @@
       "closes": [],
       "refs": [],
       "admin_actions": [],
-      "notes": ""
+      "notes": "From 2c privacy review: the sender must re-read photos by the same drop-off key as the recipient (or outgoing checks all refs share one drop-off ID); to must be drop_off.contact.email re-read by key, and the test email goes only to the signed-in staff member"
     },
     {
       "id": "phase-4-aws-adapters",
@@ -447,6 +450,79 @@
       "ts": "2026-11-13T23:24:29Z",
       "type": "phase_done",
       "phase": "2b"
+    },
+    {
+      "ts": "2026-11-13T23:24:31Z",
+      "type": "squash",
+      "unit": "phase-2b",
+      "sha": "12b711d"
+    },
+    {
+      "ts": "2026-11-13T23:24:31Z",
+      "type": "phase_start",
+      "phase": "2c"
+    },
+    {
+      "ts": "2026-11-13T23:25:01Z",
+      "type": "decision",
+      "topic": "maintainer said merge when green",
+      "choice": "run still ends at a green, ready pull request; after the claim is released, merge only on the maintainer confirming the pull request number",
+      "reason": "offshore never merges and the hook blocks it; CLAUDE.md needs his word for that pull request, which does not exist yet, and the merge needs --admin"
+    },
+    {
+      "ts": "2026-11-13T23:41:47Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "pickup deadline",
+      "choice": "domain.closing.pickup_deadline, UTC",
+      "reason": "build review BLOCK: one rule, one place"
+    },
+    {
+      "ts": "2026-11-13T23:42:45Z",
+      "type": "cold_review",
+      "phase": "2c",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-13T23:47:56Z",
+      "type": "cold_review",
+      "phase": "2c",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 5
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "pickup deadline",
+      "choice": "Austin date of start plus N days, ending at the next Austin midnight; is_closable uses it",
+      "reason": "date matches N days; no close on the emailed day"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "photo refs",
+      "choice": "ComposedEmail carries drop_off_id; outgoing refuses other or repeated refs",
+      "reason": "outgoing can check its own drop-off"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "phase 7 template check",
+      "choice": "compose_check.py on .aws-sam/build after sam build",
+      "reason": "smoke test sends no email"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "phase_done",
+      "phase": "2c"
     }
   ]
 }

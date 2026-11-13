@@ -84,6 +84,7 @@ address isn't published until phase 10.
 | `src/requirements.txt` | `uv export --frozen --no-dev --no-emit-project`, for `sam build`; never edited by hand |
 | `scripts/sam_parameters.py` | Every template parameter for one config environment, so `sam deploy` never keeps a stale value |
 | `scripts/smoke.py` | The smoke test, with no AWS credentials |
+| `scripts/compose_check.py` | The built artefact's smoke check: composes every email from `.aws-sam/build/`, no AWS |
 | `.github/workflows/deploy.yml` | Deploy on merge: stage, smoke, prod, smoke |
 | `tests/test_settings.py`, `tests/test_composition.py`, `tests/test_logs.py`, `tests/entry/test_mailer.py` | The app's wiring |
 | `tests/repo/test_app_template.py` | Pins the template (below) |
@@ -534,7 +535,15 @@ Steps of each job:
    step that prints, `echo "::add-mask::$(aws sts get-caller-identity --query Account
    --output text)"`, so the account ID (in role ARNs and the bucket's name) is masked in
    the public Actions log.
-4. `sam build --config-env "$CONFIG_ENV"`.
+4. `sam build --config-env "$CONFIG_ENV"`, then **compose check**: `python3
+   scripts/compose_check.py .aws-sam/build/MailerFunction`. Phase 2c checked the
+   templates ship by listing a `uv build` wheel, but the functions deploy from `sam
+   build` of `CodeUri: ../src/`, so this step proves the built artefact holds them: it
+   puts the build directory first on `sys.path`, checks
+   `asmbly_ceramics.mail.compose` loaded from there, composes `received`, `ready`,
+   `rejected` and `test` with `JinjaComposer` from made-up data (names built in code,
+   `example.org` addresses) and exits 1, naming the template, if one fails. It prints
+   no body and sends nothing.
 5. `sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE"
    --s3-bucket "$ARTIFACTS_BUCKET" --parameter-overrides "$(python3 scripts/sam_parameters.py
    "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN")"`,
@@ -623,6 +632,9 @@ and use only `vars.*` (no `secrets.*`).
 - `tests/scripts/test_smoke.py`: against a local `http.server` stub that answers each
   check right, then wrong one at a time: each wrong answer fails the script with that
   check's name.
+- `tests/scripts/test_compose_check.py`: passes on a directory holding the package;
+  fails, naming the template, on a copy with a template removed, and on a directory
+  without the package (it must not fall back to the installed one).
 - `tests/scripts/test_sam_parameters.py`: every parameter is printed; an unknown key is
   refused; a value from the command wins over samconfig.
 - `tests/repo/test_app_template.py`, `tests/repo/test_deploy_workflow.py`,
