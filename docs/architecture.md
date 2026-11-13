@@ -7,7 +7,9 @@ decided and why is in
 
 ## Today
 
-Nothing is built. There is no app, nothing in AWS, and no deploy. The studio takes
+Nothing is built. There is no app, nothing in AWS, and no deploy. How it will be
+built is planned in
+[.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
 
 ## What the stories ask for
@@ -68,19 +70,22 @@ From epic #1's **Work in other repositories**:
 
 ## Still to be decided
 
-`/plan-tech` decides these for epic #1, and each lands in a decision record, not here:
+Nothing, for epic #1. The plan for it
+([.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md))
+made each choice this section listed, and
+[decision 0002](decisions/0002-how-the-app-is-built-and-deployed.md) records them with
+the alternatives and the reasons:
 
-- The web framework, and whether pages are rendered on the server or by a script in
-  the browser.
-- The hosting (for example Lambda behind an HTTP API, or a container) and the addresses
-  of the form and the console.
-- The data store, and how an ID is issued so that no two drop-offs share one (#2).
-- How photos get to S3 (through the app, or uploaded straight to S3 with a short-lived
-  link), how staff see them, and how they go into an email within SES's size limit.
-- How the form's rate limit (10 per device in 10 minutes) is enforced.
-- How staff sign-in is checked: the token's issuer, audience and group, and where the
-  app reads the staff sign-in's values.
-- The deploy: the tool (SAM, CloudFormation or another), the deploy role and its tag
-  conditions, the stacks and their `Component` tags, whether there is a stage
-  environment, and the smoke test.
-- How the scheduled close (#7) runs.
+| Choice | Decided (0002) |
+| --- | --- |
+| Framework | Starlette, pages rendered on the server with Jinja2 |
+| Hosting and addresses | Lambda (Python 3.14, arm64) behind one HTTP API, one function per job (form, console, mailer, close); `ceramics.asmbly.org` and `ceramics-stage.asmbly.org` |
+| Data store and IDs | One DynamoDB table per environment; `AC-n` from an atomic counter, written only if new |
+| Photos | Presigned POST straight to a private S3 bucket; re-encoded without EXIF on submit; staff see them only through the console; inline in emails |
+| The form's rate limit | Counted in the table per device cookie and per address, under a keyed hash |
+| Staff sign-in | The app exchanges the code (PKCE) and checks the ID token and the `ceramics` group on every request; values from `/config/cognito/staff/*` |
+| Email | An outbox in the table, sent by a mailer from the table's stream; failures shown, retried and alarmed |
+| Deploy | SAM; a hand-deployed bootstrap stack with tag-conditioned roles; stage then prod on every merge, each with a smoke test |
+| The scheduled close | EventBridge Scheduler, daily at 03:17 Austin time |
+
+A later choice that changes one of these needs a new decision record.
