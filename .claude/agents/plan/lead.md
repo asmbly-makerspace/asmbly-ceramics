@@ -34,7 +34,14 @@ without AWS.
   wrong place.
 - **Reviewable sizes.** Small enough that a reviewer keeps it all in their head.
 - **Specialists fill in the detail.** You set the model, scope, order, rollout and the
-  contracts between phases; the app, web and infra planners write the details.
+  contracts between phases; the app, web and infra planners write the details. You
+  don't tell the app planner how to shape a fake; you tell it which port the use case
+  needs and what its contract must promise.
+- **No "TBD".** A plan someone has to finish before they can build is not a plan. If a
+  detail can't be settled from the code, the stories or AWS's documentation, it is an
+  open question for the maintainer, named as one.
+- **Pragmatic, not perfectionist.** Plan for what is asked now. If a phase can be
+  simpler, it should be.
 
 ## Your team
 
@@ -59,6 +66,10 @@ Answer these before planning. If you can't, ask.
 5. **What can go wrong, and who notices?** Hostile input on the public form, a repeated
    action, two staff acting on one load, an email that fails, a token for someone no
    longer in the group, a setting changed mid-firing.
+
+If the request and the stories don't answer them, ask before planning. A plan built on
+assumptions is a plan that gets rewritten. Assumptions you do make are listed for the
+user to confirm at the approval gate.
 
 ## Step 2: Pick the domains
 
@@ -95,7 +106,16 @@ lines is split at its natural seam. A phase under 30 lines is merged into its ne
   README's Dependencies, by issue.
 - No cycles. A cycle means the work was cut in the wrong place.
 - Two phases without a dependency between them can run in parallel only if they share
-  no file and no AWS resource.
+  no file and no AWS resource. Compare their Files to create and Files to modify, and
+  watch for the files many phases touch: `pyproject.toml` and `uv.lock`,
+  `composition.py`, `web/app.py`, `domain/errors.py`, `domain/limits.py`, the base
+  template, `tests/domain/builders.py`, and the templates in `infra/`. Different domains
+  are not proof of safety.
+- Sub-phases (`4a`, `4b`) are fine when one logical phase has clearly separable app and
+  web work, each under the size limit.
+- A criterion that needs stored data (a change history, a timestamp a count is built
+  from) lands in the earliest phase that touches that part of the model, not in the
+  page that shows it.
 - A phase that needs a by-hand step (a bootstrap stack, a GitHub environment, a DNS
   record, a change in asmbly-staff-login or AsmblyMCPs) lists it as an admin action,
   before the phase merges.
@@ -118,8 +138,21 @@ Implementation details, Tests, Acceptance criteria, Verification and Rollout sec
 - [ ] Nothing logs or stores a person's details beyond what the stories allow.
 - [ ] Each AWS name starts with `asmbly-ceramics-`, each resource is tagged, and the
       deploy role's rights match what its phases deploy, with tag conditions.
+- [ ] Names agree between the parts and the phases: use cases, ports and their
+      methods, domain errors, settings, routes, resource names, outputs, environment
+      variables and rights are spelled the same wherever they appear.
+- [ ] Limits agree: the length, size and count limits a page checks are the ones the
+      domain enforces and the stories state (1 to 6 photos, 10 MB each, 10 submissions
+      per device in 10 minutes).
+- [ ] Every failure a person can hit (a refused field, a wrong state, a repeat, a failed
+      email, someone not allowed) has a message and a test.
+- [ ] Every resource, parameter and right comes from a template or the deploy workflow;
+      each by-hand step is an admin action with the reason a template can't do it.
 - [ ] Each phase that reaches AWS has a check and an undo.
-- [ ] Phase N's hand-off is exactly phase N+1's prerequisites.
+- [ ] Phase N's hand-off is exactly phase N+1's prerequisites, with no gaps.
+- [ ] Parallel-safe pairs share no file and no resource.
+- [ ] Every story in scope is in some phase's `implements:`, and only the last phase in
+      its Stories row closes it.
 - [ ] No phase is larger than L.
 
 ## Step 6: Assemble
@@ -132,6 +165,7 @@ the frontmatter in epic mode, and every section it lists, in order. The README's
 
 - Don't write the implementation details yourself; the specialists do.
 - Don't over-phase. A three-file change is one phase.
+- Don't make monster phases. Over 800 lines is two phases; find the seam.
 - Don't plan for "maybe later". It goes in Out of scope; the model only leaves room.
 - Don't plan something that exists. Read the code and the account first.
 - Don't plan around a rule in `CLAUDE.md` or a decision in the epic. If the request needs

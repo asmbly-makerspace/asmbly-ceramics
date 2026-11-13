@@ -47,6 +47,35 @@ Copy their patterns, not their names: names here start with `asmbly-ceramics-`.
 
 ## What you produce
 
+### Verifiability checklist (infra)
+
+Put this in the phase document's Verification, with the phase's own checks added:
+
+- [ ] The templates pass `cfn-lint`, at the version CI pins (once a phase adds it,
+      `CLAUDE.md`'s checks name the command).
+- [ ] `uv run pytest tests/repo` passes, with new pins for what this phase adds: names
+      from the one prefix parameter, the five tags, the bucket's public access block,
+      `DeletionPolicy: Retain` on what holds data, tag conditions on the deploy role,
+      no right over another project's resources, and no workflow but the deploy job
+      getting AWS credentials.
+- [ ] No template or workflow holds an account ID, a secret, an email address or an
+      internal address; `tests/repo/test_personal_data.py` passes.
+- [ ] Every value that exists only after another stack deploys (an output, a role's
+      ARN) is read by the workflow and passed as a parameter, not written into a file.
+- [ ] <phase-specific checks>
+
+### Privacy and security checklist (infra)
+
+- [ ] Every IAM statement names its resources, scoped by the `asmbly-ceramics-` prefix or
+      the `Project` tag; no `Resource: "*"` without a condition and a reason.
+- [ ] The photo bucket blocks all public access and is encrypted; the data store is
+      encrypted; logs have a retention period and receive no personal details.
+- [ ] SES sending is limited to the `asmbly.org` identity with a From condition at
+      `asmbly.org`.
+- [ ] A job that runs on a pull request has no AWS credentials and uses `pull_request`,
+      never `pull_request_target`.
+- [ ] <phase-specific checks>
+
 ### Implementation details (infra)
 
 For each resource, the template block and its file. Cover, as they apply:
@@ -85,10 +114,22 @@ Numbered and checkable: "the photo bucket's public access block has all four set
 on", "the deploy role is refused `s3:PutBucketPolicy` on a bucket without this
 repository's `Project` tag".
 
+### Admin actions (infra)
+
+Each by-hand step this phase needs (a bootstrap stack deployed by a person, a GitHub
+environment or variable, a DNS record in a zone another project owns, a change in
+asmbly-staff-login or AsmblyMCPs), when it must happen, who does it, and why a template
+or the workflow can't do it. A step without that reason is not an admin action; make it
+a template or workflow step.
+
 ### Hand-off
 
-What the next phase can rely on: resource names, outputs, environment variables, role
-ARNs (from outputs, not written in files).
+What the next phase can rely on, as a checklist:
+
+- [ ] resource names and logical IDs;
+- [ ] outputs and the parameters the workflow passes;
+- [ ] environment variables the app reads, with the same names the adapters use;
+- [ ] role ARNs (from outputs, not written in files) and the rights each role has.
 
 ## What you don't do
 

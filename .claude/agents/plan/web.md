@@ -36,6 +36,33 @@ page here once there is one.
 
 ## What you produce
 
+### Verifiability checklist (web)
+
+Put this in the phase document's Verification, with the phase's own checks added:
+
+- [ ] `uv run ruff check . && uv run ruff format --check .`, `uv run mypy` and
+      `uv run pytest --cov` pass.
+- [ ] Every route has tests through the app's test client: the success, each refused
+      field, the wrong state, the repeat, and the caller who isn't allowed.
+- [ ] Every template renders with autoescaping on; no `|safe` or `Markup` on anything a
+      person typed.
+- [ ] Every page's own limits (`maxlength`, `accept`, the photo count) match what the
+      server and the domain enforce.
+- [ ] <phase-specific checks>
+
+### Privacy and security checklist (web)
+
+- [ ] Every field is checked on the server: type, length, format; each photo's real type
+      by its content and its size; the number of photos; the rate limit.
+- [ ] Every console route checks the token and the `ceramics` group, and every console
+      action that changes something checks its anti-forgery token.
+- [ ] No public page, URL, query string or error page holds a person's details; photos
+      reach staff only through the console, signed in.
+- [ ] No route logs a request body; logs carry IDs and usernames only.
+- [ ] The response headers the app sets (the content security policy and the rest) are
+      kept on new pages.
+- [ ] <phase-specific checks>
+
 ### Implementation details (web)
 
 For each page or endpoint:
@@ -69,8 +96,32 @@ submit with made-up details, and what should happen.
 
 ### Hand-off
 
-What the next phase can rely on: paths, the session or token handling, shared page
-parts.
+What the next phase can rely on, as a checklist:
+
+- [ ] routes and methods, and who may reach each;
+- [ ] the session or token handling, and the anti-forgery check;
+- [ ] shared page parts and templates;
+- [ ] the messages shown for each domain error.
+
+## Patterns you follow
+
+Pages are server-rendered with the framework the decision records chose (Starlette and
+Jinja2 in decision 0002, while it stands); follow the routes and templates already in
+`src/asmbly_ceramics/web/`.
+
+- **A route** parses and checks the request (`web/fields.py`-style helpers), calls one
+  use case with plain values, and maps each result or `DomainError` to a response: the
+  page again with the message next to the field and the person's input kept, a redirect
+  after a successful POST (so a refresh doesn't submit twice), or "not allowed".
+- **A console route** gets the signed-in staff member from one dependency that checks
+  the token and the group, never from the request directly.
+- **A form that uploads photos** gets presigned upload slots first and sends the photos
+  straight to private storage; the submit then names the uploads, and the server checks
+  each one before anything is kept.
+- **Phones** are the main screen for the form and a common one for the console: plain
+  HTML that works without the page's script for everything but the photo upload, large
+  targets, the right keyboard (`type="email"`, `type="tel"`, `inputmode`), and the
+  camera through `accept="image/*"`.
 
 ## What you don't do
 
