@@ -648,6 +648,12 @@ something outside failed, and their text is fixed and safe.
 class Submission:  # one per form submission token, so a refresh makes no second drop-off
     token_hash: str
     drop_off_id: DropOffId
+    # The ID page's summary, so the public form never reads a drop-off item.
+    # No name, email, phone, message or photo: ever.
+    pieces: int
+    firing_type: str  # the item's name when submitted
+    glaze_type: str | None
+    created_at: datetime
     expires_at: datetime  # SUBMISSION_LIFETIME; the adapter sets TTL from it
 
 
@@ -812,8 +818,9 @@ class Clock(Protocol):
 
 
 class SecretName(StrEnum):
-    HASH_KEY = "hash-key"
-    SESSION_KEY = "session-key"
+    HASH_KEY = "hash-key"  # keyed hashes for rate limits and submission tokens (form)
+    FORM_KEY = "form-key"  # signs the public form's __Host-received cookie (form only)
+    SESSION_KEY = "session-key"  # signs the console's sign-in state and CSRF tokens (console only)
 
 
 class Secrets(Protocol):
@@ -931,8 +938,8 @@ them first.
    ID, dates, firing type, pieces, load and reason.
 8. Every port in the README's ports table exists as a `Protocol` with a fake under
    `adapters/memory/` that passes its contract tests, failures included.
-9. Nothing under `src/asmbly_ceramics/` imports boto3, botocore, Starlette, Jinja2 or
-   Pillow.
+9. Nothing under `src/asmbly_ceramics/domain/` or `src/asmbly_ceramics/ports/` imports
+   boto3, botocore, Starlette, Jinja2 or Pillow (the test above).
 
 ## Verification
 

@@ -38,6 +38,10 @@ estimated_size: L
   phase 7 adds.
 - WebKit bug 267277 and 292350 (what an iPhone sends under an `accept` list): the
   reason for the list below, at medium confidence.
+- AWS: API Gateway's documentation on the request headers an HTTP API sends to its
+  integration, for `X-Forwarded-For`: the rate limit relies on API Gateway appending the
+  real client address as the header's last value and keeping whatever the caller sent in
+  front of it. **To confirm in `/prep`** against that page before this phase is built.
 
 ## Goal
 
@@ -99,7 +103,7 @@ class WebSettings:
     site_url: str  # "https://ceramics.asmbly.org"; its scheme and host are the only allowed Origin
     photo_upload_origin: str  # "https://<bucket>.s3.us-east-2.amazonaws.com", for connect-src
     version: str  # shown by /health
-    cookie_key: bytes  # signs __Host-received; the session key from Secrets (phase 7)
+    cookie_key: bytes  # signs __Host-received; the form key (SecretName.FORM_KEY) from Secrets (phase 7)
 
 
 @dataclass(frozen=True)
@@ -196,11 +200,10 @@ defer>`; no inline script anywhere.
 - Same-origin check (below), then the body: JSON only, at most 1 KB, `count` an integer
   from 1 to 6 and `submission` a well-formed token. Anything else: 400
   `{"error": "bad_request"}`.
-- Calls `request_upload_slots(UploadSlotsRequest(submission, count, device_key,
-  address))`, where `device_key` is the `__Host-device` cookie (a request without one
-  gets 400: the form page always sets it) and `address` is the source address
-  (`x-forwarded-for`'s first value as API Gateway sets it, else the client's host).
-- Rate limited (phase 2's `RateLimited`): 429 `{"error": "rate_limited"}`, which the
+- Calls `request_upload_slots(SlotRequest(count, device, source_address))`, where
+  `device` is the `__Host-device` cookie (a request without one gets 400: the form page
+  always sets it) and `source_address` is `security.client_address(request)` (below).
+- Rate limited (phase 2's `TooManySubmissions`): 429 `{"error": "rate_limited"}`, which the
   script shows as "Too many drop-offs from this device. Try again later."
 - Returns `{"slots": [{"id", "url", "fields"}]}`; the slot's fields are the presigned
   POST's, already limited by phase 2 and 4 to 1 byte to 10 MB and `image/` types for
@@ -209,32 +212,44 @@ defer>`; no inline script anywhere.
 #### `POST /drop-off`
 
 - Same-origin check, then reads at most 16 KB of `application/x-www-form-urlencoded`
-  (larger: 413 page). `fields.py` turns it into `SubmitDropOffRequest(submission,
-  name, email, phone, pieces, firing_type, glaze_type, slots, device_key, address)`,
+  (larger: 413 page). `fields.py` turns it into phase 2's `SubmitRequest(name,
+  email, phone, pieces, firing_type, glaze_type, upload_slots, submission_token, device,
+  source_address)`, `source_address` from `security.client_address(request)`,
   keeping each value a string; the domain does the checking.
 - Outcomes:
 
 | From `submit_drop_off` | The page |
 | --- | --- |
-| `Submitted(drop_off_id)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` |
-| `FieldErrors(errors)` | 400, the form again with each message next to its field, the person's values kept (escaped), photos to choose again, a summary at the top linking to each field ("There are 2 problems with your drop-off.") |
-| `RateLimited` | 429, `error.html`: "Too many drop-offs from this device. Try again later." |
-| `UploadsExpired` | 400, the form: "Your photos took too long. Please add them again." next to photos |
+| `Submitted(view, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` |
+| `InvalidDetails(errors)` | 400, the form again with each message next to its field, the person's values kept (escaped), photos to choose again, a summary at the top linking to each field ("There are 2 problems with your drop-off.") |
+| `TooManySubmissions` | 429, `error.html`: "Too many drop-offs from this device. Try again later." |
+| `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable` | 503 page: "Something went wrong on our side. Nothing was saved; please try again." |
 | anything else | 500 page, nothing saved (the use case writes everything in one transaction or nothing) |
 
-- `__Host-received`: `<drop-off id>.<expiry>.<hmac>`, HMAC-SHA256 with the cookie key,
-  expiry 30 minutes, `Path=/; Secure; HttpOnly; SameSite=Lax`. It holds the ID only.
+- `__Host-received`: `<submission token hash>.<expiry>.<hmac>`, HMAC-SHA256 with the
+  form key, expiry 30 minutes, `Path=/; Secure; HttpOnly; SameSite=Lax`. It holds the
+  submission's keyed hash only: no ID, nothing personal.
 
 #### `GET /drop-off/received`
 
-- Reads and checks `__Host-received` (signature, expiry, well-formed ID). Missing, bad
-  or expired: 303 to `/`.
-- Calls `received_summary(drop_off_id)`: pieces, the firing type's and glaze type's
-  names, when, number of photos. No name, email, phone or photo.
+- Reads and checks `__Host-received` (signature, expiry, a well-formed hash). Missing,
+  bad or expired: 303 to `/`.
+- Calls `received_summary(token_hash)`, which reads only the `Submission` item (phase 2):
+  the ID, pieces, the firing type's and glaze type's names, when. No name, email, phone
+  or photo, and the form function never reads a drop-off item.
 - Shows the ID in monospace bold in `--ceramics-shade` at 2.5 rem, "Write this ID and
   your name on a slip for each piece.", the summary, "We've emailed you a copy with your
   photos.", and a link "Drop off another piece" to `/`. No link to the kiln schedule
   (#9 is not in this plan).
+
+#### The client's address (`security.py`)
+
+`client_address(request) -> str`: the **last** comma-separated value of the
+`X-Forwarded-For` header, trimmed. API Gateway's HTTP API appends the address it saw to
+whatever the caller sent, so only the last value can be trusted; anything earlier is the
+caller's own text. A missing or empty header answers 400. uvicorn runs without
+`--proxy-headers` (phase 7), so Starlette's `request.client` is the Web Adapter's
+loopback and is never used.
 
 #### Same-origin check (`security.py`)
 
@@ -332,7 +347,9 @@ phase 2's use cases; made-up details are built in code (for example
     inspector refuses kind `not_an_image`).
   - `test_a_photo_over_10_mb_is_refused` (the fake photo store holds 10 MB + 1 byte for
     the slot).
-  - `test_a_slot_from_another_submission_is_refused`.
+  - `test_a_malformed_or_seventh_slot_is_refused_before_any_read`: a slot ID that isn't
+    22 to 64 URL-safe characters, or a seventh distinct slot, answers 400 next to the
+    photos and the fake photo store records no read.
   - `test_the_eleventh_drop_off_from_one_device_in_ten_minutes_is_refused` (429, the
     message, nothing saved); `test_the_device_can_drop_off_again_after_ten_minutes` (the
     fake clock moves on).
@@ -351,6 +368,11 @@ phase 2's use cases; made-up details are built in code (for example
     token get 400.
   - `test_upload_slots_need_the_device_cookie`.
   - `test_upload_slots_are_rate_limited` (429 after the limit).
+  - `test_spoofed_forwarded_for_does_not_change_the_rate_key`: a request with
+    `X-Forwarded-For: 1.2.3.4, <real>` counts against `<real>`; a request without the
+    header gets 400.
+  - `test_upload_slots_fail_closed_when_the_limiter_is_unavailable` (the fake records
+    raise `RecordsUnavailable`: 503, no slot issued).
 - `test_security.py`
   - `test_every_response_has_the_security_headers`: `/`, `/health`, a 404, a 400, the
     received page, a 500 from a use case that raises.

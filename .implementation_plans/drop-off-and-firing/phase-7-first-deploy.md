@@ -121,13 +121,18 @@ address isn't published until phase 10.
 | `SiteHost` | String | samconfig: `ceramics-stage.asmbly.org` or `ceramics.asmbly.org` |
 | `EmailDomain` | String, `asmbly.org` | default |
 | `WebAdapterLayerArn` | String, `AllowedPattern ^arn:aws:lambda:us-east-2:[0-9]+:layer:LambdaAdapterLayerArm64:[0-9]+$` | the GitHub variable `WEB_ADAPTER_LAYER_ARN` (AWS's published ARN for the arm64 layer, version 27 or later; it holds AWS's account number, which the repository's test refuses in a file) |
-| `AlertEmail` | String, `Default ''` | the GitHub variable `ALERT_EMAIL` |
-| `InitialSendingAddress` | String, `AllowedPattern ^[^@\s]+@asmbly\.org$` | the GitHub variable `INITIAL_SENDING_ADDRESS` |
+| `AlertEmail` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/alert-email` (a String the maintainer sets by hand) |
+| `InitialSendingAddress` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/initial-sending-address` (a String the maintainer sets by hand; the domain refuses an address outside `asmbly.org`) |
+
+The two addresses are not in GitHub and not in the deploy command: `sam deploy` and the
+change set print the parameters' names, never their values, so the public Actions logs
+hold neither. CloudFormation resolves them with the execution role's
+`ssm:GetParameters` on `parameter/asmbly-ceramics/*` (phase 5).
 
 The staff sign-in values (`StaffIssuer`, `StaffSignInUrl`, `StaffClientId`) are added
 by phase 8, which uses them.
 
-**Conditions**: `IsProd` (`AppEnv` = prod); `HasAlertEmail` (`AlertEmail` not empty).
+**Conditions**: `IsProd` (`AppEnv` = prod).
 
 **Globals.Function**: `Runtime: python3.14`, `Architectures: [arm64]`,
 `CodeUri: ../src/`, `PermissionsBoundary: !ImportValue asmbly-ceramics-function-boundary-arn`,
@@ -141,10 +146,13 @@ own JSON), `Environment.Variables` (all functions):
 | `TABLE_NAME` | `!Ref RecordsTable` |
 | `PHOTO_BUCKET` | `!Ref PhotoBucket` |
 | `SITE_URL` | `!Sub https://${SiteHost}` |
-| `HASH_KEY_PARAMETER` | `!Sub /${ProjectSlug}/${AppEnv}/hash-key` |
-| `SESSION_KEY_PARAMETER` | `!Sub /${ProjectSlug}/${AppEnv}/session-key` |
 | `INITIAL_SENDING_ADDRESS` | `!Ref InitialSendingAddress` |
 | `LOG_LEVEL` | `INFO` |
+
+Each function adds only the keys it reads: `FormFunction` sets `HASH_KEY_PARAMETER`
+(`!Sub /${ProjectSlug}/${AppEnv}/hash-key`) and `FORM_KEY_PARAMETER`
+(`!Sub /${ProjectSlug}/${AppEnv}/form-key`); phase 8's `ConsoleFunction` sets
+`SESSION_KEY_PARAMETER`; the mailer reads no key.
 
 Tags come from the stack (`sam deploy --tags`, below); `PropagateTags: true` on every
 SAM resource that has it, so the generated roles and the API carry them too.
@@ -263,8 +271,7 @@ Log groups (`AWS::Logs::LogGroup`): `FormLogGroup` (`/aws/lambda/${ProjectSlug}-
 
 `AlarmTopic` (`AWS::SNS::Topic`, `TopicName: ${ProjectSlug}-${AppEnv}-alarms`; no KMS
 key, since CloudWatch can't publish to a topic encrypted with the AWS managed key, as
-AsmblyMCPs found), and `AlarmEmailSubscription` (`Condition: HasAlertEmail`,
-`Protocol: email`, `Endpoint: !Ref AlertEmail`).
+AsmblyMCPs found), and `AlarmEmailSubscription` (`Protocol: email`, `Endpoint: !Ref AlertEmail`).
 
 Metric filters and alarms, each with `AlarmActions` and `OKActions` on `AlarmTopic`,
 `TreatMissingData: notBreaching`, names `${ProjectSlug}-${AppEnv}-<name>`:
@@ -283,19 +290,25 @@ phase 5 caps them):
 Form function:
 
 ```yaml
-- Sid: ReadStudioAndSubmissions
+- Sid: ReadStudioAndSubmissions        # never a drop-off: the ID page reads the submission's summary
   Effect: Allow
   Action: [dynamodb:GetItem, dynamodb:Query]
   Resource: !GetAtt RecordsTable.Arn
   Condition:
     ForAllValues:StringLike: {dynamodb:LeadingKeys: ["STUDIO", "STUDIO#*", "SUBMISSION#*"]}
-- Sid: WriteDropOffsAndCounters
+- Sid: CreateDropOffs                  # new items only, through the submit transaction
   Effect: Allow
-  Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:ConditionCheckItem]
+  Action: [dynamodb:PutItem, dynamodb:ConditionCheckItem]
   Resource: !GetAtt RecordsTable.Arn
   Condition:
     ForAllValues:StringLike:
-      dynamodb:LeadingKeys: ["DROPOFF#*", "EMAIL#*", "SUBMISSION#*", "COUNTER#*", "RATE#*", "STUDIO", "STUDIO#*"]
+      dynamodb:LeadingKeys: ["DROPOFF#*", "EMAIL#*", "SUBMISSION#*", "STUDIO", "STUDIO#*"]
+- Sid: CountIdsAndRates
+  Effect: Allow
+  Action: dynamodb:UpdateItem
+  Resource: !GetAtt RecordsTable.Arn
+  Condition:
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*", "RATE#*"]}
 - Sid: TransactOnTheTable                # TransactWriteItems is authorised per item action above
   Effect: Allow
   Action: dynamodb:TransactWriteItems   # if the IAM reference lists it as an action; see Required reading
@@ -313,11 +326,16 @@ Form function:
   Action: ssm:GetParameter
   Resource:
     - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/hash-key
-    - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key
+    - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/form-key
 ```
 
-The form never gets `s3:GetObject` on `dropoffs/*`, `dynamodb:Scan`, a `Query` outside
-the studio and its own submissions, or any SES right. `STUDIO` writes are for phase 3's
+The form never gets `s3:GetObject` on `dropoffs/*`, any read of a `DROPOFF#`, `EMAIL#`
+or `LOAD#` item, `UpdateItem` on them, `dynamodb:Scan`, a `Query` outside the studio and
+its own submissions, the console's `session-key`, or any SES right. IAM can't require
+`attribute_not_exists` on a `PutItem`, so a form function whose code was taken over
+could still overwrite a drop-off item with a `Put`; that is accepted in decision 0002
+(the mailer re-reads each drop-off by key, so only an overwritten one could be
+affected). `STUDIO` writes are for phase 3's
 first-use seeding of the studio from `INITIAL_SENDING_ADDRESS` (a conditional put that
 does nothing once it exists). Decrypting the SecureStrings uses the AWS managed key for
 SSM, which the boundary allows through `kms:ViaService` (phase 5).
@@ -325,12 +343,18 @@ SSM, which the boundary allows through `kms:ViaService` (phase 5).
 Mailer function:
 
 ```yaml
-- Sid: ReadAndMarkEmails
+- Sid: ReadWhatAnEmailNeeds
   Effect: Allow
-  Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:UpdateItem, dynamodb:PutItem]
+  Action: dynamodb:GetItem
   Resource: !GetAtt RecordsTable.Arn
   Condition:
     ForAllValues:StringLike: {dynamodb:LeadingKeys: ["EMAIL#*", "DROPOFF#*", "LOAD#*", "STUDIO", "STUDIO#*"]}
+- Sid: MarkEmails                      # claim, sent, failed: the only writes the mailer makes
+  Effect: Allow
+  Action: dynamodb:UpdateItem
+  Resource: !GetAtt RecordsTable.Arn
+  Condition:
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["EMAIL#*"]}
 - Sid: ReadTheStream
   Effect: Allow
   Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator, dynamodb:ListStreams]
@@ -395,8 +419,9 @@ class Settings:
     table_name: str
     photo_bucket: str
     site_url: str
-    hash_key_parameter: str
-    session_key_parameter: str
+    hash_key_parameter: str | None  # form only
+    form_key_parameter: str | None  # form only
+    session_key_parameter: str | None  # console only (phase 8)
     initial_sending_address: str
     region: str  # AWS_REGION, set by Lambda
     log_level: str
@@ -416,10 +441,12 @@ def build_mailer(settings: Settings | None = None) -> SendPendingEmail: ...
 ```
 
 Each creates its boto3 clients once (module-level cache), builds phase 4's adapters
-(`DynamoRecords`, `DynamoIdNumbers`, `DynamoRateLimiter`, `S3PhotoStore`,
+(`DynamoDbRecords`, `DynamoDbIdNumbers`, `DynamoDbRateLimiter`, `S3PhotoStore`,
 `PillowPhotoInspector`, `SesMailer`, `SsmSecrets`, `SystemClock`) and phase 2's and 3's
 use cases. `WebSettings.photo_upload_origin` is
-`https://<bucket>.s3.<region>.amazonaws.com`. Phase 8 adds `build_console_services` and
+`https://<bucket>.s3.<region>.amazonaws.com`; `WebSettings.cookie_key` is
+`Secrets.get(SecretName.FORM_KEY)`. The form function reads `hash-key` and `form-key`
+only. Phase 8 adds `build_console_services` and
 phase 9 `build_closer`.
 
 `logs.py`: `configure_logging(level)` installs one handler on the root logger with a
@@ -434,11 +461,14 @@ output can hold request bodies). A test asserts the field list.
 ```sh
 #!/bin/sh
 exec python -m uvicorn asmbly_ceramics.web.app:create_from_environment --factory \
-  --host 0.0.0.0 --port "$PORT" --no-access-log --proxy-headers --forwarded-allow-ips '*'
+  --host 0.0.0.0 --port "$PORT" --no-access-log
 ```
 
 Executable in git (`chmod +x`, checked by a test). uvicorn's access log is off (it
-would log paths and addresses); the app logs its own lines.
+would log paths and addresses); the app logs its own lines. It runs without
+`--proxy-headers`: the client's address is read only by phase 6's
+`security.client_address`, from the last `X-Forwarded-For` value, so a caller can't
+choose the address the rate limit counts.
 
 `entry/mailer.py`:
 
@@ -488,18 +518,21 @@ Steps of each job:
 2. `actions/checkout@v7`, `actions/setup-python@v7` (`python-version-file: .python-version`),
    `aws-actions/setup-sam@v3` (`version: ${{ env.SAM_CLI_VERSION }}`, `use-installer: true`).
 3. `aws-actions/configure-aws-credentials@v6` with `role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}`,
-   `aws-region: ${{ vars.AWS_REGION }}`.
+   `aws-region: ${{ vars.AWS_REGION }}`, `mask-aws-account-id: true`; then, before any
+   step that prints, `echo "::add-mask::$(aws sts get-caller-identity --query Account
+   --output text)"`, so the account ID (in role ARNs and the bucket's name) is masked in
+   the public Actions log.
 4. `sam build --config-env "$CONFIG_ENV"`.
 5. `sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE"
    --s3-bucket "$ARTIFACTS_BUCKET" --parameter-overrides "$(python3 scripts/sam_parameters.py
-   "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN"
-   "AlertEmail=$ALERT_EMAIL" "InitialSendingAddress=$INITIAL_SENDING_ADDRESS")"`, with
-   those values from `vars.*` in `env:`.
+   "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN")"`,
+   with those values from `vars.*` in `env:`. The addresses are SSM-typed parameters
+   named in samconfig, so no address is in the command or its output.
 6. **Smoke test**: `python3 scripts/smoke.py "https://<site host>" "${GITHUB_SHA::7}"`,
    no credentials needed (the step runs after the deploy; the job's credentials expire
    in an hour and the script doesn't use them).
-7. Write the stack's outputs and the smoke result to `GITHUB_STEP_SUMMARY` (addresses
-   and names only).
+7. Write only the site URL, the version and the smoke result to `GITHUB_STEP_SUMMARY`:
+   no stack output, role ARN or bucket name (they hold the account ID), and no address.
 
 `id-token: write` is the only right beyond `contents: read`, on these two jobs only.
 
@@ -602,12 +635,20 @@ and use only `vars.*` (no `secrets.*`).
 6. Every resource the stacks create has a name starting `asmbly-ceramics-` and the tags
    `Project=asmbly-ceramics`, `Component`, `Environment`, `Owner=it-volunteers`,
    `ManagedBy=sam` (`aws resourcegroupstaggingapi get-resources` read-only check).
-7. The form's role can't read kept photos or scan the table; only the mailer can send
-   email, only from `asmbly.org`.
+7. The form's role can't read kept photos, read, update or list any `DROPOFF#`,
+   `EMAIL#` or `LOAD#` item, scan the table, or read `session-key`; the mailer's role
+   writes only `EMAIL#` items (`UpdateItem`, no `PutItem`); only the mailer can send
+   email, only from `asmbly.org` (`test_app_template.py` pins each). The mailer can't
+   seed the studio's starting values, and needn't: an email exists only after a
+   submit, which reads (and so seeds) the studio first; `build_mailer` passes
+   `CurrentStudio` a read-only flag that raises if the studio is missing.
 8. No pull request job has AWS credentials or an environment; only `deploy.yml`'s two
    jobs do, and only on `main`.
 9. `uv run pytest --cov`, `uvx cfn-lint`, `sam validate --lint` and `sam build` pass in
    `PR check`.
+10. No address and no account ID appears in a deploy run's log or step summary: the
+   addresses are SSM-typed parameters named in samconfig, and the account ID is masked
+   (`test_deploy_workflow.py` checks the masking step comes before `sam deploy`).
 
 ## Verification
 
@@ -667,18 +708,19 @@ that), and no QR code points to it. Nobody is told yet.
 - Before merging: the sending right agreed in AsmblyMCPs (README, Dependencies). The
   same-account IAM statement above is enough for SES to accept the sends; the agreement
   is that the identity's owner knows and accepts another sender and its bounces.
-- Before merging: the SecureString parameters `/asmbly-ceramics/stage/hash-key`,
-  `/asmbly-ceramics/stage/session-key`, `/asmbly-ceramics/prod/hash-key` and
-  `/asmbly-ceramics/prod/session-key`, 32 random bytes each, set by the maintainer by
-  hand (`aws ssm put-parameter --type SecureString`, values never shown or committed).
+- Before merging: for each environment, the SecureString parameters
+  `/asmbly-ceramics/<env>/hash-key`, `/asmbly-ceramics/<env>/form-key` and
+  `/asmbly-ceramics/<env>/session-key`, 32 random bytes each, and the String parameters
+  `/asmbly-ceramics/<env>/alert-email` (the maintainers' address) and
+  `/asmbly-ceramics/<env>/initial-sending-address` (the studio's sending address at
+  `asmbly.org`, used until staff change it in the console), all set by the maintainer by
+  hand (phase 5's runbook; values never shown or committed).
 - Before merging: in both GitHub environments, the variables `AWS_REGION`,
   `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET` (from
-  phase 5's outputs), `WEB_ADAPTER_LAYER_ARN` (AWS's published arm64 layer ARN for
-  us-east-2), `ALERT_EMAIL` (the maintainers' address) and `INITIAL_SENDING_ADDRESS`
-  (the studio's sending address at `asmbly.org`, used until staff change it in the
-  console).
+  phase 5's outputs) and `WEB_ADAPTER_LAYER_ARN` (AWS's published arm64 layer ARN for
+  us-east-2). No address is a GitHub variable.
 - After the first deploy: confirm the SNS subscription from the email AWS sends to
-  `ALERT_EMAIL` for each environment.
+  `/asmbly-ceramics/<env>/alert-email` for each environment.
 
 ## Hand-off
 
@@ -693,7 +735,8 @@ Filled in when the phase is done. Phases 8 and 9 rely on:
   (more specific than `$default`), and the parameters `StaffIssuer`, `StaffSignInUrl`,
   `StaffClientId`; phase 9 adds `CloseFunction`, `CloseSchedule`, `CloseDeadLetterQueue`.
 - **Environment variables**: `APP_ENV`, `APP_VERSION`, `TABLE_NAME`, `PHOTO_BUCKET`,
-  `SITE_URL`, `HASH_KEY_PARAMETER`, `SESSION_KEY_PARAMETER`, `INITIAL_SENDING_ADDRESS`,
+  `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `HASH_KEY_PARAMETER` and `FORM_KEY_PARAMETER`
+  (form only; phase 8 adds `SESSION_KEY_PARAMETER` on the console only),
   `LOG_LEVEL`, and on web functions `AWS_LAMBDA_EXEC_WRAPPER`, `PORT`,
   `AWS_LWA_READINESS_CHECK_PATH`, `APP_ROLE` (`form`). Phase 8 adds `STAFF_ISSUER`, `STAFF_SIGN_IN_URL`,
   `STAFF_CLIENT_ID`.

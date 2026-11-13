@@ -165,7 +165,7 @@ create, +1 on every update).
 | Email (outbox) | `EMAIL#AC-12` | `<kind>` or `rejected#<rejected_at ISO>` | — | `EMAIL#<status>` / `<created_at ISO>#AC-12#<kind>` | — |
 | ID counters | `COUNTER#dropoff`, `COUNTER#load` | `META` | — | — | — |
 | Rate-limit count | `RATE#<hmac hex>#<window start ISO>` | `META` | — | — | window end + 1 day |
-| Submission token | `SUBMISSION#<token>` | `META` | — | — | created + 1 day |
+| Submission token | `SUBMISSION#<hash>` (the keyed hash, never the token) | `META` | — | — | created + 1 day |
 
 - `<state>` and `<status>` are the domain enums' values (`waiting`, `in_load`, `fired`,
   `rejected`, `closed`; `loading`, `firing`, `fired`; `pending`, `sending`, `sent`,
@@ -174,8 +174,10 @@ create, +1 on every update).
   `DROPOFF#rejected`, and failed emails are `GSI2PK = EMAIL#failed`.
 - Timestamps are ISO 8601 in UTC with a `Z`, so they sort as strings. Dates (a load's
   date) are `YYYY-MM-DD` in Austin time, as the domain gives them.
-- A `SubmissionToken` item maps a form's one-time token to the drop-off it made
-  (phase 2), so a refresh after Submit finds the same ID.
+- A `Submission` item (`SUBMISSION#<hash>`) maps a form's one-time token's keyed hash to
+  the drop-off it made and carries the ID page's summary (ID, pieces, firing and glaze
+  type names, time; no contact detail), so a refresh after Submit finds the same ID
+  and the public form never reads a drop-off item (phase 2).
 - Every item has a top-level `type` string: `drop_off`, `load`, `studio`, `history`,
   `email`, `counter`, `rate` or `submission`.
 - The stream (phase 7 turns it on) uses `NEW_IMAGE`. An email item's `type` and `status`
@@ -277,11 +279,10 @@ def hit(self, key: RateKey, window: timedelta, limit: int) -> bool: ...
   #2's "more than 10 within 10 minutes are refused" is checked against in phase 2.
 - Expired items still exist until TTL removes them; the key includes the window start,
   so an old item is never read again.
-- Errors: the limiter fails open for a throttle or outage (`hit` returns `True` and
-  logs the code at WARNING), because refusing every drop-off when DynamoDB hiccups is
-  worse than letting a burst through; the decision is logged so phase 7's alarm on
-  `level=ERROR` doesn't miss a long outage (it logs at ERROR after 3 consecutive
-  failures in one container).
+- Errors: the limiter fails closed. A throttle or outage raises `RecordsUnavailable(code)`
+  (logged with the code only), so no upload slot is issued and no drop-off is accepted
+  without being counted; a submit would fail anyway, since it needs the table. The page
+  says "try again".
 - Rights: `dynamodb:UpdateItem` on keys `RATE#*`.
 
 ### app: `S3PhotoStore` (`PhotoStore`)
@@ -470,8 +471,9 @@ class CognitoStaffTokens:
   `ParameterNotFound` → `SecretMissing(name)`, whose message names the parameter (not
   its value) so a missing by-hand step shows clearly in the logs; other codes →
   `SecretsUnavailable(code)`. The value is never logged.
-- The names phase 7 uses: `hash-key` (the rate limit's HMAC key) and `session-key`
-  (the console's session and CSRF signing key, phase 8).
+- The names phase 7 uses: `hash-key` (the rate limit's and submissions' HMAC key, form
+  only), `form-key` (the public `__Host-received` cookie, form only) and `session-key`
+  (the console's sign-in state and CSRF signing key, console only, phase 8).
 - Rights: `ssm:GetParameter` on `parameter/asmbly-ceramics/<env>/*`, and `kms:Decrypt`
   through SSM (the AWS-managed key).
 
@@ -529,7 +531,7 @@ adapter-on-stub, so the fake can't drift from the adapter:
 - `test_hit_counts_in_a_fixed_window_and_sets_ttl_once`
 - `test_eleventh_hit_in_a_window_is_refused`
 - `test_new_window_starts_counting_again`
-- `test_outage_fails_open_and_logs_warning_then_error`
+- `test_outage_fails_closed_with_records_unavailable` (the code is logged, never the message)
 
 **Photos**
 
@@ -662,8 +664,8 @@ Phase 7 can rely on:
   `{"dynamodb": {"NewImage": {"type": {"S": ["email"]}, "status": {"S": ["pending"]}}}}`.
 - The bucket layout: `uploads/<random>/0` (expire after a day) and
   `dropoffs/AC-n/<k>.jpg`, `dropoffs/AC-n/<k>-thumb.jpg`.
-- The SSM parameter names `/asmbly-ceramics/<env>/hash-key` and
-  `/asmbly-ceramics/<env>/session-key`.
+- The SSM parameter names `/asmbly-ceramics/<env>/hash-key`,
+  `/asmbly-ceramics/<env>/form-key` and `/asmbly-ceramics/<env>/session-key`.
 - The rights per adapter, listed under each adapter above, for phase 7 to split by
   function role:
 

@@ -250,8 +250,8 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
 | --- | --- | --- |
 | Before phase 5 merges | The maintainer | Confirm the addresses `ceramics.asmbly.org` and `ceramics-stage.asmbly.org` |
 | After phase 5 merges | The maintainer, with rights to the `asmbly.org` zone | Deploy `asmbly-ceramics-bootstrap` by hand, following `docs/runbooks/aws-bootstrap.md` (phase 5); check the certificates are issued |
-| After phase 5 merges | The maintainer | Create the GitHub environments `stage` and `prod` (deployments from `main` only) and their variables: `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET`, `ALERT_EMAIL`, `INITIAL_SENDING_ADDRESS` |
-| Before phase 7 merges | The maintainer, by hand | Set `/asmbly-ceramics/<env>/hash-key` and `/asmbly-ceramics/<env>/session-key` (SecureString, 32 random bytes each) for stage and prod |
+| After phase 5 merges | The maintainer | Create the GitHub environments `stage` and `prod` (deployments from `main` only) and their variables: `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`. No address is a GitHub variable: the repository's Actions logs are public |
+| Before phase 7 merges | The maintainer, by hand | For stage and prod, set the SecureStrings `/asmbly-ceramics/<env>/hash-key`, `form-key` and `session-key` (32 random bytes each) and the Strings `/asmbly-ceramics/<env>/alert-email` (the maintainers' address) and `initial-sending-address` (the studio's address at `asmbly.org`), by phase 5's runbook |
 | Before phase 7 merges | AsmblyMCPs | Agree the sending right (Dependencies); no change to `mcp-bootstrap` is needed for a same-account sender, but the identity's owner decides |
 | After phase 7's first deploy | The maintainer | Confirm the alarm topic's email subscription |
 | Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
@@ -302,6 +302,8 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
   values `App` (the app stacks) and `Bootstrap`, and `Environment=shared` for the
   bootstrap stack, which serves both environments. The maintainer confirms or corrects
   these values before phase 5 merges.
+- **A gate on stage's form.** Should stage's form be gated (for example a staff-only
+  preview cookie) before phase 7? The plan accepts the risk (Security); say if not.
 - **Web sign-in lifetime.** asmbly-staff-login gives web clients 60-minute tokens
   (its add-an-app open question 2), so staff sign in again about hourly at the kiln.
 - **Settled in a phase's verification, not by the documentation:** S3's answer to a
@@ -339,7 +341,15 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
   number and real type and size of photos too, before anything is stored; text is
   escaped wherever it is shown or emailed; submissions are rate-limited per device and
   per address; a repeated submit (a refresh) makes no second drop-off. Pages send a
-  strict Content-Security-Policy, `nosniff`, `no-store` and `no-referrer`.
+  strict Content-Security-Policy, `nosniff`, `no-store` and `no-referrer`. The address the
+  limit counts is the last `X-Forwarded-For` value (API Gateway's), never one the caller
+  can choose; the limit fails closed when the table can't be reached.
+- **The forms are findable before the switch.** Both names appear in Certificate
+  Transparency logs once phase 5's certificates are issued. Anyone can make a drop-off
+  giving any email address, which then gets one "We received your drop-off" email, from
+  the studio's address, with the photos the sender uploaded. That is inherent in #2's
+  form without sign-in; the per-device and per-address limits bound it, and each email
+  goes only to the one address typed. Accepted (decision 0002).
 - **The console** checks, on every request, the token's signature, issuer, audience,
   use, expiry and the `ceramics` group; anyone else signed in sees "not allowed".
   Changing requests need a CSRF token and a same-site `Origin`. The session cookie is
@@ -349,5 +359,9 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
   person who made the drop-off, or to the signed-in staff member for a test.
 - **AWS**: every name starts with `asmbly-ceramics-`; every resource carries the five
   tags; the deploy roles are scoped by name and tag and denied every other project's
-  resources; the form's role can't read photos or list drop-offs; no workflow on a pull
-  request gets credentials.
+  resources; the form's role can't read photos or read or list drop-offs, holds only its
+  own two keys (`hash-key`, `form-key`; the console's `session-key` is the console's
+  alone), and its ID page reads only the submission's summary; a taken-over form
+  function could still overwrite a drop-off with a `Put`, which IAM can't prevent
+  (accepted in decision 0002); no address is in GitHub or the public Actions logs, and
+  the account ID is masked there; no workflow on a pull request gets credentials.

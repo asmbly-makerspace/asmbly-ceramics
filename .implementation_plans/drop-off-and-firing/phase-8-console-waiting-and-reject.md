@@ -119,7 +119,7 @@ this phase #3 is done and #5 is done.
 | `/console/drop-offs/{id}` | GET | `ceramics` | `ViewDropOff` |
 | `/console/drop-offs/{id}/photos/{k}` | GET | `ceramics` | `PhotoStore.read` through `ViewDropOff`'s photo refs |
 | `/console/drop-offs/{id}/photos/{k}/thumb` | GET | `ceramics` | the same, thumbnail |
-| `/console/drop-offs/{id}/reject` | GET | `ceramics` | `PreviewRejection` |
+| `/console/drop-offs/{id}/reject/preview` | POST | `ceramics`, CSRF | `PreviewRejection` |
 | `/console/drop-offs/{id}/reject` | POST | `ceramics`, CSRF | `RejectDropOff` |
 | `/console/drop-offs/{id}/undo-reject` | POST | `ceramics`, CSRF | `UndoRejection` |
 | `/console/drop-offs/{id}/emails/{kind}/retry` | POST | `ceramics`, CSRF | `RetryEmail` |
@@ -151,9 +151,9 @@ Every route above except sign-in, callback and signed-out goes through
 4. `NotAllowed` (a valid token without the group, or with no `cognito:groups` claim):
    `403` with `not_allowed.html`: "You don't have access to the ceramics console. Ask
    the Facilities Manager to add you to the ceramics group.", a link to the drop-off form
-   (`/`) and a "Sign in as someone else" button (a POST to `/console/sign-out`, which
-   needs no CSRF token on this page because it only clears the caller's own cookie and
-   reaches the staff sign-out). Logged as `event=not_allowed`, `user=<username>`.
+   (`/`) and a "Sign in as someone else" button (a POST to `/console/sign-out` carrying
+   the CSRF token for this session, like every other console POST, so another site
+   can't sign staff out). Logged as `event=not_allowed`, `user=<username>`.
 5. `SignInUnavailable` (the pool's keys can't be fetched): `503` with "The staff
    sign-in can't be checked right now. Try again in a minute." Logged as
    `event=jwks_unavailable` at ERROR, which the console's error alarm counts.
@@ -257,7 +257,9 @@ reason's `needs_message`), and "Preview the email", a GET form to
 
 ### web: the rejection preview, reject and undo
 
-- **`GET .../reject?reason=<item id>&message=...`** calls
+- **`POST .../reject/preview`** (form fields `reason`, `message`, the CSRF token; a POST
+  so the message, which is personal data, never sits in a URL, browser history or a log
+  of query strings) calls
   `PreviewRejection(id, reason, message)`. Refusals are shown next to the field on the
   drop-off page's panel, with the typed message kept: unknown or retired reason ("Pick a
   reason from the list."), a reason that needs a message and none ("Write a message: this
@@ -275,7 +277,7 @@ reason's `needs_message`), and "Preview the email", a GET form to
   drop-off page with "AC-12 was rejected. The email is on its way." A conflict (someone
   changed it meanwhile): the page again with "AC-12 changed while you were looking.
   Check it and try again." and nothing stored. Logged `event=rejected`,
-  `drop_off=AC-12`, `user`, `code=<reason item id>`; never the message.
+  `drop_off_id=AC-12`, `user`, `reason=<reason item id>`; never the message.
 - **`POST .../undo-reject`** calls `UndoRejection(id, by, now)`. A rejection from an
   earlier Austin day: "A rejection can only be undone on the day it was made." Success:
   `303` with "AC-12 is waiting again. No email was sent." The rejection email already
@@ -288,7 +290,8 @@ reason's `needs_message`), and "Preview the email", a GET form to
 
 `GET .../photos/{k}` and `.../thumb` answer, after `require_staff`, with the JPEG bytes
 from `PhotoStore.read(ref)`, `Content-Type: image/jpeg`,
-`Cache-Control: private, max-age=300`, `X-Content-Type-Options: nosniff` and
+`Cache-Control: no-store` (a shared kiln tablet keeps no photo after sign-out),
+`X-Content-Type-Options: nosniff` and
 `Content-Disposition: inline; filename="AC-12-k.jpg"`. A closed drop-off or a missing
 photo is 404. The request without a valid session never reaches `PhotoStore`: it gets
 the sign-in redirect. The full-size copies are at most 2048 pixels (phase 2), well under
@@ -379,6 +382,7 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
       Environment:
         Variables:
           APP_ROLE: console
+          SESSION_KEY_PARAMETER: !Sub /${ProjectSlug}/${AppEnv}/session-key
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           PORT: "8080"
           AWS_LWA_READINESS_CHECK_PATH: /health
@@ -421,8 +425,11 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
 ```
 
 The shared environment variables (`APP_ENV`, `APP_VERSION`, `TABLE_NAME`,
-`PHOTO_BUCKET`, `SITE_URL`, `SESSION_KEY_PARAMETER`, `LOG_LEVEL`) come from phase 7's
-`Globals`. `kms:Decrypt` for the SecureString through SSM comes from the function
+`PHOTO_BUCKET`, `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `LOG_LEVEL`) come from phase 7's
+`Globals`; the console function adds `SESSION_KEY_PARAMETER`
+(`!Sub /${ProjectSlug}/${AppEnv}/session-key`) itself. The session key is the console's
+alone: the form function's role can't read it, and the console's role reads no other
+key (not `hash-key`, not `form-key`). `kms:Decrypt` for the SecureString through SSM comes from the function
 boundary (phase 5). `dynamodb:TransactWriteItems` is checked by DynamoDB against the
 `Put`/`Update`/`ConditionCheck` rights on the items, as phase 4's adapter uses it; phase
 4's tests name the exact actions, and this statement must match them. The role's path
@@ -466,6 +473,7 @@ Two new checks, after the form's, against each environment, with no credentials:
 - `test_not_allowed_names_the_facilities_manager_and_links_to_the_form`
 - `test_unavailable_signing_keys_answer_503`
 - `test_sign_out_clears_the_session_and_goes_to_the_staff_logout`
+- `test_sign_out_without_the_csrf_token_is_refused` (also from the not-allowed page)
 - `test_the_signed_out_page_is_public_and_shows_nothing_personal`
 
 `tests/web/console/test_real_tokens.py` (phase 4's verifier with a test RSA key and a
@@ -504,6 +512,9 @@ public key is refused.
 - `test_other_without_a_message_is_refused_next_to_the_field_and_stores_nothing`
 - `test_a_message_of_1001_characters_is_refused`
 - `test_a_retired_reason_is_refused`
+- `test_the_preview_is_a_post_and_its_message_never_appears_in_a_url` (a GET to the
+  preview path is 405; no redirect `Location` holds the message)
+- `test_photos_are_served_with_no_store`
 - `test_the_preview_is_the_email_that_is_sent`: preview, then reject, then run
   `SendPendingEmail` with the fake `Mailer`; the sent subject and HTML (with `cid:`
   references) equal the preview's, photo addresses aside.

@@ -38,7 +38,7 @@ Gateway HTTP API per environment. Four functions, each with its own role:
 
 | Function | Serves | May |
 | --- | --- | --- |
-| `asmbly-ceramics-<env>-form` | `/` and `/drop-off/...`, public | create drop-offs, upload slots and their outbox emails; read settings |
+| `asmbly-ceramics-<env>-form` | `/` and `/drop-off/...`, public | create new drop-offs, their outbox emails and submissions; issue upload slots; read settings and its own submissions, never a drop-off |
 | `asmbly-ceramics-<env>-console` | `/console/...`, the `ceramics` group | read and change records, read photos, send a test email |
 | `asmbly-ceramics-<env>-mailer` | the table's change stream | send the outbox's emails, read photos |
 | `asmbly-ceramics-<env>-close` | a daily schedule | close finished drop-offs, delete their details and photos |
@@ -46,15 +46,20 @@ Gateway HTTP API per environment. Four functions, each with its own role:
 The addresses are `ceramics.asmbly.org` (prod) and `ceramics-stage.asmbly.org` (stage).
 On 13 November 2026 neither name existed in the `asmbly.org` zone.
 
-**Why:** the public form's role can then never read a photo or list drop-offs, whatever
-its code does. An HTTP API is what AsmblyMCPs runs and costs less than a REST API; the
+**Why:** the public form's role can then never read a photo, read or list a drop-off,
+or change an existing email, whatever its code does: its ID page reads only the
+submission it made, which carries a summary without contact details. An HTTP API is what AsmblyMCPs runs and costs less than a REST API; the
 only REST feature we would use is AWS WAF, which an HTTP API can't have, and the rate
 limit is enforced by the app instead (below). A container would run all week for 80
 drop-offs.
 
 **Consequence, accepted:** a request has 30 seconds and 6 MB each way (Lambda's
 synchronous limit), so photos never pass through a function on the way in, and photos
-staff open are re-encoded copies well under that.
+staff open are re-encoded copies well under that. And IAM can't require
+`attribute_not_exists` on a `PutItem`, so a form function whose code was taken over
+(it decodes hostile images) could overwrite an existing drop-off item with a `Put`,
+for example to change where its emails go. The mailer re-reads each drop-off by key,
+so only an overwritten drop-off could be affected; that is accepted.
 
 ## The data store is one DynamoDB table; IDs come from a counter
 
@@ -81,7 +86,7 @@ deletion is complete after that.
 ## Photos go straight to S3 and are re-encoded on submit
 
 **Chosen:** the form asks the server for up to 6 upload slots. Each is a presigned S3
-POST to `uploads/<random>/<n>` in the private bucket `asmbly-ceramics-<env>-photos`,
+POST to `uploads/<random>/<n>` in the private bucket `asmbly-ceramics-<env>-photos-<account>` (bucket names are global),
 valid for 15 minutes, with `content-length-range` 1 byte to 10 MB and
 `Content-Type` starting `image/`. On Submit the server reads each upload, checks with
 Pillow that it is really a JPEG, PNG or WebP image (refusing anything else, HEIC
@@ -109,7 +114,10 @@ Apple's documentation; the form is checked on a real iPhone before the switch (#
 clearing the cookie doesn't lift the limit while a studio's shared network isn't
 blocked. Both are counted in DynamoDB under a keyed hash (HMAC with a secret from
 Parameter Store) of the cookie or the address, never the value itself, and expire with
-TTL.
+TTL. The address is the **last** value of `X-Forwarded-For`, which API Gateway's HTTP
+API appends; anything earlier in the header is the caller's own text and is ignored, and
+uvicorn doesn't read proxy headers at all. The limiter fails closed: if the table can't
+be reached, no upload slot is issued and no drop-off accepted.
 
 **Why:** AWS WAF's rate rules can't be attached to an HTTP API, and API Gateway's
 throttling is per route, not per caller.
@@ -180,7 +188,13 @@ environment lets staff try the console before the switch and catches a bad deplo
 before prod.
 
 **Consequence, accepted:** stage sends real email to whoever uses its form, from the
-same identity; its address is not published.
+same identity. Neither form's address is secret before the switch: both names appear in
+Certificate Transparency logs as soon as the bootstrap's certificates are issued. Anyone
+can make a drop-off giving any email address, which then receives one "We received your
+drop-off" email, from the studio's address, with the photos the sender uploaded. That is
+inherent in #2's form without sign-in; it is limited by the per-device and per-address
+limits and by each email going only to the one address typed. No gate is added for
+stage; the maintainer can ask for one (the plan's open questions).
 
 ## The scheduled close runs daily, Austin time
 

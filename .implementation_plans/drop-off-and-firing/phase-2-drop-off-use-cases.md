@@ -176,13 +176,19 @@ class ReceivedView:
 
 
 class ReceivedSummary:  # use_cases/received.py: the ID page after Submit
-    def __init__(self, records: Records, studio: CurrentStudio) -> None: ...
-    def __call__(self, id: DropOffId) -> ReceivedView: ...  # NotFound; never a contact detail
+    def __init__(self, records: Records) -> None: ...
+    def __call__(self, token_hash: str) -> ReceivedView: ...  # NotFound; never a contact detail
+
+
+def received_view(submission: Submission) -> ReceivedView: ...  # the summary the Submission item carries
 ```
 
 `ReceivedView` has no field for a name, email, phone or photo, so the public ID page
-can't show one. The web layer only calls it with the ID from its own signed cookie
-(phase 6).
+can't show one. `ReceivedSummary` reads only the `Submission` item
+(`records.submission(token_hash)`, strongly consistent), which carries the summary
+(phase 1); the form function never reads a drop-off item, and phase 7's form role
+can't. The web layer calls it with the submission hash from its own signed cookie
+(phase 6). An expired or unknown submission raises `NotFound`.
 
 ### app: `RequestUploadSlots` (`use_cases/uploads.py`)
 
@@ -200,6 +206,9 @@ class RequestUploadSlots:
 ```
 
 - A count outside 1 to 6 raises `InvalidDetails({"photos": "photos.count"})`.
+- The limiter fails closed: if `limiter.hit` raises `RecordsUnavailable`, no slot is
+  issued and the error goes up (the page says "try again"), so an outage never hands
+  out unlimited upload links.
 - Counts against `SLOT_DEVICE_LIMIT` and `SLOT_ADDRESS_LIMIT` (phase 1), so nobody can
   ask for unlimited upload links; over either raises `TooManySubmissions`. These limits
   are looser than the submission limit, because a person may change photos before
@@ -225,7 +234,8 @@ class SubmitRequest:
 
 @dataclass(frozen=True, slots=True)
 class Submitted:
-    drop_off: DropOff
+    view: ReceivedView  # from the Submission item: no contact details
+    token_hash: str  # what the web layer signs into __Host-received
     repeated: bool  # True when this token had already made the drop-off
 
 
@@ -248,13 +258,16 @@ In order:
 
 1. **The token.** It must be 22 to 64 URL-safe characters (the form puts a fresh one in
    each page it serves); otherwise `InvalidDetails({"form": "form.expired"})`. Hash it;
-   if `records.submission(hash)` exists, return `Submitted(that drop-off,
-   repeated=True)`: a refresh or a double tap makes no second drop-off and counts
+   if `records.submission(hash)` exists, return `Submitted(received_view(it), hash,
+   repeated=True)`, read from the submission item alone: a refresh or a double tap makes no second drop-off and counts
    nothing.
 2. **The rate limit** (#2). `limiter.hit(hasher.device(...), DEVICE_LIMIT, now)` and
    the same for the address with `ADDRESS_LIMIT`; either false raises
    `TooManySubmissions`. Every attempt that reaches this step counts, refused or not.
-3. **The fields.** `DropOffDetails.create(..., photo_count=len(set(upload_slots)),
+3. **The fields.** First the slots, before any S3 read: each slot ID must be 22 to 64
+   URL-safe characters and there must be at most `PHOTOS_MAX` distinct ones; otherwise
+   `InvalidDetails({"photos": "photos.count"})` at once, reading nothing. Then
+   `DropOffDetails.create(..., photo_count=len(set(upload_slots)),
    studio=CurrentStudio())`. A duplicated slot ID counts once.
 4. **The photos.** For each slot, in order, `photos.read_upload(slot)` then
    `inspector.inspect(data)`. `UploadMissing` gives `photo.<n>: photo.missing`;
@@ -265,10 +278,11 @@ In order:
 5. **The ID.** `ids.next_drop_off_id()`.
 6. **Keep the photos.** `photos.keep(id, checked)` returns the refs.
 7. **Commit** `Put(drop_off)`, `Put(new_email(id, RECEIVED, now))`,
-   `Put(Submission(hash, id, now + SUBMISSION_LIFETIME))` together. On `Conflict` (the
-   same token committed in a race), `photos.delete_drop_off(id)` (the number is
-   skipped, which the ID contract allows) and return the stored submission's drop-off
-   with `repeated=True`.
+   `Put(Submission(hash, id, pieces, firing type name, glaze type name, now, now +
+   SUBMISSION_LIFETIME))` together, and return `Submitted(received_view(submission),
+   hash, repeated=False)`. On `Conflict` (the same token committed in a race),
+   `photos.delete_drop_off(id)` (the number is skipped, which the ID contract allows)
+   and return the stored submission's view with `repeated=True`.
 
 Logs: `event=drop_off_submitted`, `drop_off_id`, `count` (photos); on refusal
 `event=drop_off_refused`, `reason` (`invalid_details`, `rate_limited`, `form_expired`),
@@ -449,7 +463,9 @@ Ops templates, with the ID, the reason and the staff message added):
 ## Tests
 
 - `test_studio_choices_list_only_active_items`; `test_received_view_has_no_contact_fields`
-  (the dataclass's fields are exactly the ones above); `test_received_summary_of_an_unknown_id_raises_not_found`.
+  (the dataclass's fields are exactly the ones above); `test_received_summary_of_an_unknown_submission_raises_not_found`;
+  `test_received_summary_reads_only_the_submission` (the fake records count reads: no
+  drop-off read).
 
 `tests/use_cases/` (against the fakes, asserting on what was stored and sent, not only
 on return values):
@@ -471,6 +487,9 @@ on return values):
 - `test_the_thirty_first_from_one_address_is_refused_across_devices`.
 - `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter`.
 - `test_upload_slots_count_must_be_1_to_6` and `test_upload_slot_requests_are_limited`.
+- `test_upload_slots_fail_closed_when_the_limiter_is_unavailable`.
+- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (the fake photo store
+  records no `read_upload`).
 - `test_the_studio_is_seeded_once_with_the_starting_values` and
   `test_a_seeding_race_reads_the_winner`.
 - `test_waiting_is_oldest_first_with_bisque_and_glaze_totals_in_pieces` (#3).

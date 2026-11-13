@@ -240,7 +240,7 @@ deploy workflow (phase 7) passes the execution role with `--role-arn`.
 | `FunctionRolesInsideTheBoundary` | Allow | `iam:CreateRole`, `iam:PutRolePermissionsBoundary`, `iam:PutRolePolicy`, `iam:AttachRolePolicy` | `P:iam::A:role/asmbly-ceramics-app/asmbly-ceramics-*` | `StringEquals iam:PermissionsBoundary: <FunctionBoundary ARN>` and, on `CreateRole`, the same `aws:RequestTag/Project` |
 | `ManageFunctionRoles` | Allow | `iam:GetRole`, `iam:DeleteRole`, `iam:DeleteRolePolicy`, `iam:DetachRolePolicy`, `iam:GetRolePolicy`, `iam:UpdateAssumeRolePolicy`, `iam:UntagRole`, `iam:ListRolePolicies`, `iam:ListAttachedRolePolicies` | `role/asmbly-ceramics-app/*` | `aws:ResourceTag/Project = asmbly-ceramics` |
 | `PassFunctionRoles` | Allow | `iam:PassRole` | `role/asmbly-ceramics-app/*` | `StringEquals iam:PassedToService: [lambda.amazonaws.com, scheduler.amazonaws.com]` |
-| `ReadTheStaffSignInValues` | Allow | `ssm:GetParameters` | `P:ssm:R:A:parameter/config/cognito/staff/*` | — (CloudFormation resolves the app stacks' `AWS::SSM::Parameter::Value<String>` parameters with this role) |
+| `ResolveStackParameters` | Allow | `ssm:GetParameters` | `P:ssm:R:A:parameter/config/cognito/staff/*` and `P:ssm:R:A:parameter/asmbly-ceramics/*` | — (CloudFormation resolves the app stacks' `AWS::SSM::Parameter::Value<String>` parameters with this role: the staff sign-in values and this app's two address Strings. It never needs the SecureStrings, which the functions read at run time, and `ssm:GetParameters` without `kms:Decrypt` can't return a SecureString's value) |
 | `DescribeWithoutAResource` | Allow | `lambda:GetEventSourceMapping`, `lambda:ListEventSourceMappings`, `logs:DescribeLogGroups`, `logs:DescribeMetricFilters`, `cloudwatch:DescribeAlarms`, `sns:ListTopics`, `apigateway:GET` on `/domainnames*`, `dynamodb:DescribeLimits`, `iam:GetPolicy` (the boundary) | `*` where the service has no resource-level read, otherwise the pattern | — (each listed as a documented `Resource: "*"` exception in the test) |
 
 The name patterns, the only resources the Allow statements reach:
@@ -248,7 +248,7 @@ The name patterns, the only resources the Allow statements reach:
 | Service | Pattern |
 | --- | --- |
 | DynamoDB | `table/asmbly-ceramics-*` (and `.../stream/*`, `.../index/*`) |
-| S3 | `arn:aws:s3:::asmbly-ceramics-*-photos` (buckets) and `.../*` (objects, for the bucket policy's check) |
+| S3 | `arn:aws:s3:::asmbly-ceramics-*-photos-*` (buckets: the name ends with the account ID, phase 7) and `.../*` (objects, for the bucket policy's check) |
 | Lambda | `function:asmbly-ceramics-*`; `event-source-mapping:*` (mappings have generated IDs; the tag conditions are their fence) |
 | Logs | `log-group:/aws/lambda/asmbly-ceramics-*`, `log-group:/aws/apigateway/asmbly-ceramics-*`, `log-group:/aws/vendedlogs/asmbly-ceramics-*` |
 | SNS | `asmbly-ceramics-*` |
@@ -330,11 +330,11 @@ Statement:
   - Sid: OwnPhotos
     Effect: Allow
     Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
-    Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos/*'
+    Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*/*'
   - Sid: ListOwnPhotos
     Effect: Allow
     Action: s3:ListBucket
-    Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos'
+    Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*'
   - Sid: OwnSecrets
     Effect: Allow
     Action: ssm:GetParameter
@@ -448,7 +448,11 @@ it, by hand, only when they asked for it in the conversation.
    `describe-change-set` (expect: only `Add` actions, 15 resources or 16 with the OIDC
    provider; nothing outside `asmbly-ceramics-` names but the DNS records for the two
    addresses and their validation records); then `execute-change-set` and
-   `wait stack-create-complete`. Check: `describe-stacks` shows `CREATE_COMPLETE` and
+   `wait stack-create-complete`. **Who confirms the DNS part**: besides the maintainer,
+   whoever is responsible for the `asmbly.org` zone (the project that owns it) is told
+   beforehand that the stack adds the two names, two `AAAA` records and the certificates'
+   validation records, and confirms afterwards that nothing else in the zone changed.
+   Check: `describe-stacks` shows `CREATE_COMPLETE` and
    the six outputs; `aws acm describe-certificate` for both shows `ISSUED`;
    `dig +short ceramics.asmbly.org` returns addresses (it will answer 403/404 until
    phase 7 maps an API). Undo: `aws cloudformation delete-stack --stack-name
@@ -461,18 +465,25 @@ it, by hand, only when they asked for it in the conversation.
    lists both with their branch policy. Undo: delete the environments.
 5. **The variables**, the same in both environments unless said: `AWS_REGION`
    (`us-east-2`), `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`,
-   `SAM_ARTIFACTS_BUCKET` (from the outputs), `ALERT_EMAIL` (the maintainers' list,
-   typed into GitHub, never into a file), and `INITIAL_SENDING_ADDRESS` (the studio's
-   address at `asmbly.org` that emails come from until staff change it in the console).
+   `SAM_ARTIFACTS_BUCKET` (from the outputs), and phase 7's `WEB_ADAPTER_LAYER_ARN`. No
+   address is a GitHub variable: the repository is public and so are its Actions logs.
    Check: `gh variable list --env stage` and `--env prod`. Undo: `gh variable delete`.
-6. **The app's secrets**, for each environment: `aws ssm put-parameter --name
+6. **The app's keys**, for each environment: `aws ssm put-parameter --name
    /asmbly-ceramics/<env>/hash-key --type SecureString --value "$(openssl rand -base64 32)"`,
-   and the same for `session-key`, with `--tags` for the five tags. The value is made
-   by `openssl` in the command, never typed, pasted into a file or a chat, or printed.
-   Check: `aws ssm describe-parameters --parameter-filters Key=Name,Option=BeginsWith,Values=/asmbly-ceramics/`
-   lists four, type `SecureString`. Undo: `aws ssm delete-parameter`. Changing
-   `session-key` later signs everyone out of the console; changing `hash-key` resets
-   the rate-limit counts. Both are safe.
+   and the same for `form-key` (the public form's cookie, form function only) and
+   `session-key` (the console's sign-in state and CSRF tokens, console only), with
+   `--tags` for the five tags. The value is made by `openssl` in the command, never
+   typed, pasted into a file or a chat, or printed. Changing `session-key` later signs
+   everyone out of the console; changing `form-key` only expires open ID pages; changing
+   `hash-key` resets the rate-limit counts. All are safe.
+7. **The two addresses**, for each environment, as String parameters (not in GitHub):
+   `aws ssm put-parameter --name /asmbly-ceramics/<env>/alert-email --type String
+   --value '<the maintainers' address>'` and `/asmbly-ceramics/<env>/initial-sending-address`
+   (the studio's address at `asmbly.org` that emails come from until staff change it in
+   the console), each with `--tags`, typed at the prompt, never into a file. Check:
+   `aws ssm describe-parameters --parameter-filters Key=Name,Option=BeginsWith,Values=/asmbly-ceramics/`
+   lists five per environment: three `SecureString`, two `String`. Undo:
+   `aws ssm delete-parameter`.
 
 The runbook also has "Later changes to the bootstrap stack" (the same change-set steps,
 with `describe-change-set` read for `Replacement: True` on a role, which would break the
@@ -586,9 +597,9 @@ phase 7's first deploy.
 - After it merges: deploy the bootstrap by hand with rights to the `asmbly.org` zone;
   create the `stage` and `prod` GitHub environments (deployments from `main` only) and
   their variables `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`,
-  `SAM_ARTIFACTS_BUCKET`, `ALERT_EMAIL`, `INITIAL_SENDING_ADDRESS`; set
-  `/asmbly-ceramics/<env>/hash-key` and `/asmbly-ceramics/<env>/session-key` for both
-  environments. All by the runbook.
+  `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`; set `/asmbly-ceramics/<env>/hash-key`,
+  `form-key` and `session-key` (SecureString) and `alert-email` and
+  `initial-sending-address` (String) for both environments. All by the runbook.
 
 ## Hand-off
 
@@ -599,14 +610,15 @@ Phase 7 can rely on:
   `asmbly-ceramics-stage-domain-name` (each the custom domain's name, to map an API
   to).
 - The GitHub environments `stage` and `prod` with the variables above.
-- The SSM SecureString parameters `/asmbly-ceramics/stage/hash-key`,
-  `/asmbly-ceramics/stage/session-key`, `/asmbly-ceramics/prod/hash-key`,
-  `/asmbly-ceramics/prod/session-key`.
+- For each environment, the SSM SecureString parameters
+  `/asmbly-ceramics/<env>/hash-key`, `/asmbly-ceramics/<env>/form-key` and
+  `/asmbly-ceramics/<env>/session-key`, and the String parameters
+  `/asmbly-ceramics/<env>/alert-email` and `/asmbly-ceramics/<env>/initial-sending-address`.
 - What the execution role allows, which phase 7's template must fit:
   - every resource tagged with all five tags at creation, `Project=asmbly-ceramics`
     (stack tags plus explicit `Tags` on alarms, which `PutMetricAlarm` checks);
   - names: table `asmbly-ceramics-<env>-records`, bucket
-    `asmbly-ceramics-<env>-photos`, functions `asmbly-ceramics-<env>-<job>`, log groups
+    `asmbly-ceramics-<env>-photos-<account>`, functions `asmbly-ceramics-<env>-<job>`, log groups
     `/aws/lambda/asmbly-ceramics-<env>-<job>` and
     `/aws/apigateway/asmbly-ceramics-<env>`, topic `asmbly-ceramics-<env>-alarms`,
     alarms `asmbly-ceramics-<env>-*`, queue `asmbly-ceramics-<env>-close-dlq`, schedule
