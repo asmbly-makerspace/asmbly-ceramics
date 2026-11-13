@@ -79,19 +79,17 @@
       "depends_on": [
         "1b"
       ],
-      "status": "in-progress",
+      "status": "done",
       "base_sha": "37e062f32e9d56ffa40cc074747156484029b80d",
-      "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "squashed_sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23",
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-1-domain-model",
       "parked_branch": null,
       "closes": [],
       "refs": [
-        2,
+        3,
         4,
-        5,
-        6,
         7
       ],
       "admin_actions": [],
@@ -107,8 +105,8 @@
       "depends_on": [
         "1c"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "in-progress",
+      "base_sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23",
       "squashed_sha": null,
       "review_rounds": null,
       "cold_review": null,
@@ -237,6 +235,43 @@
       "ts": "2026-11-13T17:30:15Z",
       "type": "phase_start",
       "phase": "1c"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "cold_review",
+      "phase": "1c",
+      "review_lead": "BLOCK(doc) fixed, re-review APPROVED",
+      "privacy": "APPROVED"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "decision",
+      "topic": "FiringTypeLocked",
+      "choice": "refuse firing-type change on a load with members",
+      "reason": "closes an unconfirmed-mismatch hole in #4; reverses plan line; maintainer to confirm"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "phase_done",
+      "phase": "1c"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "squash",
+      "phase": "1c",
+      "sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "phase_start",
+      "phase": "1d"
+    },
+    {
+      "ts": "2026-11-13T18:04:58Z",
+      "type": "decision",
+      "topic": "merge request",
+      "choice": "not merged by the run",
+      "reason": "maintainer said merge when green mid-run; offshore never merges and its guardrail blocks it; the PR is left open and green for a merge outside the run"
     }
   ]
 }

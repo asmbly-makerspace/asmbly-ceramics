@@ -25,6 +25,11 @@ ERROR_CODE_MAX = 64
 _ERROR_CODE = re.compile(rf"[A-Za-z0-9_.-]{{1,{ERROR_CODE_MAX}}}", flags=re.ASCII)
 
 
+def is_error_code(code: str) -> bool:
+    """1 to 64 of `[A-Za-z0-9_.-]`: the shape of a provider's error code, never a message."""
+    return _ERROR_CODE.fullmatch(code) is not None
+
+
 class EmailKind(StrEnum):
     RECEIVED = "received"
     READY = "ready"
@@ -76,7 +81,7 @@ def mark_sent(email: Email, at: datetime) -> Email:
 def mark_failed(email: Email, code: str) -> Email:
     """SENDING to FAILED, keeping the error code: at most 64 of `[A-Za-z0-9_.-]`."""
     _require(email, EmailStatus.SENDING)
-    if not _ERROR_CODE.fullmatch(code):
+    if not is_error_code(code):
         raise ValueError("an email's error is stored as a code, not a message")
     return replace(email, status=EmailStatus.FAILED, error_code=code)
 

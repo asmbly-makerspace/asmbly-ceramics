@@ -277,13 +277,25 @@ In order:
    stored: refused uploads stay under `uploads/` and expire with the bucket's
    lifecycle rule.
 5. **The ID.** `ids.next_drop_off_id()`.
-6. **Keep the photos.** `photos.keep(id, checked)` returns the refs.
+6. **Keep the photos.** `photos.keep(id, checked)` returns the refs. `keep` never
+   overwrites (phase 1d): `PhotosAlreadyKept` means photos are already under that
+   number (a counter that went backwards), so take `ids.next_drop_off_id()` once more
+   and keep again, as a `Conflict` on the drop-off's `Put` does.
 7. **Commit** `Put(drop_off)`, `Put(new_email(id, RECEIVED, now))`,
    `Put(Submission(hash, id, pieces, firing type name, glaze type name, now, now +
    SUBMISSION_LIFETIME))` together, and return `Submitted(received_view(submission),
    hash, repeated=False)`. On `Conflict` (the same token committed in a race),
    `photos.delete_drop_off(id)` (the number is skipped, which the ID contract allows)
    and return the stored submission's view with `repeated=True`.
+8. **Use the uploads up.** Once the commit has succeeded, or the race above found the
+   stored submission, `photos.discard_uploads(distinct slots)` (phase 1d): the raw
+   uploads, EXIF included, are deleted at once instead of waiting a day for the
+   lifecycle rule, and a slot can never make a second drop-off. It runs only after a
+   commit, so a refused or failed submit can be sent again with the same uploads. If
+   it raises `PhotosUnavailable`, the drop-off stands: log `event=uploads_not_discarded`
+   with `drop_off_id` and the code, and return as usual. The lifecycle rule removes
+   the uploads within a day; until then the slots are not used up, and a second
+   submit from them would read them again (a narrow case, accepted).
 
 Logs: `event=drop_off_submitted`, `drop_off_id`, `count` (photos); on refusal
 `event=drop_off_refused`, `reason` (`invalid_details`, `rate_limited`, `form_expired`),
@@ -477,6 +489,13 @@ on return values):
 - `test_the_same_token_twice_returns_the_same_id_and_stores_nothing_more`.
 - `test_a_race_on_the_same_token_returns_the_first_and_deletes_the_kept_photos` (the
   fake's `fail_next_commit_with=Conflict()` and a submission written in between).
+- `test_submit_discards_the_uploads_once_committed` (the fake's `upload_count()` is 0
+  and `read_upload` of each slot raises `UploadMissing`) and
+  `test_a_slot_cannot_make_a_second_drop_off` (a new token with the same slots gets
+  `photo.<n>: photo.missing`).
+- `test_a_refused_submit_keeps_the_uploads_for_a_retry` (nothing discarded) and
+  `test_a_failed_discard_still_returns_the_drop_off`.
+- `test_photos_already_kept_takes_the_next_number`.
 - `test_each_bad_field_is_refused_and_nothing_is_stored` (parametrized over phase 1's
   keys; no commit, no ID, no kept photo).
 - `test_a_photo_that_isnt_an_image_is_refused_next_to_it` (`photo.2: photo.not_image`),
@@ -486,11 +505,12 @@ on return values):
 - `test_the_eleventh_submission_from_a_device_in_10_minutes_is_refused` and
   `test_it_is_allowed_again_after_10_minutes` (`FixedClock.advance`) (#2).
 - `test_the_thirty_first_from_one_address_is_refused_across_devices`.
-- `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter`.
+- `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter` (the fake
+  limiter's `keys_hit` holds only `device#`/`address#` hashes).
 - `test_upload_slots_count_must_be_1_to_6` and `test_upload_slot_requests_are_limited`.
 - `test_upload_slots_fail_closed_when_the_limiter_is_unavailable`.
-- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (the fake photo store
-  records no `read_upload`).
+- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (the fake photo store's
+  `read_uploads` is empty).
 - `test_the_studio_is_seeded_once_with_the_starting_values` and
   `test_a_seeding_race_reads_the_winner`.
 - `test_waiting_is_oldest_first_with_bisque_and_glaze_totals_in_pieces` (#3).

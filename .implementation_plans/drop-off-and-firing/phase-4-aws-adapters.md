@@ -164,7 +164,7 @@ create, +1 on every update).
 | Settings history entry | `STUDIO` | `HISTORY#<at ISO>#<n>` | — | — | — |
 | Email (outbox) | `EMAIL#AC-12` | `<kind>` or `rejected#<rejected_at ISO>` | — | `EMAIL#<status>` / `<created_at ISO>#AC-12#<kind>` | — |
 | ID counters | `COUNTER#dropoff`, `COUNTER#load` | `META` | — | — | — |
-| Rate-limit count | `RATE#<hmac hex>#<window start ISO>` | `META` | — | — | window end + 1 day |
+| Rate-limit hits | `RATE#<keyed hash>` | `META` | — | — | last hit + window + 1 day |
 | Submission token | `SUBMISSION#<hash>` (the keyed hash, never the token) | `META` | — | — | created + 1 day |
 
 - `<state>` and `<status>` are the domain enums' values (`waiting`, `in_load`, `fired`,
@@ -264,26 +264,40 @@ class DynamoDbRecords:
 ### app: `DynamoDbRateLimiter` (`RateLimiter`)
 
 ```python
-def hit(self, key: RateKey, window: timedelta, limit: int) -> bool: ...
+def hit(self, key: str, limit: RateLimit, now: datetime) -> bool: ...
 ```
 
-- `RateKey` (phase 1) is already the HMAC-SHA256 hex of the cookie or the address
-  (the use case hashes with the key from `Secrets`); the adapter never sees the raw
-  value.
-- The window starts at `now` floored to the window's length (fixed windows of 10
-  minutes). `UpdateItem` on `PK=RATE#<key>#<window start>`,
-  `ADD hits :one SET #ttl = if_not_exists(#ttl, :expires)`, `ReturnValues=UPDATED_NEW`;
-  returns `hits <= limit`. `:expires` is the window's end plus a day, as epoch seconds.
-- A fixed window allows up to twice the limit across a window boundary; phase 1's
-  `domain/limits.py` states the limit as "at most 10 in each 10-minute window", which
-  #2's "more than 10 within 10 minutes are refused" is checked against in phase 2.
-- Expired items still exist until TTL removes them; the key includes the window start,
-  so an old item is never read again.
+Phase 1d's port contract (decided in the 1d review): a **rolling** window. A hit is
+allowed only if, counting it, the key has at most `limit.limit` hits in
+`(now - limit.window, now]`; a refused hit counts too. So no 10 minutes ever hold more
+than 10 accepted submissions from one device, across any boundary, which is #2's "more
+than 10 within 10 minutes are refused" as written. `MemoryRateLimiter` keeps exactly
+this, and `test_rate_limiter_window_is_rolling_across_a_fixed_boundary` (phase 1d)
+shows the case a fixed window would get wrong. Fixed, floored windows were planned
+here before and dropped: they allow up to twice the limit across a boundary.
+
+- `key` is already a keyed hash (phase 2's `KeyHasher`, HMAC-SHA256 with the
+  `hash-key` secret); the adapter never sees the raw cookie or address.
+- One item per key, `PK=RATE#<key>`, `SK=META`, holding `hits` (a list of epoch
+  milliseconds, oldest first, **at most `limit.limit` of them**: only the latest
+  `limit` hits can decide a later one, so the item stays under 1 KB even under a
+  flood), `version` and `ttl`.
+- `hit`: `GetItem` with `ConsistentRead=True`; keep the hits after `now - window`;
+  allowed when fewer than `limit.limit` are left; append `now` and keep the last
+  `limit.limit`; `PutItem` with
+  `ConditionExpression="attribute_not_exists(PK) OR version = :v"`, `version + 1`, and
+  `ttl` = `now + window + 1 day` as epoch seconds. On
+  `ConditionalCheckFailedException` (another hit on the same key in between), read
+  and try again, at most 3 tries in all; then raise
+  `RecordsUnavailable("ConditionalCheckFailedException")`: fail closed. At about 80
+  drop-offs a week, two hits on one key at once are rare.
+- A lost item (TTL removed it) means no recent hits, which is true: TTL is a day after
+  the last hit's window ends.
 - Errors: the limiter fails closed. A throttle or outage raises `RecordsUnavailable(code)`
   (logged with the code only), so no upload slot is issued and no drop-off is accepted
   without being counted; a submit would fail anyway, since it needs the table. The page
   says "try again".
-- Rights: `dynamodb:UpdateItem` on keys `RATE#*`.
+- Rights: `dynamodb:GetItem` and `dynamodb:PutItem` on keys `RATE#*`.
 
 ### app: `S3PhotoStore` (`PhotoStore`)
 
@@ -313,7 +327,14 @@ class S3PhotoStore:
   adapter doesn't depend on it: the form treats any non-2xx answer to an upload as
   "that photo couldn't be uploaded", and `read_upload` refuses anything over 10 MB
   again. Phase 7's verification records the real answer.
-- **`read_upload(slot)`**: `GetObject` on `uploads/<id>/0` with
+- **Slot IDs from the browser are hostile.** Before any S3 call, `read_upload` and
+  `discard_uploads` check that a slot ID has the shape `upload_slots` gives it
+  (`secrets.token_urlsafe(16)`: exactly 22 of `[A-Za-z0-9_-]`); anything else is
+  `UploadMissing` for `read_upload` and ignored by `discard_uploads`, so no key outside
+  `uploads/<22 characters>/` is ever read or deleted. (Phase 2 also checks 22 to 64
+  URL-safe characters; this is the adapter's own, exact check.)
+- **`read_upload(slot)`**: first `HeadObject` on `uploads/<id>/used`; if it exists the
+  slot was discarded, so `UploadMissing`. Then `GetObject` on `uploads/<id>/0` with
   `Range="bytes=0-10485760"` (10 MB + 1 byte). If `ContentLength` from the response's
   `ContentRange` total is over 10485760, raise `UploadMissing` (phase 1's contract: never more than `PHOTO_MAX_BYTES`); `NoSuchKey` →
   `UploadMissing(slot)` (never uploaded, or already used); other codes →
@@ -322,13 +343,22 @@ class S3PhotoStore:
 - **`keep(drop_off, photos)`**: for photo `k` (1 to 6), `PutObject` of the full JPEG to
   `dropoffs/AC-n/<k>.jpg` and the thumbnail to `dropoffs/AC-n/<k>-thumb.jpg`,
   `ContentType="image/jpeg"`, `IfNoneMatch="*"` so an existing photo is never
-  overwritten. **To confirm in /prep** against S3's "conditional writes" page
+  overwritten: phase 1d's port says `keep` never overwrites, and `PreconditionFailed`
+  (412) raises `PhotosAlreadyKept(drop_off)` after deleting only the keys this call
+  wrote (never the ones that were already there). **To confirm in /prep** against S3's "conditional writes" page
   (`/AmazonS3/latest/userguide/conditional-writes.html`) that `If-None-Match: *` on
   `PutObject` is supported in us-east-2 and returns `PreconditionFailed` (412) when
   the key exists; if it isn't, drop the condition (the key holds a new, never-reused
-  ID). Then `DeleteObject` on each upload. Returns the refs. A failure part-way
+  ID; the fake still refuses). `keep` leaves the uploads alone. Returns the refs. A failure part-way
   deletes what it wrote under `dropoffs/AC-n/` and raises `PhotosUnavailable(code)`;
   `SubmitDropOff` then stores nothing (phase 2).
+- **`discard_uploads(slot_ids)`** (phase 1d's port, from the 1d review): for each
+  well-formed slot ID, `PutObject` an empty `uploads/<id>/used` marker, then
+  `DeleteObject` on `uploads/<id>/0`. The marker is what makes the slot used up: the
+  presigned POST stays valid until the slot expires, so the browser could post to
+  `uploads/<id>/0` again, but `read_upload` refuses any slot with a marker. The bucket's
+  1-day lifecycle rule on `uploads/` removes the markers. Idempotent; deleting what is
+  gone succeeds. Errors → `PhotosUnavailable(code)`.
 - **`read(ref, size)`**: `GetObject` on the full or thumbnail key; `NoSuchKey` →
   `UploadMissing` (phase 1's contract for a kept photo that is gone).
 - **`delete_drop_off(id)`**: `ListObjectsV2` with `Prefix="dropoffs/AC-n/"`, then
@@ -501,7 +531,7 @@ adapter-on-stub, so the fake can't drift from the adapter:
 - `test_records_waiting_list_is_oldest_first`
 - `test_ids_never_repeat_and_start_at_one`
 - `test_photo_store_keep_then_read_then_delete`
-- `test_rate_limiter_allows_limit_then_refuses_in_the_same_window`
+- `test_rate_limiter_allows_limit_then_refuses_in_the_rolling_window`
 - `test_mailer_records_what_was_sent` (fake) / `..._sends_one_call` (adapter)
 
 **Records and keys**
@@ -528,9 +558,11 @@ adapter-on-stub, so the fake can't drift from the adapter:
 
 **Rate limit**
 
-- `test_hit_counts_in_a_fixed_window_and_sets_ttl_once`
-- `test_eleventh_hit_in_a_window_is_refused`
-- `test_new_window_starts_counting_again`
+- `test_hit_reads_consistently_and_puts_with_the_version_condition_and_ttl`
+- `test_eleventh_hit_in_a_rolling_window_is_refused_across_a_ten_minute_boundary`
+- `test_hits_older_than_the_window_stop_counting`
+- `test_item_keeps_at_most_limit_hits`
+- `test_a_version_conflict_is_retried_then_fails_closed`
 - `test_outage_fails_closed_with_records_unavailable` (the code is logged, never the message)
 
 **Photos**
@@ -539,8 +571,12 @@ adapter-on-stub, so the fake can't drift from the adapter:
 - `test_upload_slots_refuses_zero_or_more_than_six`
 - `test_read_upload_refuses_more_than_10_mb`
 - `test_read_upload_missing_object_is_upload_missing`
-- `test_keep_writes_full_and_thumbnail_with_if_none_match_then_deletes_uploads`
+- `test_keep_writes_full_and_thumbnail_with_if_none_match_and_leaves_the_uploads`
+- `test_keep_precondition_failed_is_photos_already_kept_and_deletes_only_its_own_writes`
 - `test_keep_failure_cleans_up_what_it_wrote`
+- `test_discard_uploads_marks_the_slot_used_and_deletes_the_upload`
+- `test_read_upload_of_a_discarded_slot_is_upload_missing`
+- `test_a_malformed_slot_id_is_never_sent_to_s3`
 - `test_delete_drop_off_lists_and_deletes_in_one_call`
 - `test_delete_drop_off_with_nothing_left_succeeds`
 - `test_no_object_key_or_upload_id_is_logged`
@@ -673,7 +709,7 @@ Phase 7 can rely on:
   | --- | --- | --- |
   | `DynamoDbRecords` | `dynamodb:GetItem`, `Query`, `PutItem`, `UpdateItem`, `ConditionCheckItem` | the table and `index/*` |
   | `DynamoDbIdNumbers` | `dynamodb:UpdateItem` | the table, keys `COUNTER#*` |
-  | `DynamoDbRateLimiter` | `dynamodb:UpdateItem` | the table, keys `RATE#*` |
+  | `DynamoDbRateLimiter` | `dynamodb:GetItem`, `PutItem` | the table, keys `RATE#*` |
   | `S3PhotoStore` | `s3:PutObject`, `GetObject`, `DeleteObject` on `uploads/*`; `PutObject` on `dropoffs/*` (form); `GetObject` on `dropoffs/*` (console, mailer); `ListBucket` (prefix `dropoffs/`), `DeleteObject` on `dropoffs/*` (close) | the photo bucket |
   | `SesMailer` | `ses:SendEmail` | `identity/asmbly.org`, `ses:FromAddress` like `*@asmbly.org` |
   | `SsmSecrets` | `ssm:GetParameter`; `kms:Decrypt` via SSM | `parameter/asmbly-ceramics/<env>/*` |

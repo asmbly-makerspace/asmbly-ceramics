@@ -303,17 +303,23 @@ Form function:
   Condition:
     ForAllValues:StringLike:
       dynamodb:LeadingKeys: ["DROPOFF#*", "EMAIL#*", "SUBMISSION#*", "STUDIO", "STUDIO#*"]
-- Sid: CountIdsAndRates
+- Sid: CountIds
   Effect: Allow
   Action: dynamodb:UpdateItem
   Resource: !GetAtt RecordsTable.Arn
   Condition:
-    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*", "RATE#*"]}
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*"]}
+- Sid: CountRates                      # a rolling window: read the hits, put them back (phase 4)
+  Effect: Allow
+  Action: [dynamodb:GetItem, dynamodb:PutItem]
+  Resource: !GetAtt RecordsTable.Arn
+  Condition:
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["RATE#*"]}
 - Sid: TransactOnTheTable                # TransactWriteItems is authorised per item action above
   Effect: Allow
   Action: dynamodb:TransactWriteItems   # if the IAM reference lists it as an action; see Required reading
   Resource: !GetAtt RecordsTable.Arn
-- Sid: Uploads
+- Sid: Uploads                         # GetObject also covers discard_uploads' marker check (HeadObject)
   Effect: Allow
   Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
   Resource: !Sub ${PhotoBucket.Arn}/uploads/*

@@ -1,4 +1,5 @@
-"""The domain and the ports import only the standard library and each other.
+"""The domain, the ports and the in-memory fakes import only the standard library and
+each other.
 
 CLAUDE.md's planned shape: the domain is plain Python with no AWS library and no web
 framework, so its rules are tested without AWS. The imports are read with `ast`, so a
@@ -14,7 +15,9 @@ import asmbly_ceramics
 PACKAGE = Path(asmbly_ceramics.__file__).parent
 DOMAIN = "asmbly_ceramics.domain"
 PORTS = "asmbly_ceramics.ports"
-ALLOWED = {"domain": (DOMAIN,), "ports": (DOMAIN, PORTS)}
+# The fakes are what phases 2 and 3 test against without AWS, so they import no AWS
+# library or web framework either.
+ALLOWED = {"domain": (DOMAIN,), "ports": (DOMAIN, PORTS), "adapters/memory": (DOMAIN, PORTS)}
 
 
 def imported_modules(source: str) -> list[str]:
@@ -43,7 +46,8 @@ def test_the_domain_imports_only_the_standard_library() -> None:
         for folder, allowed in ALLOWED.items()
         for path in sorted((PACKAGE / folder).rglob("*.py"))
     ]
-    assert any(path.parent.name == "domain" for path, _ in modules), "no domain module was found"
+    for folder in ALLOWED:
+        assert any(path.parent == PACKAGE / folder for path, _ in modules), f"no {folder} module"
     problems = {
         path.relative_to(PACKAGE).as_posix(): bad
         for path, allowed in modules

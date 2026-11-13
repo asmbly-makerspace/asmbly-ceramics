@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 1d: The ports and their in-memory fakes
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-13 on branch feat/drop-off-and-firing-phase-1
 
 Part of phase 1, split into 1a to 1d by `/prep` (see
 [phase 1a](phase-1a-domain-core-and-studio.md)). The conventions in phase 1a's
@@ -58,8 +58,8 @@ Under `src/asmbly_ceramics/`:
 | `ports/mailer.py` | `Mailer`, `OutgoingEmail`, `InlineImage`, `SendFailed` |
 | `ports/staff.py` | `StaffTokens`, `StaffMember`, `NotSignedIn`, `NotAllowed` |
 | `ports/rate_limit.py` | `RateLimiter` |
-| `ports/clock.py` | `Clock` |
-| `ports/secrets.py` | `Secrets`, `SecretName` |
+| `ports/clock.py` | `Clock`: the time behind the 10-minute device limit and the drop-off's times (#2) |
+| `ports/secrets.py` | `Secrets`, `SecretName`: the keys that hash a device for the 10-submission limit (#2) |
 | `adapters/__init__.py`, `adapters/memory/__init__.py` | Empty |
 | `adapters/memory/records.py` | `MemoryRecords` |
 | `adapters/memory/ids.py` | `MemoryIdNumbers` |
@@ -99,6 +99,9 @@ class Unavailable(Exception):
 
     def __init__(self, code: str) -> None: ...  # .code; the message is f"unavailable: {code}"
 
+    # A code that isn't 1 to 64 of [A-Za-z0-9_.-] (domain.email's ERROR_CODE shape) is
+    # stored as "unknown", so text an adapter passes by mistake never reaches a log.
+
 
 class RecordsUnavailable(Unavailable): ...  # Records, and RateLimiter (its counts are in the table)
 
@@ -124,7 +127,7 @@ class SecretMissing(Exception):  # Secrets: the parameter doesn't exist (a setup
 ```python
 @dataclass(frozen=True, slots=True)
 class Submission:  # one per form submission token, so a refresh makes no second drop-off
-    token_hash: str
+    token_hash: str  # repr=False: a keyed hash of the form's token, a lookup handle
     drop_off_id: DropOffId
     # The ID page's summary, so the public form never reads a drop-off item.
     # No name, email, phone, message or photo: ever.
@@ -213,13 +216,19 @@ class IdNumbers(Protocol):
     def next_load_id(self) -> LoadId: ...
 
 
-class UploadMissing(Exception): ...  # no upload for that slot (never sent, expired, wrong size)
+class UploadMissing(Exception): ...  # no upload for that slot (never sent, expired, wrong size, discarded)
 
 
-class PhotoStore(Protocol):
-    def upload_slots(self, count: int, now: datetime) -> list[UploadSlot]: ...
+class PhotosAlreadyKept(Exception): ...  # keep found photos for that drop-off; nothing overwritten
+
+
+class PhotoStore(Protocol):  # every method: PhotosUnavailable(code)
+    def upload_slots(self, count: int, now: datetime) -> list[UploadSlot]: ...  # 1 to 6, else ValueError
     def read_upload(self, slot_id: str) -> bytes: ...  # UploadMissing; never more than PHOTO_MAX_BYTES
-    def keep(self, drop_off_id: DropOffId, photos: Sequence[CheckedPhoto]) -> tuple[PhotoRef, ...]: ...
+    def discard_uploads(self, slot_ids: Sequence[str]) -> None: ...  # uses the slots up; idempotent
+    def keep(
+        self, drop_off_id: DropOffId, photos: Sequence[CheckedPhoto]
+    ) -> tuple[PhotoRef, ...]: ...  # 1 to 6, else ValueError; never overwrites: PhotosAlreadyKept
     def read(self, ref: PhotoRef, size: PhotoSize) -> bytes: ...  # UploadMissing when gone
     def delete_drop_off(self, drop_off_id: DropOffId) -> None: ...  # idempotent
 
@@ -253,7 +262,9 @@ class OutgoingEmail:  # every field but the IDs is repr=False: it holds the pers
 
 
 class SendFailed(Exception):
-    def __init__(self, code: str) -> None: ...  # .code: the provider's error code, never its message
+    def __init__(self, code: str) -> None: ...  # .code: the provider's error code, never its message;
+
+    # normalized as Unavailable's code is ("unknown" when it isn't a code)
 
 
 class Mailer(Protocol):
@@ -276,16 +287,16 @@ class NotAllowed(Exception):  # a valid token without the ceramics group
 class StaffTokens(Protocol):
     def verify(self, id_token: str) -> StaffMember: ...
     def sign_in_url(self, *, state: str, code_challenge: str, redirect_uri: str) -> str: ...
-    def exchange(
-        self, *, code: str, code_verifier: str, redirect_uri: str
-    ) -> str: ...  # the ID token; NotSignedIn
+    # The ID token; NotSignedIn (unknown or used code, wrong verifier or redirect URI;
+    # one exchange per code); SignInUnavailable.
+    def exchange(self, *, code: str, code_verifier: str, redirect_uri: str) -> str: ...
     def sign_out_url(self, *, redirect_uri: str) -> str: ...
 
 
 class RateLimiter(Protocol):
-    def hit(
-        self, key: str, limit: RateLimit, now: datetime
-    ) -> bool: ...  # counts this hit, allowed or not; False when over the limit; RecordsUnavailable
+    # Counts this hit, allowed or not; False when over the limit in the rolling window
+    # (now - limit.window, now]; key is a keyed hash; RecordsUnavailable (fails closed).
+    def hit(self, key: str, limit: RateLimit, now: datetime) -> bool: ...
 
 
 class Clock(Protocol):
@@ -305,17 +316,19 @@ class Secrets(Protocol):
 ### The fakes
 
 Thin: a dict and the contract's checks, enough to test every outcome. Each fake has a
-way to fail on purpose. None logs or prints.
+way to fail on purpose. None logs or prints. Every method that takes a time (`now`,
+a range's `start` and `end`, `before`) raises `ValueError` for a naive one, as the
+domain does; so does `FixedClock`.
 
 | Fake | State | Contract it keeps | Failure switch |
 | --- | --- | --- | --- |
 | `MemoryRecords` | dicts keyed as the contract above | every rule in the contract above; stores and returns copies (frozen, so the same objects) | `fail_next_commit_with: Exception \| None` (e.g. `Conflict()` or `RecordsUnavailable("ThrottlingException")`), cleared after it fires, nothing written; `commits: list[Sequence[Change]]` of the commits that succeeded, for assertions |
-| `MemoryIdNumbers` | two counters | increasing, never repeats | `skip(n)` to show gaps are fine; `fail_with: Exception \| None` |
-| `MemoryPhotoStore` | uploads and kept photos by key | `upload_slots` returns `count` slots with 22+ character random IDs, a fake URL and `expires_at = now + UPLOAD_SLOT_LIFETIME`; `read_upload` raises `UploadMissing` for an unknown slot or data over `PHOTO_MAX_BYTES`; `keep` returns refs 1..n; `read` raises `UploadMissing` when gone; `delete_drop_off` idempotent and removes both sizes | `put_upload(slot_id, data)` to simulate the browser's upload; `fail_with: Exception \| None` |
+| `MemoryIdNumbers` | two counters | increasing, never repeats | `skip(n)` (n at least 1) to show gaps are fine; `fail_with: Exception \| None` |
+| `MemoryPhotoStore` | uploads and kept photos by key | `upload_slots` returns `count` slots with 22+ character random IDs, a fake URL and `expires_at = now + UPLOAD_SLOT_LIFETIME`; `read_upload` raises `UploadMissing` for an unknown slot, one with no upload, or one discarded; `discard_uploads` drops the uploads and uses the slots up; `keep` stores only the `CheckedPhoto`s' bytes, refuses a count outside 1 to 6 with `ValueError`, raises `PhotosAlreadyKept` when the drop-off already has photos, and returns refs 1..n; `read` raises `UploadMissing` when gone; `delete_drop_off` idempotent and removes both sizes | `put_upload(slot_id, data)` to simulate the browser's upload: `ValueError` for a slot it didn't issue; empty data or data over `PHOTO_MAX_BYTES` is not kept (S3's 1-byte-to-10-MB condition refuses it), so `read_upload` raises `UploadMissing`; `read_uploads` (slots asked for, in order), `upload_count()`; `fail_with: Exception \| None` |
 | `MemoryPhotoInspector` | none | returns `CheckedPhoto(full=data, thumb=data[:16])` | refuses data starting with `b"NOT-IMAGE"`, `b"TOO-LARGE"`, `b"TOO-MANY-PIXELS"` with the matching `PhotoRefusal` |
-| `MemoryMailer` | `sent: list[OutgoingEmail]` | stores the message | `fail_with: str \| None` raises `SendFailed(code)` and stores nothing |
-| `MemoryStaffTokens` | `members: dict[str, StaffMember]` (token → a member of `ceramics`); `outsiders: dict[str, str]` (token → username, signed in but not in the group); `codes: dict[str, str]` (code → token) | `verify`: a member's token returns it; an outsider's raises `NotAllowed(username)`; anything else `NotSignedIn`. `exchange` returns the code's token or raises `NotSignedIn`. `sign_in_url` and `sign_out_url` return an `https://sign-in.example.org/...` URL with the arguments as query parameters | `fail_with: Exception \| None` (e.g. `SignInUnavailable("timeout")`) |
-| `MemoryRateLimiter` | hit times per key | counts every hit, allowed or not, in a window `(now - limit.window, now]`; returns whether the count, this hit included, is at most `limit.limit` | `fail_with: Exception \| None` (`RecordsUnavailable`: the limiter fails closed) |
+| `MemoryMailer` | `sent: list[OutgoingEmail]` | stores the message; a `from_address` not at `SENDING_DOMAIN` is a `ValueError` and nothing is stored (the adapter refuses it the same way) | `fail_with: str \| None` raises `SendFailed(code)` and stores nothing |
+| `MemoryStaffTokens` | `members: dict[str, StaffMember]` (token → a member of `ceramics`); `outsiders: dict[str, str]` (token → username, signed in but not in the group); codes issued by `approve(code, token)`, each tied to the last `sign_in_url`'s challenge and redirect URI | `verify`: a member's token returns it; an outsider's raises `NotAllowed(username)`; anything else `NotSignedIn`. `exchange` pops the code (one try) and returns its token only when `s256(code_verifier)` is the challenge and the redirect URI is the same; otherwise `NotSignedIn`. `sign_in_url` and `sign_out_url` return an `https://sign-in.example.org/...` URL with the arguments as query parameters | `fail_with: Exception \| None` (e.g. `SignInUnavailable("timeout")`) |
+| `MemoryRateLimiter` | the latest `limit.limit` hit times per key | counts every hit, allowed or not, in a rolling window `(now - limit.window, now]`; returns whether the count, this hit included, is at most `limit.limit` | `keys_hit` (every key counted); `fail_with: Exception \| None` (`RecordsUnavailable`: the limiter fails closed) |
 | `FixedClock` | an aware UTC time | `now()`; a naive time given to it is a `ValueError` | `advance(timedelta)` |
 | `MemorySecrets` | fixed bytes per name, 32 by default | `get` | `SecretMissing` for a name removed with `remove(name)` |
 
@@ -323,6 +336,11 @@ way to fail on purpose. None logs or prints.
 
 Nothing in phase 1 logs: the domain is pure and the fakes are silent. Phase 2 sets the
 logging conventions for use cases.
+
+Prep (2026-11-13) added: the mailer fake's `asmbly.org` check, the naive-time rule, the
+code normalization, `Submission.token_hash`'s `repr=False`, and what the photo fake
+keeps. The phase is estimated at about 1,100 changed lines, as 1a to 1c were; it isn't
+split again, because a port without its fake and contract tests can't be checked.
 
 ## Tests
 
@@ -332,6 +350,8 @@ logging conventions for use cases.
   `test_records_update_refuses_a_stale_version`; `test_records_update_of_a_missing_item_conflicts`;
   `test_records_commit_is_all_or_nothing`; `test_records_refuses_more_than_100_changes`;
   `test_records_refuses_two_changes_on_one_key`;
+  `test_records_empty_commit_is_a_no_op_and_not_recorded`;
+  `test_conflict_refuses_one_string_for_its_ids`;
   `test_records_failure_switch_raises_and_writes_nothing`.
 - `test_records_email_key_includes_the_occasion` (a second ready email for one drop-off
   conflicts; a rejected email for a new rejection doesn't).
@@ -340,11 +360,22 @@ logging conventions for use cases.
 - `test_ids_never_repeat`; `test_ids_skip_leaves_a_gap`.
 - `test_photo_store_slots_expire_after_15_minutes`; `test_photo_store_read_upload_of_an_unknown_slot_raises`;
   `test_photo_store_refuses_an_upload_over_10_mb`; `test_photo_store_keep_then_read_both_sizes`;
-  `test_photo_store_delete_is_idempotent`.
+  `test_photo_store_delete_is_idempotent`; `test_photo_store_refuses_an_empty_upload`;
+  `test_photo_store_records_each_read_upload`; `test_photo_store_discard_uses_the_slots_up`;
+  `test_photo_store_keep_never_overwrites`.
 - `test_inspector_refuses_each_marker`; `test_mailer_failure_raises_send_failed_with_the_code`;
-  `test_an_outgoing_email_repr_holds_no_address`.
-- `test_staff_tokens_not_allowed_and_not_signed_in`; `test_staff_tokens_exchange`.
-- `test_rate_limiter_allows_10_then_refuses_within_the_window_and_allows_after`.
+  `test_an_outgoing_email_repr_holds_no_address`; `test_mailer_refuses_a_from_outside_asmbly_org`;
+  `test_reprs_hold_no_bytes_token_or_address` (`InlineImage`, `StaffMember`, `Submission`).
+- `test_port_errors_keep_a_code_never_a_message` (`Unavailable`, `SendFailed`,
+  `SecretMissing`); `test_every_port_error_has_safe_text` (one of each port error class).
+- `test_fakes_refuse_a_naive_time` (photo slots, rate limiter, records' ranges and `history`).
+- `test_staff_tokens_not_allowed_and_not_signed_in`; `test_s256_is_the_pkce_challenge`;
+  `test_staff_tokens_exchange_returns_the_token_once`;
+  `test_staff_tokens_exchange_refuses_a_wrong_verifier_or_redirect`;
+  `test_staff_tokens_urls_and_failures`.
+- `test_rate_limiter_allows_10_then_refuses_within_the_window_and_allows_after`;
+  `test_rate_limiter_window_is_rolling_across_a_fixed_boundary`;
+  `test_rate_limiter_shows_the_keys_it_counted`.
 - `test_clock_advances_and_refuses_a_naive_time`; `test_secrets_get_and_missing`.
 - `test_each_fake_satisfies_its_port`: each fake assigned to a variable typed as its
   port, so mypy checks the fake keeps the protocol's signatures.
@@ -382,21 +413,75 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done.
+Built on 2026-11-13. What phases 2 and later can rely on:
 
-What the next phases can rely on, as planned:
-
-- The entities, states and functions of phases 1a to 1c, under `asmbly_ceramics.domain`.
-- The ports under `asmbly_ceramics.ports`, with these exact names: `Records.commit`
-  with `Put`/`Update`/`Conflict`, the reads listed, `IdNumbers`, `PhotoStore`
-  (`upload_slots`, `read_upload`, `keep`, `read`, `delete_drop_off`, `UploadMissing`),
-  `PhotoInspector.inspect`/`PhotoRefused`, `Mailer.send`/`OutgoingEmail`/`InlineImage`/`SendFailed`,
-  `StaffTokens`/`StaffMember`/`NotSignedIn`/`NotAllowed`, `RateLimiter.hit`, `Clock`,
-  `Secrets`/`SecretName`, and the `Unavailable` family and `SecretMissing` in
-  `asmbly_ceramics.ports.errors`.
-- The fakes under `asmbly_ceramics.adapters.memory`, with their failure switches, and
-  the builders in `tests/domain/builders.py`.
-- The message keys for field errors (phase 1a).
+- The entities, states and functions of phases 1a to 1c, under `asmbly_ceramics.domain`,
+  and `domain.email.is_error_code(code)` (1 to 64 of `[A-Za-z0-9_.-]`), which
+  `mark_failed` and the port errors share.
+- `asmbly_ceramics.ports`, with the names and signatures above: `records` (`Records`,
+  `Put`, `Update`, `Change`, `Item`, `Submission`, `Conflict`, `MAX_CHANGES = 100`),
+  `ids.IdNumbers`, `photos` (`PhotoStore`, `UploadMissing`, `PhotosAlreadyKept`), `images` (`PhotoInspector`,
+  `PhotoRefused`), `mailer` (`Mailer`, `OutgoingEmail`, `InlineImage`, `SendFailed`,
+  `is_sending_address`), `staff` (`StaffTokens`, `StaffMember`, `NotSignedIn`,
+  `NotAllowed`), `rate_limit.RateLimiter`, `clock.Clock`, `secrets` (`Secrets`,
+  `SecretName`), and `errors` (`PortError`, the base of every port error; `Unavailable`
+  and its five subclasses; `SecretMissing`; `error_code`).
+- `Unavailable(code)` and `SendFailed(code)` keep a code with `is_error_code`'s shape and
+  store any other text as `unknown`, so an adapter that passes AWS's message by mistake
+  leaks nothing. `Conflict.ids` names the drop-offs and loads refused (an email's or a
+  submission's drop-off), once each, in order.
+- `is_sending_address(address)` is true only for an address exactly as
+  `check_sending_address` returns it (at `asmbly.org`, domain lowercase, no spaces).
+  `MemoryMailer.send` raises `ValueError` otherwise, before its failure switch; phase
+  4's SES adapter does the same.
+- `OutgoingEmail` prints no field in its `repr`; `InlineImage.data`,
+  `StaffMember.email` and `Submission.token_hash` are `repr=False`.
+- The fakes under `asmbly_ceramics.adapters.memory`, each with `fail_with`
+  (`MemoryMailer`'s is an error code), except `MemoryRecords`, which has
+  `fail_next_commit_with` (cleared once it fires), `fail_reads_with` (added for the use
+  cases' "records unavailable" tests: every read raises it while set) and `commits`.
+  `MemoryPhotoStore` has `put_upload(slot_id, data)` (`ValueError` for a slot it didn't
+  issue; empty or over 10 MB is not kept), `kept_count(drop_off_id)`, `upload_count()`
+  and `read_uploads` (every slot `read_upload` was asked for); it ignores a slot's
+  expiry, which S3's lifecycle enforces in phase 4. `upload_slots` and `keep` take 1 to
+  6 (`ValueError` otherwise). `MemoryIdNumbers.skip(n)` skips both counters.
+  `MemorySecrets.remove(name)`; `FixedClock.advance(by)`; `MemoryStaffTokens` has
+  `members`, `outsiders` and `approve(code, token)` (after a `sign_in_url`), and
+  `adapters.memory.staff_tokens.s256(verifier)` gives the challenge;
+  `MemoryRateLimiter.keys_hit` lists the keys counted. `history(limit)` refuses a limit under 1. The
+  fakes refuse a naive time with `ValueError`, and log and print nothing.
+- Decided in the 1d review (each in the port's docstring, kept by its fake and tested):
+  - `RateLimiter.hit` counts in a **rolling** window `(now - window, now]`, refused
+    hits included, and fails closed; `key` is always a keyed hash, never a raw
+    address or cookie value. Phase 4's DynamoDB design was changed from fixed floored
+    windows to match (one item per key with at most `limit` hit times, a versioned
+    put); phase 7's form role gets `GetItem`/`PutItem` on `RATE#*`.
+  - `PhotoStore.discard_uploads(slot_ids)` uses slots up; phase 2's `SubmitDropOff`
+    calls it after the commit (step 8). `keep` leaves the uploads alone and never
+    overwrites: `PhotosAlreadyKept(drop_off_id)`, which phase 2 handles by taking the
+    next number.
+  - `Records.commit([])` is a no-op: nothing sent, nothing recorded in `commits`.
+  - `StaffTokens.exchange` refuses a wrong verifier or redirect URI, and a code is good
+    for one exchange (the fake pops it on any try).
+  - `Conflict(ids)` refuses a bare `str`; `SecretMissing(name)` keeps only a name with
+    an error code's shape (else `unknown`); `MemoryIdNumbers.skip(n)` refuses n < 1.
+  - `tests/domain/test_imports.py` also checks `adapters/memory/` (standard library,
+    domain and ports only).
+- For later phases (from the 1d review, not built here):
+  - Phase 2: make the `KeyHasher`'s outputs `NewType`s (e.g. `RateKey`,
+    `SubmissionHash`) if the ports start taking them, so a raw value can't be passed
+    where a hash is expected; today the ports take `str`.
+  - Phase 4: `S3PhotoStore.read_upload` and `discard_uploads` check that a
+    browser-sent slot ID has `token_urlsafe(16)`'s shape (exactly 22 of
+    `[A-Za-z0-9_-]`) before any S3 call (written into phase 4's photo store section).
+  - When entry points arrive (phases 6 and 8): a `tests/repo/` test that nothing under
+    `entry/` or `web/` imports `asmbly_ceramics.adapters.memory`, so a fake can never
+    serve production.
+- The marker bytes `NOT_IMAGE`, `TOO_LARGE`, `TOO_MANY_PIXELS` in
+  `adapters.memory.images`.
+- The builders in `tests/domain/builders.py`; the made-up `Submission` and
+  `OutgoingEmail` builders are local to `tests/adapters/test_memory.py`.
 - Phase 4's adapter section names some reads differently (`failed_emails`,
-  `settings_history`, `get_drop_off`); the names here are the contract, and phase 4's
-  `/prep` corrects its document.
+  `settings_history`, `get_drop_off`) and some photo types differently (see phase 1b's
+  hand-off); the names here and in phase 1b are the contract, and phase 4's `/prep`
+  corrects its document.

@@ -135,11 +135,11 @@ Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
 | --- | --- | --- | --- |
 | `Records` | get and query drop-offs, loads, studio, history, emails, counts; `commit(changes)` applies puts and updates atomically with version checks, raising `Conflict` | `adapters/aws/records.py` (DynamoDB) | `adapters/memory/records.py` |
 | `IdNumbers` | `next_drop_off_id()`, `next_load_id()`; never the same number twice | `adapters/aws/ids.py` (DynamoDB `ADD`) | `adapters/memory/ids.py` |
-| `PhotoStore` | `upload_slots(n)`, `read_upload(slot)`, `keep(drop_off, photos)`, `read(ref)`, `delete_drop_off(id)` | `adapters/aws/photos.py` (S3) | `adapters/memory/photos.py` |
+| `PhotoStore` | `upload_slots(count, now)`, `read_upload(slot_id)`, `discard_uploads(slot_ids)`, `keep(drop_off_id, photos)`, `read(ref, size)`, `delete_drop_off(id)` | `adapters/aws/photos.py` (S3) | `adapters/memory/photos.py` |
 | `PhotoInspector` | `inspect(data) -> CheckedPhoto` (real type, size, upright, no EXIF, full and thumbnail JPEGs) or `PhotoRefused(kind)` | `adapters/images.py` (Pillow) | `adapters/memory/images.py` |
 | `Mailer` | `send(message: OutgoingEmail) -> None`, raising `SendFailed(code)` | `adapters/aws/mailer.py` (SES v2) | `adapters/memory/mailer.py` |
-| `StaffTokens` | `verify(token) -> StaffMember(username, email)` or `NotSignedIn`/`NotAllowed`; `sign_in_url(...)`, `exchange(code, verifier)` | `adapters/aws/staff_tokens.py` (PyJWT, the pool's keys, the token endpoint) | `adapters/memory/staff_tokens.py` |
-| `RateLimiter` | `hit(key, window, limit) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
+| `StaffTokens` | `verify(token) -> StaffMember(username, email)` or `NotSignedIn`/`NotAllowed`; `sign_in_url(...)`, `exchange(code=, code_verifier=, redirect_uri=)`, `sign_out_url(...)` | `adapters/aws/staff_tokens.py` (PyJWT, the pool's keys, the token endpoint) | `adapters/memory/staff_tokens.py` |
+| `RateLimiter` | `hit(key, limit, now) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
 | `Clock` | `now() -> datetime` (aware) | `adapters/clock.py` | `adapters/memory/clock.py` |
 | `Secrets` | `get(name) -> bytes` | `adapters/aws/secrets.py` (SSM SecureString) | `adapters/memory/secrets.py` |
 
@@ -197,7 +197,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [1a](phase-1a-domain-core-and-studio.md) | The domain's core: errors, IDs, limits and the studio | app | L | [x] Complete |
 | [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
 | [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
-| [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [ ] Pending |
+| [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
 | [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
