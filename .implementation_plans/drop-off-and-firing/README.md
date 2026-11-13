@@ -56,8 +56,8 @@ yes), and SES sending for this project from AsmblyMCPs' identity.
 
 ## Domain model
 
-All of it is plain Python in `src/asmbly_ceramics/domain/` (phase 1; `counts.py` comes in
-phase 3 with the use case that needs it): frozen dataclasses
+All of it is plain Python in `src/asmbly_ceramics/domain/` (phases 1a to 1c; `counts.py`
+comes in phase 3 with the use case that needs it): frozen dataclasses
 and enums, no AWS library, no web framework, no I/O. A state change is a function that
 returns the new value or raises a `DomainError` subclass whose message names the reason
 and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
@@ -124,7 +124,7 @@ as named constants in the domain. Everything #6 calls a setting is in `Studio`.
 ### Ports
 
 Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
-`adapters/memory/` (phase 1) that the use case tests use, and an adapter the app uses
+`adapters/memory/` (phase 1d) that the use case tests use, and an adapter the app uses
 (phase 4). Besides the errors below, a port that can't reach AWS raises its
 `Unavailable(code)` subclass (`RecordsUnavailable`, `IdsUnavailable`,
 `PhotosUnavailable`, `SignInUnavailable`, `SecretsUnavailable`), which pages show as
@@ -178,12 +178,12 @@ use case call and its result into a response. `src/asmbly_ceramics/composition.p
 
 | Story | Title | Phases |
 | --- | --- | --- |
-| #2 | Drop off a piece and get an ID on screen | 1, 2, 4, 6, 7 |
-| #3 | Ceramics staff sign in and see what's waiting | 2, 8 |
-| #4 | Build a kiln load and fire it | 1, 3, 7, 9 |
-| #5 | Reject a drop-off with a reason and a message | 1, 2, 8 |
-| #6 | Staff manage the studio's settings in the console | 1, 3, 9 |
-| #7 | Finished drop-offs close and personal details are deleted | 1, 3, 9 |
+| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2, 4, 6, 7 |
+| #3 | Ceramics staff sign in and see what's waiting | 1c, 2, 8 |
+| #4 | Build a kiln load and fire it | 1c, 1d, 3, 7, 9 |
+| #5 | Reject a drop-off with a reason and a message | 1b, 2, 8 |
+| #6 | Staff manage the studio's settings in the console | 1a, 3, 9 |
+| #7 | Finished drop-offs close and personal details are deleted | 1b, 1c, 3, 9 |
 | #8 | The studio switches from ClickUp | 10 |
 
 Only the pull request that lands the last phase in a row says `Closes #N`; earlier ones
@@ -193,7 +193,10 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
-| [1](phase-1-domain-model.md) | The domain model, ports and fakes | app | L | [ ] Pending |
+| [1a](phase-1a-domain-core-and-studio.md) | The domain's core: errors, IDs, limits and the studio | app | L | [x] Complete |
+| [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [ ] Pending |
+| [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [ ] Pending |
+| [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [ ] Pending |
 | [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
@@ -209,14 +212,17 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 Between phases (`depends_on`, direct only):
 
 ```
-1 ──▶ 2 ──▶ 3 ─────────────┐
-│     └───▶ 6 ──┐           ▼
-└───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
-      5 ────────┘
+1a ──▶ 1b ──▶ 1c ──▶ 1d ──▶ 2 ──▶ 3 ─────────────┐
+                      │     └───▶ 6 ──┐           ▼
+                      └───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
+                            5 ────────┘
 ```
 
-- 2 needs 1; 3 needs 2; 4 needs 1; 5 needs nothing; 6 needs 2; 7 needs 4, 5 and 6;
-  8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2 needs 1d; 3 needs 2; 4 needs 1d; 5 needs
+  nothing; 6 needs 2; 7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- Phase 1 (the domain model, ports and fakes) was split into 1a to 1d by `/prep` on
+  2026-11-13, because its estimate was near 2,000 changed lines. "Phase 1" elsewhere in
+  this plan means all four.
 
 Outside this repository:
 
@@ -236,13 +242,13 @@ Pairs with no `depends_on` path between them:
 
 | Pair | Verdict | Why |
 | --- | --- | --- |
-| 5 and 1, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
+| 5 and 1a to 1d, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
 | 3 and 4 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 3 and 6 | sequential-only | both change `pyproject.toml`, `uv.lock` and `src/asmbly_ceramics/mail/templates/` (6 adds the shared brand partials) |
 | 4 and 2 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 4 and 6 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 
-In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
+In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time.
 
 ## Admin actions
 
@@ -260,7 +266,7 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
 
 ## Rollout
 
-1. Phases 1 to 4 and 6 reach no AWS. Phase 5's bootstrap is deployed by hand after its
+1. Phases 1a to 4 and 6 reach no AWS. Phase 5's bootstrap is deployed by hand after its
    merge: check (stack outputs, the certificates issued, the names resolve), undo
    (delete the stack; nothing uses it yet).
 2. **Phase 7** is the first deploy. A merge deploys stage, runs the smoke test, then

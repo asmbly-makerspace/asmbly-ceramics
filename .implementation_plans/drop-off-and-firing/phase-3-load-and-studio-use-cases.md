@@ -19,7 +19,8 @@ estimated_size: L
   details no longer than #7 says.
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md): the
   outbox, at-least-once delivery from the stream, the 48-drop-off load, the daily close.
-- This plan's [README](README.md#domain-model), [phase 1](phase-1-domain-model.md) (the
+- This plan's [README](README.md#domain-model), phase 1 ([1b](phase-1b-drop-offs-photos-outbox.md), [1c](phase-1c-loads-waiting-search.md),
+  [1d](phase-1d-ports-and-fakes.md)) (the
   load, email, studio and closing rules, the ports and fakes) and
   [phase 2](phase-2-drop-off-use-cases.md) (`log_event`, `CurrentStudio`, `Composer`,
   `outgoing`, the test `world` fixture). A name that differs from those is a mistake

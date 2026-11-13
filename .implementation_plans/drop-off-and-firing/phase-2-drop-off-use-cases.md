@@ -3,7 +3,7 @@ phase_id: 2
 title: "Use cases: drop off, waiting list, reject"
 epic: 1
 implements: [2, 3, 5]
-depends_on: [1]
+depends_on: [1d]
 domain: [app]
 estimated_size: L
 ---
@@ -19,7 +19,8 @@ estimated_size: L
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md):
   photos re-encoded on submit, the rate limit under a keyed hash, the outbox.
 - This plan's [README](README.md#domain-model) and
-  [phase 1](phase-1-domain-model.md): the entities, ports, fakes and message keys this
+  phase 1 ([1a](phase-1a-domain-core-and-studio.md), [1b](phase-1b-drop-offs-photos-outbox.md),
+  [1c](phase-1c-loads-waiting-search.md), [1d](phase-1d-ports-and-fakes.md)): the entities, ports, fakes and message keys this
   phase calls. A name that differs from phase 1 is a mistake here.
 - Story #2 (the form's criteria), #3 (the waiting list and search), #5 (rejection),
   and epic #1's **Decided** list (rejection email follows the Kiln Ops template, a

@@ -1,0 +1,202 @@
+{
+  "plan_name": "drop-off-and-firing",
+  "run": "drop-off-and-firing-phase-1",
+  "issue": 1,
+  "feature_branch": "feat/drop-off-and-firing-phase-1",
+  "worktree": null,
+  "status": "in-progress",
+  "stage": "phases",
+  "selected_phases": [
+    "1a",
+    "1b",
+    "1c",
+    "1d"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "mcp",
+    "sam": false,
+    "aws_read": false
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-1a-domain-core-and-studio",
+      "number": "1a",
+      "title": "Domain core: errors, IDs, limits, studio",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [],
+      "status": "in-progress",
+      "base_sha": "75ba5c8b86fdf6dca305eed56f8e4d88f139eab7",
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1b-drop-offs-photos-outbox",
+      "number": "1b",
+      "title": "Drop-offs, photos, outbox, closing",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1a"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1c-loads-waiting-search",
+      "number": "1c",
+      "title": "Loads, waiting list, search",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1b"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1d-ports-and-fakes",
+      "number": "1d",
+      "title": "Ports and in-memory fakes",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1c"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    }
+  ],
+  "gate": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null,
+    "test_count": null,
+    "coverage": null,
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null
+  },
+  "docs": {
+    "base_sha": null,
+    "squashed_sha": null
+  },
+  "qa": {
+    "base_sha": null,
+    "squashed_sha": null,
+    "closes": [],
+    "refs": []
+  },
+  "pr": {
+    "number": null,
+    "result": null,
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "no_github",
+      "note": "gh not signed in; GitHub MCP tools used instead"
+    },
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "env_missing",
+      "tool": "sam, aws read"
+    },
+    {
+      "ts": "2026-11-13T16:43:38Z",
+      "type": "phase_start",
+      "phase": "phase-1-domain-model"
+    },
+    {
+      "ts": "2026-11-13T16:52:24Z",
+      "type": "phase_split",
+      "from": "phase-1-domain-model",
+      "into": [
+        "1a",
+        "1b",
+        "1c",
+        "1d"
+      ]
+    },
+    {
+      "ts": "2026-11-13T16:52:24Z",
+      "type": "decision",
+      "topic": "split",
+      "choice": "4 sub-phases",
+      "reason": "prep size rule"
+    }
+  ]
+}

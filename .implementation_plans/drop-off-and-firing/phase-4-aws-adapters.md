@@ -3,7 +3,7 @@ phase_id: 4
 title: The AWS adapters
 epic: 1
 implements: [2]
-depends_on: [1]
+depends_on: [1d]
 domain: [app]
 estimated_size: L
 ---
@@ -20,7 +20,7 @@ estimated_size: L
   section.
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md): the
   data store, photos, email and sign-in choices this phase implements.
-- [Phase 1](phase-1-domain-model.md): the ports (`src/asmbly_ceramics/ports/`) and their
+- [Phase 1d](phase-1d-ports-and-fakes.md): the ports (`src/asmbly_ceramics/ports/`) and their
   contracts, and the in-memory fakes whose behavior each adapter must match.
 - The closest existing code: AsmblyMCPs' `src/mcp_core/auth.py` (PyJWT with a JWKS
   client, keys cached, RS256 pinned, a 503 when keys can't be fetched),
