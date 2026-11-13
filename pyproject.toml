@@ -48,6 +48,10 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
+# The plan names these refusals for what happened ("NotWaiting", "Conflict"), and later
+# phases import them by those names.
+"src/asmbly_ceramics/domain/errors.py" = ["N818"]
+"src/asmbly_ceramics/ports/*.py" = ["N818"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
