@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: Write the locked requirements
         run: uv export --frozen --all-groups --no-emit-project --quiet -o "$RUNNER_TEMP/requirements.txt"
       # To accept an advisory, add `--ignore-vuln <ID>` with a comment and a revisit date.
