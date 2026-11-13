@@ -77,8 +77,18 @@ rules, so it can do the work. You are still the one who answers for the result.
   | `/plan-product` | Turn an idea into an epic and stories with testable acceptance criteria ([SKILL.md](.claude/skills/plan-product/SKILL.md)) |
   | `/plan-tech` | Write the phased technical plan for an epic or a story ([SKILL.md](.claude/skills/plan-tech/SKILL.md)) |
   | `/prep` | Check one phase of a plan against the code before building it ([SKILL.md](.claude/skills/prep/SKILL.md)) |
+  | `/build` | Build one phase (or written instructions) with tests, validated and independently reviewed ([SKILL.md](.claude/skills/build/SKILL.md)) |
+  | `/review` | Review a branch with the specialist reviewers and get BLOCK / WARN / NOTE findings and a verdict ([SKILL.md](.claude/skills/review/SKILL.md)) |
+  | `/write-docs` | Update the docs a change needs ([SKILL.md](.claude/skills/write-docs/SKILL.md)) |
+  | `/bug-fix` | Trace a bug to its cause, fix it with a regression test, review it, and open a green pull request ([SKILL.md](.claude/skills/bug-fix/SKILL.md)) |
+  | `/address-pr-comments` | Fix or answer every review comment and failing check on a pull request ([SKILL.md](.claude/skills/address-pr-comments/SKILL.md)) |
+  | `/offshore` | Run a whole plan unattended, from stories to a green pull request and a briefing, without merging ([SKILL.md](.claude/skills/offshore/SKILL.md)) |
   | `/ship` | Run the checks, get a cold review, open the pull request, and wait for CI ([SKILL.md](.claude/skills/ship/SKILL.md)) |
   | `/rigor` | Tell the agent to stop cutting corners ([SKILL.md](.claude/skills/rigor/SKILL.md)) |
+
+  While `/offshore` runs, [a guardrail hook](.claude/hooks/offshore-guardrails.sh)
+  blocks questions, pushes to `main`, merges, deploys, AWS changes and the shortcuts
+  `CLAUDE.md` forbids. It does nothing in an ordinary session.
 
 - **Read the whole diff.** Do it before you push or ask for a review, as you would with
   a colleague's work. Look hardest at the agent's [Never](CLAUDE.md#rules) list: anything

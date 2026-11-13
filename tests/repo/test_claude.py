@@ -20,20 +20,25 @@ SKILLS = sorted((CLAUDE / "skills").glob("*/SKILL.md"))
 AGENTS = sorted((CLAUDE / "agents").rglob("*.md"))
 SKILL_KEYS = {"name", "description", "argument-hint", "model", "effort", "disable-model-invocation"}
 AGENT_KEYS = {"name", "description", "tools", "model", "effort"}
-# Skills from the repositories these were adapted from that this one doesn't have.
-# A mention would send an agent to a step list that isn't there.
-NOT_HERE = (
-    "offshore",
+EXPECTED_SKILLS = {
+    "plan-product",
+    "plan-tech",
+    "prep",
     "build",
     "review",
-    "bug-fix",
-    "promote",
     "write-docs",
+    "bug-fix",
     "address-pr-comments",
-    "add-tool",
-    "add-server",
-    "ops-check",
-)
+    "offshore",
+    "ship",
+    "rigor",
+}
+# Skills from the repositories these were adapted from that this one doesn't have.
+# A mention would send an agent to a step list that isn't there. There is no `stage`
+# branch here, so nothing promotes `stage` to `main`.
+NOT_HERE = ("promote", "add-tool", "add-server", "ops-check")
+# The one spawned agent that writes: the scribe edits documentation and commits it.
+WRITERS = {"scribe"}
 
 
 def frontmatter(path: Path) -> dict[str, Any] | None:
@@ -58,7 +63,7 @@ def spawned_agents() -> dict[str, Path]:
 
 
 def test_the_expected_skills_are_here() -> None:
-    assert {path.parent.name for path in SKILLS} == {"plan-product", "plan-tech", "prep", "rigor", "ship"}
+    assert {path.parent.name for path in SKILLS} == EXPECTED_SKILLS
 
 
 @pytest.mark.parametrize("skill", SKILLS, ids=lambda path: path.parent.name)
@@ -79,8 +84,12 @@ def test_a_spawned_agents_frontmatter_is_complete(agent: Path) -> None:
         return  # adopted inline by a skill, not spawned
     assert set(meta) <= AGENT_KEYS, f"unknown keys: {set(meta) - AGENT_KEYS}"
     assert {"name", "description", "tools", "model"} <= set(meta)
-    # Every spawned agent only reads: none of them may edit, write, or reach the network.
-    assert set(re.split(r",\s*", meta["tools"])) <= {"Read", "Grep", "Glob", "Bash"}
+    # Every spawned agent but the scribe only reads: none may edit, write, or reach the network.
+    tools = set(re.split(r",\s*", meta["tools"]))
+    allowed = {"Read", "Grep", "Glob", "Bash"}
+    if meta["name"] in WRITERS:
+        allowed |= {"Edit", "Write"}
+    assert tools <= allowed, f"{meta['name']} has tools it shouldn't: {tools - allowed}"
 
 
 def test_every_agent_a_skill_spawns_exists() -> None:
@@ -106,6 +115,27 @@ def test_no_document_sends_anyone_to_a_skill_that_isnt_here() -> None:
         assert not found, (
             f"{document.relative_to(REPO)} mentions /{found[0]}, which this repository doesn't have"
         )
+
+
+def test_the_agents_the_skills_rely_on_are_spawnable() -> None:
+    assert {
+        "review-lead",
+        "privacy-guardian",
+        "bug-planner",
+        "scribe",
+        "drift-detector",
+        "prep-auditor",
+        "domain-expert",
+    } <= set(spawned_agents())
+
+
+def test_every_hook_the_settings_run_exists() -> None:
+    settings = json.loads((CLAUDE / "settings.json").read_text())
+    for entries in settings.get("hooks", {}).values():
+        for entry in entries:
+            for hook in entry["hooks"]:
+                for script in re.findall(r"\.claude/hooks/[\w.-]+", hook["command"]):
+                    assert (REPO / script).exists(), f"settings.json runs {script}, which doesn't exist"
 
 
 def test_the_settings_preapprove_only_checks_and_reads() -> None:

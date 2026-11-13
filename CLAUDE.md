@@ -182,9 +182,32 @@ finishes an issue says `Closes #2`; earlier partial work says `Refs #2`. If you 
 follow-up work you won't do now, open an issue for it. Issues are public: describe a
 problem with a drop-off by its ID, never by the person.
 
-`/plan-product` writes stories, `/plan-tech` turns a story into a plan in
-`.implementation_plans/`, and `/prep` checks a phase of it against the code before it
-is built.
+## How work flows
+
+| Step | Skill | Result |
+| --- | --- | --- |
+| What people can do | `/plan-product` | An epic and story issues with acceptance criteria |
+| How it is built | `/plan-tech` | `.implementation_plans/<plan>/`: a README and one document per phase |
+| Check a phase against the code | `/prep` | READY TO IMPLEMENT / NEEDS REVISION / BLOCKED |
+| Build a phase | `/build` | Code and tests, validated and independently reviewed |
+| Review a branch | `/review` | BLOCK / WARN / NOTE findings and a verdict |
+| Write the docs | `/write-docs` | `README.md`, `docs/` and decision records updated |
+| A bug | `/bug-fix` | A fix with a regression test, reviewed, in a green pull request |
+| Reviewer comments | `/address-pr-comments` | Each comment fixed or answered, checks green |
+| All of it, unattended | `/offshore` | A green pull request to `main`, a manual QA document and a briefing, not merged |
+| A finished change | `/ship` | A merge-ready pull request, merged on the maintainer's word |
+| Corners were cut | `/rigor` | Stop, re-check, redo it properly |
+
+The agents these skills use are in `.claude/agents/`. Most are perspectives a skill
+reads and adopts; `review-lead`, `privacy-guardian`, `drift-detector`, `prep-auditor`,
+`domain-expert`, `bug-planner` and `scribe` run as separate subagents so that they see
+the work cold. Only `scribe` may edit files. While `/offshore` runs,
+`.claude/hooks/offshore-guardrails.sh` blocks questions, pushes to `main`, force
+pushes other than to the run's own branch, merges, deploys, AWS changes, any `aws`
+command outside the `asmbly` profile, hand edits to `uv.lock`, a lower coverage floor,
+`pull_request_target`, `--no-verify`, and edits to the hook and the settings; it does
+nothing in an ordinary session. Start an `/offshore` run in its own checkout or
+worktree: the hook guards every session in the folder where the run is.
 
 ## Commits and pull requests
 
