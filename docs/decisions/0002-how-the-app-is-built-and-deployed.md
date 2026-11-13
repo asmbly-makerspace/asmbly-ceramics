@@ -122,6 +122,9 @@ be reached, no upload slot is issued and no drop-off accepted.
 **Why:** AWS WAF's rate rules can't be attached to an HTTP API, and API Gateway's
 throttling is per route, not per caller.
 
+Note from phase 1d: the `RateLimiter` port counts in a rolling window, not a fixed one,
+and phase 4's table design follows it.
+
 ## Staff sign-in is checked by the app on every request
 
 **Chosen:** asmbly-staff-login gives this app a public client, `ceramics-staff`, with

@@ -56,8 +56,8 @@ yes), and SES sending for this project from AsmblyMCPs' identity.
 
 ## Domain model
 
-All of it is plain Python in `src/asmbly_ceramics/domain/` (phase 1; `counts.py` comes in
-phase 3 with the use case that needs it): frozen dataclasses
+All of it is plain Python in `src/asmbly_ceramics/domain/` (phases 1a to 1c; `counts.py`
+comes in phase 3 with the use case that needs it): frozen dataclasses
 and enums, no AWS library, no web framework, no I/O. A state change is a function that
 returns the new value or raises a `DomainError` subclass whose message names the reason
 and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
@@ -80,8 +80,9 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
      └──undo (same Austin day)──┘
   ```
 
-  *Overdue* is not a state: a drop-off still `waiting` 60 days after `created_at` is
-  shown as overdue, never deleted.
+  *Overdue* is not a state: a drop-off still `waiting` 60 or more whole Austin days
+  after the Austin date of its `created_at` (`days_waiting`) is shown as overdue, never
+  deleted.
 - **Load**: `id: LoadId` (`L-n`), `kiln: ItemId`, `firing_type: ItemId`, `date`
   (today by default), `status`, `members: tuple[DropOffId, ...]`, `started_by`
   (username), `fired_at`, `version`. `loading → firing → fired`; members are added and
@@ -92,13 +93,15 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   `@asmbly.org`), `pickup_window_days` (1 or more; 14 to start), `pickup_hours_text`,
   and four lists of `CatalogItem(id, name, status: active | retired)`: kilns, firing
   types (each with `needs_glaze_type`), glaze types, rejection reasons (each with
-  `needs_message`). An item any drop-off or load uses can be retired, not deleted; a
-  retired item stays on past records and can't be picked. Every change appends a
+  `needs_message`). An item any drop-off or load uses can be retired, not deleted, and
+  only a retired item can be deleted; a retired item stays on past records and can't be
+  picked. Every change appends a
   `SettingChange(at, by, what)` to the history.
 - **Email** (the outbox): `(drop_off_id, kind)` with kind `received`, `ready` or
-  `rejected`, `status` `pending → sending → sent | failed`, `attempts`, `error_code`,
-  `sent_at`. One per drop-off and kind (a `rejected` one per rejection: its key adds the
-  rejection's time). The ready email's `sent_at` starts the pickup window.
+  `rejected`, `status` `pending → sending → sent | failed`, or `cancelled` (from
+  `pending` or `sending`, when the drop-off closed or its rejection was undone),
+  `attempts`, `error_code`, `sent_at`. One per drop-off and kind (a `rejected` one per
+  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window.
 
 ### The rules, each in one place
 
@@ -109,12 +112,12 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | No two drop-offs share an ID (#2) | `IdNumbers` port contract; `AC-n` formatting in `domain/ids.py` |
 | 10 submissions per device, 30 per address, in 10 minutes (#2) | `domain/limits.py`; counted by the `RateLimiter` port |
 | Search: `AC-12`, `ac12`, `12` or part of a name (#3) | `domain/search.py`, `parse_query` and `matches` |
-| Waiting oldest first; bisque and glaze totals in pieces (#3) | `domain/waiting.py` |
+| Waiting oldest first; bisque and glaze totals in pieces (#3); overdue at 60 days waiting, in whole Austin days (#7) | `domain/waiting.py` |
 | Add only a waiting drop-off not in a load; a different firing type needs confirming; nothing changes once firing; at most 48 (#4) | `domain/load.py` |
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
-| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest; overdue at 60 days (#7) | `domain/closing.py` |
+| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py` |
 | Weekly counts Monday to Sunday, Austin time (#7) | `domain/counts.py` |
 
 The fixed numbers above (pieces, photos, sizes, rate limits, 60 days, 1,000 characters,
@@ -124,7 +127,7 @@ as named constants in the domain. Everything #6 calls a setting is in `Studio`.
 ### Ports
 
 Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
-`adapters/memory/` (phase 1) that the use case tests use, and an adapter the app uses
+`adapters/memory/` (phase 1d) that the use case tests use, and an adapter the app uses
 (phase 4). Besides the errors below, a port that can't reach AWS raises its
 `Unavailable(code)` subclass (`RecordsUnavailable`, `IdsUnavailable`,
 `PhotosUnavailable`, `SignInUnavailable`, `SecretsUnavailable`), which pages show as
@@ -134,11 +137,11 @@ Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
 | --- | --- | --- | --- |
 | `Records` | get and query drop-offs, loads, studio, history, emails, counts; `commit(changes)` applies puts and updates atomically with version checks, raising `Conflict` | `adapters/aws/records.py` (DynamoDB) | `adapters/memory/records.py` |
 | `IdNumbers` | `next_drop_off_id()`, `next_load_id()`; never the same number twice | `adapters/aws/ids.py` (DynamoDB `ADD`) | `adapters/memory/ids.py` |
-| `PhotoStore` | `upload_slots(n)`, `read_upload(slot)`, `keep(drop_off, photos)`, `read(ref)`, `delete_drop_off(id)` | `adapters/aws/photos.py` (S3) | `adapters/memory/photos.py` |
+| `PhotoStore` | `upload_slots(count, now)`, `read_upload(slot_id)`, `discard_uploads(slot_ids)`, `keep(drop_off_id, photos)`, `read(ref, size)`, `delete_drop_off(id)` | `adapters/aws/photos.py` (S3) | `adapters/memory/photos.py` |
 | `PhotoInspector` | `inspect(data) -> CheckedPhoto` (real type, size, upright, no EXIF, full and thumbnail JPEGs) or `PhotoRefused(kind)` | `adapters/images.py` (Pillow) | `adapters/memory/images.py` |
 | `Mailer` | `send(message: OutgoingEmail) -> None`, raising `SendFailed(code)` | `adapters/aws/mailer.py` (SES v2) | `adapters/memory/mailer.py` |
-| `StaffTokens` | `verify(token) -> StaffMember(username, email)` or `NotSignedIn`/`NotAllowed`; `sign_in_url(...)`, `exchange(code, verifier)` | `adapters/aws/staff_tokens.py` (PyJWT, the pool's keys, the token endpoint) | `adapters/memory/staff_tokens.py` |
-| `RateLimiter` | `hit(key, window, limit) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
+| `StaffTokens` | `verify(token) -> StaffMember(username, email)` or `NotSignedIn`/`NotAllowed`; `sign_in_url(...)`, `exchange(code=, code_verifier=, redirect_uri=)`, `sign_out_url(...)` | `adapters/aws/staff_tokens.py` (PyJWT, the pool's keys, the token endpoint) | `adapters/memory/staff_tokens.py` |
+| `RateLimiter` | `hit(key, limit, now) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
 | `Clock` | `now() -> datetime` (aware) | `adapters/clock.py` | `adapters/memory/clock.py` |
 | `Secrets` | `get(name) -> bytes` | `adapters/aws/secrets.py` (SSM SecureString) | `adapters/memory/secrets.py` |
 
@@ -178,12 +181,12 @@ use case call and its result into a response. `src/asmbly_ceramics/composition.p
 
 | Story | Title | Phases |
 | --- | --- | --- |
-| #2 | Drop off a piece and get an ID on screen | 1, 2, 4, 6, 7 |
-| #3 | Ceramics staff sign in and see what's waiting | 2, 8 |
-| #4 | Build a kiln load and fire it | 1, 3, 7, 9 |
-| #5 | Reject a drop-off with a reason and a message | 1, 2, 8 |
-| #6 | Staff manage the studio's settings in the console | 1, 3, 9 |
-| #7 | Finished drop-offs close and personal details are deleted | 1, 3, 9 |
+| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2, 4, 6, 7 |
+| #3 | Ceramics staff sign in and see what's waiting | 1c, 2, 8 |
+| #4 | Build a kiln load and fire it | 1c, 1d, 3, 7, 9 |
+| #5 | Reject a drop-off with a reason and a message | 1b, 2, 8 |
+| #6 | Staff manage the studio's settings in the console | 1a, 3, 9 |
+| #7 | Finished drop-offs close and personal details are deleted | 1b, 1c, 3, 9 |
 | #8 | The studio switches from ClickUp | 10 |
 
 Only the pull request that lands the last phase in a row says `Closes #N`; earlier ones
@@ -193,7 +196,10 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
-| [1](phase-1-domain-model.md) | The domain model, ports and fakes | app | L | [ ] Pending |
+| [1a](phase-1a-domain-core-and-studio.md) | The domain's core: errors, IDs, limits and the studio | app | L | [x] Complete |
+| [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
+| [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
+| [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
 | [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
@@ -209,14 +215,17 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 Between phases (`depends_on`, direct only):
 
 ```
-1 ──▶ 2 ──▶ 3 ─────────────┐
-│     └───▶ 6 ──┐           ▼
-└───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
-      5 ────────┘
+1a ──▶ 1b ──▶ 1c ──▶ 1d ──▶ 2 ──▶ 3 ─────────────┐
+                      │     └───▶ 6 ──┐           ▼
+                      └───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
+                            5 ────────┘
 ```
 
-- 2 needs 1; 3 needs 2; 4 needs 1; 5 needs nothing; 6 needs 2; 7 needs 4, 5 and 6;
-  8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2 needs 1d; 3 needs 2; 4 needs 1d; 5 needs
+  nothing; 6 needs 2; 7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- Phase 1 (the domain model, ports and fakes) was split into 1a to 1d by `/prep` on
+  2026-11-13, because its estimate was near 2,000 changed lines. "Phase 1" elsewhere in
+  this plan means all four.
 
 Outside this repository:
 
@@ -236,13 +245,13 @@ Pairs with no `depends_on` path between them:
 
 | Pair | Verdict | Why |
 | --- | --- | --- |
-| 5 and 1, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
+| 5 and 1a to 1d, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
 | 3 and 4 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 3 and 6 | sequential-only | both change `pyproject.toml`, `uv.lock` and `src/asmbly_ceramics/mail/templates/` (6 adds the shared brand partials) |
 | 4 and 2 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 4 and 6 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 
-In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
+In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time.
 
 ## Admin actions
 
@@ -260,7 +269,7 @@ In practice: 5 can be built while 1 to 4 and 6 are; the others go one at a time.
 
 ## Rollout
 
-1. Phases 1 to 4 and 6 reach no AWS. Phase 5's bootstrap is deployed by hand after its
+1. Phases 1a to 4 and 6 reach no AWS. Phase 5's bootstrap is deployed by hand after its
    merge: check (stack outputs, the certificates issued, the names resolve), undo
    (delete the stack; nothing uses it yet).
 2. **Phase 7** is the first deploy. A merge deploys stage, runs the smoke test, then

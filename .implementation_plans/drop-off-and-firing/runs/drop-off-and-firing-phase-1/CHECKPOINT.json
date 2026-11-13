@@ -1,0 +1,342 @@
+{
+  "plan_name": "drop-off-and-firing",
+  "run": "drop-off-and-firing-phase-1",
+  "issue": 1,
+  "feature_branch": "feat/drop-off-and-firing-phase-1",
+  "worktree": null,
+  "status": "complete",
+  "stage": "briefing",
+  "selected_phases": [
+    "1a",
+    "1b",
+    "1c",
+    "1d"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "mcp",
+    "sam": false,
+    "aws_read": false
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-1a-domain-core-and-studio",
+      "number": "1a",
+      "title": "Domain core: errors, IDs, limits, studio",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [],
+      "status": "done",
+      "base_sha": "75ba5c8b86fdf6dca305eed56f8e4d88f139eab7",
+      "squashed_sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        6
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1b-drop-offs-photos-outbox",
+      "number": "1b",
+      "title": "Drop-offs, photos, outbox, closing",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1a"
+      ],
+      "status": "done",
+      "base_sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39",
+      "squashed_sha": "37e062f32e9d56ffa40cc074747156484029b80d",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        5,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1c-loads-waiting-search",
+      "number": "1c",
+      "title": "Loads, waiting list, search",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1b"
+      ],
+      "status": "done",
+      "base_sha": "37e062f32e9d56ffa40cc074747156484029b80d",
+      "squashed_sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        3,
+        4,
+        7
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-1d-ports-and-fakes",
+      "number": "1d",
+      "title": "Ports and in-memory fakes",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1c"
+      ],
+      "status": "done",
+      "base_sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23",
+      "squashed_sha": "210e000b93278b1d06c1c128070d73ca096574c2",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-1-domain-model",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4
+      ],
+      "admin_actions": [],
+      "notes": ""
+    }
+  ],
+  "gate": {
+    "base_sha": "210e000b93278b1d06c1c128070d73ca096574c2",
+    "result": "clean",
+    "squashed_sha": null,
+    "test_count": 1169,
+    "coverage": "99.50%",
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": "75ba5c8b86fdf6dca305eed56f8e4d88f139eab7",
+    "result": "fixed",
+    "squashed_sha": "7e150dab149f2d31b9e878522d9e3c980101f04a"
+  },
+  "docs": {
+    "base_sha": "7e150dab149f2d31b9e878522d9e3c980101f04a",
+    "squashed_sha": "e4683b0c2e29146f23557d64d6e823644837b22f"
+  },
+  "qa": {
+    "base_sha": "e4683b0c2e29146f23557d64d6e823644837b22f",
+    "squashed_sha": "8fa0e92536111358cff0d795c4de3afac174e33c",
+    "closes": [],
+    "refs": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "pr": {
+    "number": 16,
+    "result": "green",
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "no_github",
+      "note": "gh not signed in; GitHub MCP tools used instead"
+    },
+    {
+      "ts": "2026-11-13T16:43:30Z",
+      "type": "env_missing",
+      "tool": "sam, aws read"
+    },
+    {
+      "ts": "2026-11-13T16:43:38Z",
+      "type": "phase_start",
+      "phase": "phase-1-domain-model"
+    },
+    {
+      "ts": "2026-11-13T16:52:24Z",
+      "type": "phase_split",
+      "from": "phase-1-domain-model",
+      "into": [
+        "1a",
+        "1b",
+        "1c",
+        "1d"
+      ]
+    },
+    {
+      "ts": "2026-11-13T16:52:24Z",
+      "type": "decision",
+      "topic": "split",
+      "choice": "4 sub-phases",
+      "reason": "prep size rule"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "cold_review",
+      "phase": "1a",
+      "review_lead": "APPROVED, 3 WARN",
+      "privacy": "APPROVED, 0 WARN"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "phase_done",
+      "phase": "1a"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "squash",
+      "phase": "1a",
+      "sha": "fa4bbeeef9d366657434e486d01f622d48c4ef39"
+    },
+    {
+      "ts": "2026-11-13T17:09:01Z",
+      "type": "phase_start",
+      "phase": "1b"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "cold_review",
+      "phase": "1b",
+      "review_lead": "APPROVED, 6 WARN",
+      "privacy": "CHANGES REQUESTED, 1 WARN"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "phase_done",
+      "phase": "1b"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "squash",
+      "phase": "1b",
+      "sha": "37e062f32e9d56ffa40cc074747156484029b80d"
+    },
+    {
+      "ts": "2026-11-13T17:30:15Z",
+      "type": "phase_start",
+      "phase": "1c"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "cold_review",
+      "phase": "1c",
+      "review_lead": "BLOCK(doc) fixed, re-review APPROVED",
+      "privacy": "APPROVED"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "decision",
+      "topic": "FiringTypeLocked",
+      "choice": "refuse firing-type change on a load with members",
+      "reason": "closes an unconfirmed-mismatch hole in #4; reverses plan line; maintainer to confirm"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "phase_done",
+      "phase": "1c"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "squash",
+      "phase": "1c",
+      "sha": "6cbf9032e81a436fc8958c2cb1191b5b46b84f23"
+    },
+    {
+      "ts": "2026-11-13T17:56:58Z",
+      "type": "phase_start",
+      "phase": "1d"
+    },
+    {
+      "ts": "2026-11-13T18:04:58Z",
+      "type": "decision",
+      "topic": "merge request",
+      "choice": "not merged by the run",
+      "reason": "maintainer said merge when green mid-run; offshore never merges and its guardrail blocks it; the PR is left open and green for a merge outside the run"
+    },
+    {
+      "ts": "2026-11-13T18:21:41Z",
+      "type": "cold_review",
+      "phase": "1d",
+      "review_lead": "APPROVED, 6 WARN fixed",
+      "privacy": "APPROVED"
+    },
+    {
+      "ts": "2026-11-13T18:21:41Z",
+      "type": "phase_done",
+      "phase": "1d"
+    },
+    {
+      "ts": "2026-11-13T18:21:41Z",
+      "type": "squash",
+      "phase": "1d",
+      "sha": "210e000b93278b1d06c1c128070d73ca096574c2"
+    },
+    {
+      "ts": "2026-11-13T18:23:56Z",
+      "type": "gate_result",
+      "result": "clean"
+    },
+    {
+      "ts": "2026-11-13T18:50:05Z",
+      "type": "final_review",
+      "review_lead": "APPROVED, 10 WARN (7 fixed, 3 deferred: index port shape, fired-no-email retention, stale docs)",
+      "privacy": "APPROVED"
+    },
+    {
+      "ts": "2026-11-13T18:50:05Z",
+      "type": "squash",
+      "unit": "final-review",
+      "sha": "7e150dab149f2d31b9e878522d9e3c980101f04a"
+    },
+    {
+      "ts": "2026-11-13T18:53:49Z",
+      "type": "squash",
+      "unit": "docs",
+      "sha": "e4683b0c2e29146f23557d64d6e823644837b22f"
+    },
+    {
+      "ts": "2026-11-13T18:55:30Z",
+      "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-13T18:55:30Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "8fa0e92536111358cff0d795c4de3afac174e33c"
+    },
+    {
+      "ts": "2026-11-13T18:56:38Z",
+      "type": "pr_opened",
+      "number": 16,
+      "note": "harness auto-subscribed this session to the PR; unsubscribed"
+    },
+    {
+      "ts": "2026-11-13T19:00:36Z",
+      "type": "complete"
+    }
+  ]
+}

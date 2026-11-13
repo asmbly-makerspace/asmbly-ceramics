@@ -110,7 +110,7 @@ as "L-4 changed while you were working. Here it is now; try again." Logs carry
 | `/console/loads/{load}` | GET | `ViewLoad`, `WaitingList` (filtered), `FindDropOffs` |
 | `/console/loads/{load}/add` | POST | `AddToLoad(load, drop_off, confirm_mismatch, by)` |
 | `/console/loads/{load}/remove` | POST | `RemoveFromLoad(load, drop_off, by)` |
-| `/console/loads/{load}/edit` | POST | `StartLoad`'s edit form: kiln, firing type, date, while loading |
+| `/console/loads/{load}/edit` | POST | `ChangeLoad(load, kiln, firing_type, date, version, by)`, while loading |
 | `/console/loads/{load}/start-firing` | POST | `StartFiring(load, by)` |
 | `/console/loads/{load}/fire` | POST | `MarkFired(load, by)` |
 | `/console/loads/{load}/emails/{drop_off}/retry` | POST | `RetryEmail(drop_off, "ready", "", staff)` |
@@ -129,7 +129,17 @@ is 404.
   `IdNumbers`). Logged `event=load_started`.
 - **`GET /console/loads/{load}`**, as the design's "Building a load":
   - the heading "Athena · Glaze · Fri Nov 13", "Load started by <username> at 9:20 AM",
-    and while loading "Change kiln, firing or date" (the edit form);
+    and while loading "Change kiln, firing or date" (the edit form). The kiln and the
+    date can change while the load is loading. The firing type can change only while
+    the load is empty: once it has drop-offs the firing-type select is shown read-only
+    (`disabled`, with its value sent in a hidden field) and under it "Remove its
+    drop-offs to change the firing type." A POST that changes it anyway gets
+    `FiringTypeLocked` from `ChangeLoad` and the page shows its message, "Load L-4 has
+    drop-offs in it: remove them before changing its firing type.", and changes
+    nothing. A retired or unknown kiln or firing type: "Pick a kiln from the list." /
+    "Pick a firing type from the list."; a load that is firing or fired: the
+    `LoadNotLoading` message. Success: `303` back to the load, logged
+    `event=load_changed`;
   - the status steps 1 Loading, 2 Firing, 3 Fired (`aria-current="step"` on the current
     one), and the next action: "Start firing" while loading (disabled with "Add a
     drop-off first" when empty), "Mark fired" while firing;
@@ -150,20 +160,29 @@ is 404.
 - **Adding** (`POST .../add`, field `drop_off` as typed, optional `confirm=1`):
   - not an ID and not found: "No waiting drop-off matches that. Check the ID, or try
     part of the name.";
-  - `NotWaiting`: the domain's reason, e.g. "AC-88 isn't waiting: it was fired in Vulcan
-    on Nov 9." or "AC-61 is already in load L-3." or "AC-70 was rejected.";
-  - `LoadNotLoading`: "L-4 is firing: nothing can be added or removed.";
-  - `LoadFull`: "L-4 holds 48 drop-offs, the most one load can.";
-  - `NeedsConfirmation` (different firing type, no `confirm`): the page again with a
-    warning panel "AC-61 is bisque. This load is glaze." and two buttons, "Add anyway"
-    (the same POST with `confirm=1`) and "Don't add";
+  - `NotWaiting` and `AlreadyInLoad`: the error's `.message` exactly as
+    `domain/errors.py` gives it ("AC-88 isn't waiting: it is fired.", "AC-70 isn't
+    waiting: it is rejected.", "AC-61 is already in load L-3."). Any more detail is
+    built by the page from the records, never parsed out of `.message`: for a fired
+    drop-off, a second line "Fired in Vulcan on Nov 9." from its `load_id`'s load (kiln
+    name from the studio's items) and its `fired_at` in Austin time;
+  - `LoadNotLoading`: its `.message`, "Load L-4 is firing: nothing can be added or
+    removed.";
+  - `LoadFull`: its `.message`, "Load L-4 already holds 48 drop-offs.";
+  - `FiringTypeMismatch` (different firing type, no `confirm`): the page again with a
+    warning panel "AC-61 is Bisque. This load is Glaze." and two buttons, "Add anyway"
+    (the same POST with `confirm=1`) and "Don't add". The page names the two firing
+    types from the studio's items, by the error's `.drop_off_firing_type` and
+    `.load_firing_type` (phase 1c's hand-off). This is the one domain error whose page
+    text isn't its `.message`: that message holds the item IDs (slugs), which are not
+    for staff to read;
   - success: "AC-61 added." and the field cleared and focused for the next scan.
     Logged `event=added_to_load`, `drop_off_id`, `load_id`, `user`.
 - **Removing**: "AC-61 is back in the waiting list."; refused once firing.
 - **Start firing / Mark fired**: each asks no question but is a POST button with a
   plain label; `MarkFired` queues one `ready` email per drop-off in the same
-  transaction (phase 3). Marking fired again: "L-4 is already fired. No emails were
-  sent again." Logged `event=load_firing` / `event=load_fired` with the load and the
+  transaction (phase 3). Marking fired again: `AlreadyFired`'s `.message`, "Load L-4 is
+  already fired; nothing was sent again." Logged `event=load_firing` / `event=load_fired` with the load and the
   count.
 - **At the kiln**: the page is one column under 40rem, the add field and buttons are
   44 px or more, the contents table drops to ID, name, pieces and thumbnail, and the
@@ -193,9 +212,10 @@ is 404.
   number, 1 to 90, "days after the pickup email"); "Pickup hours, as shown in emails"
   (a textarea, at most 2,000 characters, shown in emails with line breaks kept and
   everything escaped); "Save email settings".
-  - An address not at `asmbly.org`: next to the field, "Use an @asmbly.org address."
-    (the domain's `NotAsmblyAddress`; the message names the domain only, never an
-    address). A malformed address: "Enter an email address."
+  - An address not at `asmbly.org`, or a malformed one: next to the field, the
+    domain's `SendingAddressOutsideAsmbly` `.message`, "Use an address at asmbly.org."
+    (it names the domain only, never an address; `check_sending_address` raises it for
+    both, and the field's `type=email` catches most malformed ones in the browser).
   - A window outside 1 to 90: "Enter a number of days from 1 to 90."
   - The test email when the staff member's token has no verified email: "Your staff
     account has no email address to send to. Ask the Facilities Manager." A send that
@@ -204,20 +224,28 @@ is 404.
   - Saved: "Email settings saved." Logged `event=settings_changed`, `user`,
     `code=email`; never the address or the text.
 - **The studio's lists**: one section per list (Kilns, Firing types, Glaze types,
-  Rejection reasons), each item with its use count from `ViewStudio` ("Used by 212
-  loads", "Not used yet", "Always available; needs a message" for a reason that needs
-  one), a "Retired" tag when retired, and one action: Retire (used and active), Bring
-  back (retired), Delete (never used). An "Add" field per list (1 to 60 characters,
-  unique within the list ignoring case: "There's already a kiln called Athena."). A
-  firing type is added with a "Needs a glaze type" checkbox; a reason with "Needs a
-  message". Deleting a used item is refused: "Athena is used by 212 loads. Retire it
-  instead." Retiring the last active firing type or kiln is refused: "Keep at least one
-  active kiln."
+  Rejection reasons), each item with whether it is used from `ViewStudio` ("Used",
+  "Not used yet", "Needs a message" for a reason that needs one; a use count such as
+  "Used by 212 loads" only if phase 3's `/prep` settles a count read, phase 1d's
+  hand-off), a "Retired" tag when retired, and its actions: Retire (active), Bring back
+  (retired), and Delete (retired and never used: only a retired item can be deleted,
+  decided in phase 1's whole-branch review, so a delete can't race a new drop-off or
+  load naming it). An "Add" field per list (1 to 60 characters, unique within the list
+  ignoring case: `DuplicateItem`'s `.message`, "There is already a kiln called
+  Athena."). A firing type is added with a "Needs a glaze type" checkbox; a reason with
+  "Needs a message". Refusals show the domain's `.message`: deleting an active item,
+  "Retire Athena before deleting it."; deleting a used one, "Athena is used by a
+  drop-off or a load: retire it instead."; retiring the last active item of a list,
+  "Athena is the last active kiln: add or restore another first." A drop-off or load
+  that names an item the studio no longer has shows it as "a deleted item".
 - **Change history**: the last 10 changes, newest first, each as what changed, who
   (username) and when (Austin time), e.g. "Pickup window: 10 → 14 days · sam.r · Nov 12,
-  4:18 PM"; "Show all changes" opens `/console/settings/history`. The sending address
-  change reads "Sending address changed" with no address in it, so the history page
-  holds no address beyond the current one shown in the field.
+  4:18 PM"; "Show all changes" opens `/console/settings/history`, 50 a page, with
+  "Older changes" linking to `?before=<cursor>` (`ViewStudio`'s `older`, opaque; a
+  `before` that isn't one, `BadCursor`, shows the first page). The sending address
+  change reads "Changed the sending address" (the domain's `SettingChange.what`) with
+  no address in it, so the history page holds no address beyond the current one shown
+  in the field.
 
 Every email composed after a change uses the new settings, because the mailer reads the
 studio when it sends (phase 3's `SendPendingEmail`).
@@ -426,9 +454,15 @@ first night's run is checked under Rollout.
 - `test_add_from_the_waiting_list_filtered_to_the_loads_firing_type`
 - `test_show_all_firing_types_lifts_the_filter`
 - `test_a_drop_off_that_isnt_waiting_is_refused_with_the_reason` (fired, in another
-  load, rejected: each message names the IDs and, for fired, the kiln and date)
+  load, rejected: each shows the error's `.message`, which names the IDs; for fired,
+  the page's second line names the kiln and date from the records)
 - `test_a_different_firing_type_asks_for_confirmation_then_adds_on_confirm`
 - `test_dont_add_leaves_the_load_unchanged`
+- `test_change_kiln_and_date_of_a_load_with_drop_offs_in_it`
+- `test_the_firing_type_is_read_only_once_the_load_has_drop_offs`: the select is
+  `disabled` with "Remove its drop-offs to change the firing type."; a POST that
+  changes it anyway shows "Load L-4 has drop-offs in it: remove them before changing
+  its firing type." and leaves the load unchanged; an empty load's firing type changes.
 - `test_the_load_page_shows_contents_and_totals`
 - `test_remove_puts_it_back_in_the_waiting_list`
 - `test_nothing_can_be_added_or_removed_once_firing`
@@ -463,7 +497,10 @@ first night's run is checked under Rollout.
   the window and the hours and the address, run `SendPendingEmail`; the fake mailer's
   message has the new From, deadline and hours.
 - `test_a_used_item_can_be_retired_not_deleted`
-- `test_an_unused_item_can_be_deleted`
+- `test_an_active_item_must_be_retired_before_it_is_deleted`
+- `test_a_retired_unused_item_can_be_deleted`
+- `test_the_full_history_pages_with_an_opaque_cursor` (one save of three values, 2 a
+  page in the test: all three appear once; a made-up `before` shows the first page)
 - `test_a_retired_item_can_be_brought_back`
 - `test_a_retired_kiln_is_not_offered_for_a_new_load_but_stays_on_past_loads`
 - `test_duplicate_names_are_refused_ignoring_case`
@@ -582,6 +619,12 @@ the maintainer owns:
   bootstrap is updated by its runbook before this phase merges.
 
 ## Hand-off
+
+For this phase's `/prep` (from phase 1's whole-branch review): the retention of a fired
+drop-off whose ready email never sends is the maintainer's call (phase 3's hand-off has
+the question); this phase's close and its "needs attention" lists follow whatever phase
+3's `/prep` settles, and the use counts on the settings page follow phase 3's decision
+on a count read.
 
 Filled in when the phase is done. Phase 10 relies on:
 

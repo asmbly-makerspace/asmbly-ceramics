@@ -347,8 +347,8 @@ phase 2's use cases; made-up details are built in code (for example
     inspector refuses kind `not_an_image`).
   - `test_a_photo_over_10_mb_is_refused` (the fake photo store holds 10 MB + 1 byte for
     the slot).
-  - `test_a_malformed_or_seventh_slot_is_refused_before_any_read`: a slot ID that isn't
-    22 to 64 URL-safe characters, or a seventh distinct slot, answers 400 next to the
+  - `test_a_malformed_or_seventh_slot_is_refused_before_any_read`: a slot ID that fails
+    `is_slot_id` (exactly 22 of `[A-Za-z0-9_-]`), or a seventh distinct slot, answers 400 next to the
     photos and the fake photo store records no read.
   - `test_the_eleventh_drop_off_from_one_device_in_ten_minutes_is_refused` (429, the
     message, nothing saved); `test_the_device_can_drop_off_again_after_ten_minutes` (the

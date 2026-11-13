@@ -3,7 +3,7 @@ phase_id: 2
 title: "Use cases: drop off, waiting list, reject"
 epic: 1
 implements: [2, 3, 5]
-depends_on: [1]
+depends_on: [1d]
 domain: [app]
 estimated_size: L
 ---
@@ -19,7 +19,8 @@ estimated_size: L
 - [Decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md):
   photos re-encoded on submit, the rate limit under a keyed hash, the outbox.
 - This plan's [README](README.md#domain-model) and
-  [phase 1](phase-1-domain-model.md): the entities, ports, fakes and message keys this
+  phase 1 ([1a](phase-1a-domain-core-and-studio.md), [1b](phase-1b-drop-offs-photos-outbox.md),
+  [1c](phase-1c-loads-waiting-search.md), [1d](phase-1d-ports-and-fakes.md)): the entities, ports, fakes and message keys this
   phase calls. A name that differs from phase 1 is a mistake here.
 - Story #2 (the form's criteria), #3 (the waiting list and search), #5 (rejection),
   and epic #1's **Decided** list (rejection email follows the Kiln Ops template, a
@@ -264,8 +265,9 @@ In order:
 2. **The rate limit** (#2). `limiter.hit(hasher.device(...), DEVICE_LIMIT, now)` and
    the same for the address with `ADDRESS_LIMIT`; either false raises
    `TooManySubmissions`. Every attempt that reaches this step counts, refused or not.
-3. **The fields.** First the slots, before any S3 read: each slot ID must be 22 to 64
-   URL-safe characters and there must be at most `PHOTOS_MAX` distinct ones; otherwise
+3. **The fields.** First the slots, before any S3 read: each slot ID must pass
+   `domain.photos.is_slot_id` (exactly 22 of `[A-Za-z0-9_-]`, the one shape `upload_slots`
+   gives and the photo stores check) and there must be at most `PHOTOS_MAX` distinct ones; otherwise
    `InvalidDetails({"photos": "photos.count"})` at once, reading nothing. Then
    `DropOffDetails.create(..., photo_count=len(set(upload_slots)),
    studio=CurrentStudio())`. A duplicated slot ID counts once.
@@ -276,13 +278,34 @@ In order:
    stored: refused uploads stay under `uploads/` and expire with the bucket's
    lifecycle rule.
 5. **The ID.** `ids.next_drop_off_id()`.
-6. **Keep the photos.** `photos.keep(id, checked)` returns the refs.
+6. **Keep the photos.** `photos.keep(id, checked)` returns the refs. `keep` never
+   overwrites (phase 1d): `PhotosAlreadyKept` means photos are already under that
+   number (a counter that went backwards), so take `ids.next_drop_off_id()` once more
+   and keep again, as a `Conflict` on the drop-off's `Put` does.
 7. **Commit** `Put(drop_off)`, `Put(new_email(id, RECEIVED, now))`,
    `Put(Submission(hash, id, pieces, firing type name, glaze type name, now, now +
    SUBMISSION_LIFETIME))` together, and return `Submitted(received_view(submission),
-   hash, repeated=False)`. On `Conflict` (the same token committed in a race),
-   `photos.delete_drop_off(id)` (the number is skipped, which the ID contract allows)
-   and return the stored submission's view with `repeated=True`.
+   hash, repeated=False)`. **On any commit failure**, the kept photos have no record and
+   the close (#7) would never delete them, so `photos.delete_drop_off(id)` comes first
+   (the number is skipped, which the ID contract allows), then:
+   - `Conflict` (the same token committed in a race): return the stored submission's
+     view with `repeated=True`;
+   - `RecordsUnavailable`, or any other exception: re-raise it after the delete (the
+     page says "try again"; the uploads are untouched, so the same submit can be sent
+     again).
+   If `delete_drop_off` itself raises, log `event=photos_not_deleted` with
+   `drop_off_id` and the code and re-raise the commit's error: the photos are left to the
+   cleanup backstop phases 4 and 7 add (phase 1d's hand-off). `keep` itself is all or
+   nothing (phase 1d), so a `keep` that raised needs no cleanup here.
+8. **Use the uploads up.** Once the commit has succeeded, or the race above found the
+   stored submission, `photos.discard_uploads(distinct slots)` (phase 1d): the raw
+   uploads, EXIF included, are deleted at once instead of waiting a day for the
+   lifecycle rule, and a slot can never make a second drop-off. It runs only after a
+   commit, so a refused or failed submit can be sent again with the same uploads. If
+   it raises `PhotosUnavailable`, the drop-off stands: log `event=uploads_not_discarded`
+   with `drop_off_id` and the code, and return as usual. The lifecycle rule removes
+   the uploads within a day; until then the slots are not used up, and a second
+   submit from them would read them again (a narrow case, accepted).
 
 Logs: `event=drop_off_submitted`, `drop_off_id`, `count` (photos); on refusal
 `event=drop_off_refused`, `reason` (`invalid_details`, `rate_limited`, `form_expired`),
@@ -297,7 +320,7 @@ phase 7 sizes the form function's memory for one 10 MB decode.
 @dataclass(frozen=True, slots=True)
 class WaitingRow:
     drop_off: DropOff
-    days_waiting: int  # whole Austin days since created_at
+    days_waiting: int  # whole Austin days since created_at: domain `days_waiting`
     overdue: bool
     firing_type: str  # the item's name
     glaze_type: str | None
@@ -323,7 +346,7 @@ class FindDropOffs:
 - `WaitingList` (#3): `records.drop_offs_in({WAITING})`, `waiting_order`, `totals`
   over all waiting drop-offs (the totals ignore the filter), the filter by firing type
   applied to the rows only. Overdue rows are marked (#7).
-- `FindDropOffs` (#3): `parse_query`. A number reads `records.drop_off(DropOffId(n))`
+- `FindDropOffs` (#3): `parse_query`. An ID reads `records.drop_off(query.id)`
   (any state, closed included, so staff can look up an old slip). Text searches
   waiting, in-load, fired and rejected drop-offs with `matches`, oldest first, at most
   50 rows. `waiting_only=True` is what the load page's search uses (phase 9).
@@ -391,12 +414,16 @@ class UndoRejection:
   and send, the email uses the new one (#6: every email after a change uses it).
 - `RejectDropOff`: `NotFound`; `Conflict` when `version` isn't the stored one (someone
   else changed it: the page says to reload); `reject(...)`; commit
-  `Update(drop_off)` and `Put(new_email(id, REJECTED, now, occasion=rejection.at.isoformat()))`.
+  `Update(drop_off)` and `Put(new_email(id, REJECTED, now,
+  occasion=rejection_occasion(rejection.at)))` (`domain.email`: UTC to the microsecond,
+  the one format; no caller formats the time itself).
   The drop-off leaves the waiting list and can't join a load, because its state is
   `REJECTED` (the domain refuses it in `add_to_load`). Logs `event=drop_off_rejected`,
   `drop_off_id`, `user`, `reason` (the reason's item ID).
-- `UndoRejection`: `undo_rejection(...)`; if the rejection's email is still `PENDING`,
-  `mark_cancelled` it in the same commit (an email already sent can't be unsent; staff
+- `UndoRejection`: `undo_rejection(...)`; read the rejection's email by
+  `records.email(id, REJECTED, rejection_occasion(drop_off.rejection.at))` (taken
+  before the undo clears the rejection); if it is still `PENDING`, `mark_cancelled` it
+  in the same commit (an email already sent can't be unsent; staff
   contact the person, #5). Sends nothing. Logs `event=rejection_undone`, `drop_off_id`,
   `user`.
 
@@ -476,6 +503,17 @@ on return values):
 - `test_the_same_token_twice_returns_the_same_id_and_stores_nothing_more`.
 - `test_a_race_on_the_same_token_returns_the_first_and_deletes_the_kept_photos` (the
   fake's `fail_next_commit_with=Conflict()` and a submission written in between).
+- `test_a_failed_commit_deletes_the_kept_photos_and_raises` (parametrized over
+  `RecordsUnavailable("InternalServerError")` and a `RuntimeError`, through
+  `fail_next_commit_with`: the error is raised, `kept_count(id)` is 0, and the uploads
+  are not discarded) and `test_a_failed_cleanup_logs_and_raises_the_commit_error`.
+- `test_submit_discards_the_uploads_once_committed` (the fake's `upload_count()` is 0
+  and `read_upload` of each slot raises `UploadMissing`) and
+  `test_a_slot_cannot_make_a_second_drop_off` (a new token with the same slots gets
+  `photo.<n>: photo.missing`).
+- `test_a_refused_submit_keeps_the_uploads_for_a_retry` (nothing discarded) and
+  `test_a_failed_discard_still_returns_the_drop_off`.
+- `test_photos_already_kept_takes_the_next_number`.
 - `test_each_bad_field_is_refused_and_nothing_is_stored` (parametrized over phase 1's
   keys; no commit, no ID, no kept photo).
 - `test_a_photo_that_isnt_an_image_is_refused_next_to_it` (`photo.2: photo.not_image`),
@@ -485,11 +523,13 @@ on return values):
 - `test_the_eleventh_submission_from_a_device_in_10_minutes_is_refused` and
   `test_it_is_allowed_again_after_10_minutes` (`FixedClock.advance`) (#2).
 - `test_the_thirty_first_from_one_address_is_refused_across_devices`.
-- `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter`.
+- `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter` (the fake
+  limiter's `keys_hit` holds only `device#`/`address#` hashes).
 - `test_upload_slots_count_must_be_1_to_6` and `test_upload_slot_requests_are_limited`.
 - `test_upload_slots_fail_closed_when_the_limiter_is_unavailable`.
-- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (the fake photo store
-  records no `read_upload`).
+- `test_a_malformed_or_seventh_slot_is_refused_before_any_read` (a slot ID of 21 or 23
+  characters, or with `/` or `.`, fails `is_slot_id`; the fake photo store's
+  `read_uploads` is empty).
 - `test_the_studio_is_seeded_once_with_the_starting_values` and
   `test_a_seeding_race_reads_the_winner`.
 - `test_waiting_is_oldest_first_with_bisque_and_glaze_totals_in_pieces` (#3).
@@ -503,7 +543,9 @@ on return values):
 - `test_a_rejected_drop_off_leaves_the_waiting_list`.
 - `test_reject_with_a_stale_version_is_a_conflict_and_stores_nothing`.
 - `test_undo_the_same_day_returns_it_to_waiting_and_sends_nothing` (#5).
-- `test_undo_cancels_the_rejection_email_if_still_pending`.
+- `test_undo_cancels_the_rejection_email_if_still_pending` (the drop-off as read back
+  from the fake with its rejection time in another offset still finds the email: the
+  key is `rejection_occasion`'s).
 - `test_undo_the_next_day_is_refused`.
 - `test_unknown_log_field_raises`.
 - `test_nothing_logged_holds_personal_details`: runs submit (accepted and refused),
