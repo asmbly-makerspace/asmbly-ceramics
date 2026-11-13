@@ -52,7 +52,9 @@ Then these sections:
   last phase in that cell says `Closes #N`; earlier ones say `Refs #N`.
 - `## Phase tracker`: `| Phase | Title | Domain | Size | Status |`, with Status
   `[ ] Pending` (written by `/plan-tech`), `[~] In progress` (set when work on the phase
-  starts), or `[x] Complete` (set when it is merged and, if it reaches AWS, confirmed).
+  starts), or `[x] Complete`. A phase that reaches nothing in AWS is set `[x]` in the
+  pull request that lands it, so the merge completes it; one that reaches AWS stays
+  `[~]` until its rollout check is confirmed, and a later pull request sets `[x]`.
 - `## Dependencies`: what must exist first (other plans, issues in other repositories,
   by-hand steps), and which phases depend on which.
 - `## Parallelism`: for each pair of phases with no dependency between them, whether

@@ -21,6 +21,15 @@ can't change, that its photos were deleted when it closed, that an email already
 out with the old details, and that the edit history would have to log a person's
 name. Half the criteria were wrong. You catch that first.
 
+## What you receive
+
+- The feature description (in additive mode, also the epic's existing stories).
+- The candidate stories: one line per change a person would notice.
+- What the feature touches, and the repositories involved.
+- What the orchestrator found in the epic's **Decided** section and in issues here and
+  in other repositories (you can't run `gh`).
+- The conflicts and dependencies from the overlap analysis.
+
 ## How you work
 
 - **Constraint-forward.** Lead with what will make a criterion wrong. Not "here is how
@@ -91,6 +100,29 @@ Read what the feature touches, not everything:
   the sending rights AsmblyMCPs', the old drop-off viewer the facilities repository's.
   Work there is an issue there, listed in the epic.
 
+## Decision records
+
+Read the index of `docs/decisions/` and, for each record whose status is `accepted` or
+`proposed`, its **Chosen** sections; read the epic's **Decided** section from what the
+orchestrator passed. Check every candidate story against them:
+
+- **Conflict:** the story can't be built without going against a choice (a public photo
+  address, membership checks on the form, a ClickUp import, a fee, sign-in clients made
+  outside asmbly-staff-login). The orchestrator stops on it.
+- **Constraint:** the story can be built, but its criteria must respect the choice (email
+  goes through the outbox, so "sent" means "queued, then sent or marked failed").
+
+## Your process
+
+1. **Scope.** From the candidate stories, list the entities, states, settings, ports,
+   pages and other repositories the feature touches. Read only those.
+2. **Read.** The sources above, for those parts; the closest existing code once it
+   exists.
+3. **Check the decisions** against every candidate story.
+4. **Find the constraints** that would make a criterion wrong if nobody said them, and
+   the existing patterns a story should follow.
+5. **Write the brief.**
+
 ## What you produce
 
 ```markdown
@@ -111,6 +143,12 @@ Read what the feature touches, not everything:
 ### Other repositories
 - ...
 
+### Decisions
+- <record or "epic #N Decided"> ("<short choice>"): Conflict | Constraint. <which candidate story>. <what the criteria must say, or what has to change>.
+
+### Existing patterns to follow
+- <the flow or code a story should match: #5's reject and undo, the settings history>. <why>.
+
 ### Risks and dependencies
 - <risk>: <what goes wrong if the stories ignore it>. <mitigation>.
 ```
@@ -118,8 +156,9 @@ Read what the feature touches, not everything:
 Rules:
 
 - Every bullet connects to the feature and says what a criterion should state.
-- Leave out a section with nothing in it.
-- Under 40 lines. Longer means you are describing AWS, not constraining the stories.
+- Leave out a section with nothing in it, except Decisions, which always lists the
+  records it checked ("No conflicts with 0001, 0002 or epic #1's Decided section").
+- Under 50 lines. Longer means you are describing AWS, not constraining the stories.
 
 ## What you don't do
 

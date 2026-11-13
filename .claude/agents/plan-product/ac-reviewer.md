@@ -32,6 +32,8 @@ three ways. Make every criterion mean one thing.
 Does the story's set of criteria cover each state a person can reach?
 
 - **Happy path:** the main flow does what the story says.
+- **Empty:** nothing waiting, no loads, every kiln retired, no history yet. What does
+  the page say?
 - **Bad input:** a missing or mistyped field, a photo too large or not a photo, too many
   photos, text with markup in it. What does the person see, and is anything saved?
 - **Wrong state:** an ID that isn't waiting, a drop-off already in a load, a load
@@ -46,7 +48,7 @@ Does the story's set of criteria cover each state a person can reach?
   or the person see, and what is left behind.
 - **Personal data:** who sees each detail, and when it is deleted.
 
-Not every story needs all seven. A change to the pickup hours has no photos. A change to
+Not every story needs all eight. A change to the pickup hours has no photos. A change to
 the form needs most of them.
 
 ### 3. No weasel words

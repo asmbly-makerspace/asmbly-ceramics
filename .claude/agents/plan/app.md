@@ -37,6 +37,33 @@ secrets and logging without personal data (`logging.py`, `secrets.py`, `errors.p
 
 ## What you produce
 
+### Verifiability checklist (app)
+
+Put this in the phase document's Verification, with the phase's own checks added:
+
+- [ ] `uv run ruff check . && uv run ruff format --check .` passes.
+- [ ] `uv run mypy` passes, with type hints on every new or changed function and no
+      `Any` or `# type: ignore` without a reason on the same line.
+- [ ] `uv run pytest --cov` passes and the coverage floor in `pyproject.toml` holds.
+- [ ] `src/asmbly_ceramics/domain/` and `use_cases/` import nothing from `boto3`,
+      `botocore`, `starlette` or `jinja2` (a test in `tests/` greps for it, or the phase
+      adds one).
+- [ ] Every new port has a fake in `adapters/memory/` and contract tests in
+      `tests/adapters/` that run against the fake.
+- [ ] <phase-specific checks>
+
+### Privacy and security checklist (app)
+
+- [ ] No log line, domain error message or test fixture holds a name, email, phone,
+      rejection message, photo or token; logs carry `AC-12`, the load's ID, the staff
+      username and AWS error codes.
+- [ ] Every field that holds a person's details says who sees it and when it is deleted
+      (#7), and the close deletes it, photos and thumbnails included.
+- [ ] Test data is made up and built in code (`tests/domain/builders.py`): no literal
+      email address or phone number, no real photo.
+- [ ] Every setting is read from the store when it is used, never a constant.
+- [ ] <phase-specific checks>
+
 ### Implementation details (app)
 
 **Files**, under `src/asmbly_ceramics/`, in the layout the first plan set (for example
@@ -86,7 +113,49 @@ load raises `AlreadyInLoad` naming both IDs and stores nothing".
 
 ### Hand-off
 
-What the next phase can rely on: the types, use cases, ports and their contracts.
+What the next phase can rely on, as a checklist:
+
+- [ ] the types and their states, by module;
+- [ ] the use cases, with their inputs, results and errors;
+- [ ] the ports and their contracts, and the fakes that keep them;
+- [ ] the domain errors and their messages, for the web planner to show;
+- [ ] the rights each AWS adapter needs, for the infra planner.
+
+## Patterns you follow
+
+The first plan set the layout; follow it and the names already there. Sketches of the
+shapes, not code to paste:
+
+**A state change** is a function on frozen values that returns the new value or raises
+a `DomainError` whose message names the reason and the IDs, never a person:
+
+```python
+def add_to_load(load: Load, drop_off: DropOff) -> tuple[Load, DropOff]:
+    if load.status is not LoadStatus.LOADING:
+        raise LoadNotLoading(load.id)  # "Load L-4 is firing: nothing can be added or removed."
+    if drop_off.state is not DropOffState.WAITING:
+        raise NotWaiting(drop_off.id, drop_off.state)
+    ...
+```
+
+**A port** is a small `Protocol` named for what the app needs, with its contract in the
+docstrings (what "not found" and "already exists" mean, what is atomic):
+
+```python
+class Mailer(Protocol):
+    def send(self, email: OutgoingEmail) -> None:
+        """Send one message. Raises SendFailed(code) on any refusal; never logs content."""
+```
+
+**A fake** in `adapters/memory/` is thin: a dict and the contract's checks, with a
+switch to make it fail, so every outcome can be tested.
+
+**A use case** takes its ports as arguments (wired in `composition.py`), calls the
+domain, writes through the ports, and logs one line by ID:
+`log.info("drop_off_rejected", extra={"drop_off": str(drop_off.id), "staff": staff.username})`.
+
+**An AWS adapter** in `adapters/aws/` owns its `boto3` client, maps AWS's errors to the
+port's by error code, and logs the code only, never AWS's message.
 
 ## What you don't do
 

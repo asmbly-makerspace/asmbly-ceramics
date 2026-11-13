@@ -30,3 +30,6 @@ coverage.xml
 # (tests/repo/test_personal_data.py fails on an image outside branding/).
 *.heic
 *.HEIC
+
+# /offshore run state: the guardrail sentinel, its log, scratch files
+.offshore/
