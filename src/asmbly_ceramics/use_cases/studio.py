@@ -9,8 +9,11 @@ time anything reads it, from the sending address composition passes in.
 
 from dataclasses import dataclass
 
+from asmbly_ceramics.domain.errors import UnknownItem
+from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.domain.studio import (
     CatalogItem,
+    CatalogList,
     ItemStatus,
     Studio,
     check_sending_address,
@@ -77,10 +80,20 @@ class ViewStudioChoices:
     def __call__(self) -> StudioChoices:
         studio = self._studio()
         return StudioChoices(
-            firing_types=_active(studio.firing_types),
-            glaze_types=_active(studio.glaze_types),
+            firing_types=active_items(studio.firing_types),
+            glaze_types=active_items(studio.glaze_types),
         )
 
 
-def _active(items: tuple[CatalogItem, ...]) -> tuple[CatalogItem, ...]:
+def item_name(studio: Studio, which: CatalogList, id: ItemId) -> str:
+    """The item's name, retired or not, for a console page. An item the studio doesn't have
+    (it never deletes a used one) shows as its ID, so one bad record can't hide a page."""
+    try:
+        return studio.item(which, id).name
+    except UnknownItem:
+        return str(id)
+
+
+def active_items(items: tuple[CatalogItem, ...]) -> tuple[CatalogItem, ...]:
+    """The items staff may still choose, for a form."""
     return tuple(item for item in items if item.status is ItemStatus.ACTIVE)

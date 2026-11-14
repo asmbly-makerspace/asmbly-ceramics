@@ -17,11 +17,15 @@ from asmbly_ceramics.adapters.memory.rate_limit import MemoryRateLimiter
 from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.adapters.memory.secrets import MemorySecrets
 from asmbly_ceramics.adapters.memory.staff_tokens import MemoryStaffTokens
+from asmbly_ceramics.mail.compose import JinjaComposer
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.received import ReceivedSummary
+from asmbly_ceramics.use_cases.reject import PreviewRejection, RejectDropOff, UndoRejection
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
 from asmbly_ceramics.use_cases.submit import SubmitDropOff
 from asmbly_ceramics.use_cases.uploads import RequestUploadSlots
+from asmbly_ceramics.use_cases.view_drop_off import ViewDropOff
+from asmbly_ceramics.use_cases.waiting import FindDropOffs, WaitingList
 from tests.domain.builders import NOW, a_sending_address
 
 DEVICE = "made-up-device-cookie-0123456789"  # `is_form_token`'s shape
@@ -45,6 +49,13 @@ class World:
     received: ReceivedSummary
     upload_slots: RequestUploadSlots
     submit: SubmitDropOff
+    composer: JinjaComposer
+    waiting: WaitingList
+    find: FindDropOffs
+    view: ViewDropOff
+    preview: PreviewRejection
+    reject: RejectDropOff
+    undo: UndoRejection
 
     def uploaded(self, *photos: bytes) -> tuple[str, ...]:
         """Fresh slots holding these made-up photo bytes, as the browser's posts leave them."""
@@ -65,6 +76,7 @@ def world() -> World:
     studio = CurrentStudio(records, clock, a_sending_address())
     ids = MemoryIdNumbers()
     inspector = MemoryPhotoInspector()
+    composer = JinjaComposer()
     return World(
         records=records,
         ids=ids,
@@ -81,4 +93,11 @@ def world() -> World:
         received=ReceivedSummary(records, clock),
         upload_slots=RequestUploadSlots(photos, limiter, hasher, clock),
         submit=SubmitDropOff(records, ids, photos, inspector, limiter, hasher, clock, studio),
+        composer=composer,
+        waiting=WaitingList(records, clock, studio),
+        find=FindDropOffs(records, clock, studio),
+        view=ViewDropOff(records, clock, studio),
+        preview=PreviewRejection(records, clock, studio, composer),
+        reject=RejectDropOff(records, clock, studio),
+        undo=UndoRejection(records, clock),
     )

@@ -85,7 +85,7 @@
       ],
       "status": "done",
       "base_sha": "12b711d7aa16e76cc89734415f6dbf8842884d50",
-      "squashed_sha": null,
+      "squashed_sha": "83eeac4",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
@@ -109,17 +109,20 @@
         "2a",
         "2c"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "83eeac464ea1fdb6fd23a862d8588004d78b9675",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
       "parked_branch": null,
       "closes": [],
-      "refs": [],
+      "refs": [
+        3,
+        5
+      ],
       "admin_actions": [],
-      "notes": ""
+      "notes": "pytest 1626 passed, 99.56%; privacy: staff use cases take no verified caller by design (decision 0002 checks token and ceramics group at the console route); phase 8 review must block any console route, including the preview photo route, without that check and tests for no token and a token outside the group; search text must stay out of URLs (POST)"
     },
     {
       "id": "phase-3-load-and-studio-use-cases",
@@ -144,7 +147,7 @@
       "closes": [],
       "refs": [],
       "admin_actions": [],
-      "notes": "From 2c privacy review: the sender must re-read photos by the same drop-off key as the recipient (or outgoing checks all refs share one drop-off ID); to must be drop_off.contact.email re-read by key, and the test email goes only to the signed-in staff member"
+      "notes": "From 2c privacy review: the sender must re-read photos by the same drop-off key as the recipient (or outgoing checks all refs share one drop-off ID); to must be drop_off.contact.email re-read by key, and the test email goes only to the signed-in staff member; from 2d review: decide MAY_HAVE_GONE for a FAILED rejection email whose send may have left (code unexpected, or a lost SES response), so an undo never tells staff not to contact someone who may have the email"
     },
     {
       "id": "phase-4-aws-adapters",
@@ -523,6 +526,79 @@
       "ts": "2026-11-13T23:52:54Z",
       "type": "phase_done",
       "phase": "2c"
+    },
+    {
+      "ts": "2026-11-13T23:52:56Z",
+      "type": "squash",
+      "unit": "phase-2c",
+      "sha": "83eeac4"
+    },
+    {
+      "ts": "2026-11-13T23:52:56Z",
+      "type": "phase_start",
+      "phase": "2d"
+    },
+    {
+      "ts": "2026-11-14T01:27:18Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "undo email outcome",
+      "choice": "RejectionEmail enum; SENDING reported as may_have_gone",
+      "reason": "prep found a race"
+    },
+    {
+      "ts": "2026-11-14T01:27:18Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "FAILED email on undo",
+      "choice": "stays FAILED; domain is_history",
+      "reason": "plan rule"
+    },
+    {
+      "ts": "2026-11-14T01:28:47Z",
+      "type": "cold_review",
+      "phase": "2d",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-14T01:30:05Z",
+      "type": "decision",
+      "topic": "maintainer: keep going, merge at any point, deploy if no risk",
+      "choice": "run continues through phase 4 and ends at a green pull request; after the claim is released, merge it on his standing word; nothing to deploy",
+      "reason": "offshore never merges mid-run and the hook blocks it; phases 2-4 have no page and no deploy (deploys start with phases 5 and 7)"
+    },
+    {
+      "ts": "2026-11-14T01:34:00Z",
+      "type": "cold_review",
+      "phase": "2d",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 2
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "_occasion guard",
+      "choice": "dropped; reject uses rejection_occasion(now), undo raises NotRejected first",
+      "reason": "unreachable; src bans assert"
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "_read_back",
+      "choice": "returns DropOff or None and catches RecordsUnavailable; callers fall back",
+      "reason": "makes the missing-item path testable"
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "phase_done",
+      "phase": "2d"
     }
   ]
 }

@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.email import (
     EmailKind,
     EmailStatus,
     claim,
+    is_history,
     is_rejection_occasion,
     is_still_rejected,
     mark_cancelled,
@@ -212,3 +213,19 @@ def test_needs_attention_after_15_minutes_sending() -> None:
     assert needs_attention(failed(), NOW)
     for make in (pending, sent, cancelled):
         assert not needs_attention(make(), NOW + timedelta(days=1))
+
+
+def test_is_history_for_a_closed_drop_off_or_an_undone_rejection() -> None:
+    received = new_email(DropOffId(1), EmailKind.RECEIVED, NOW)
+    rejected_drop_off = a_drop_off(1, DropOffState.REJECTED)
+    assert rejected_drop_off.rejection is not None
+    current = new_email(
+        DropOffId(1), EmailKind.REJECTED, NOW, rejection_occasion(rejected_drop_off.rejection.at)
+    )
+    stale = new_email(DropOffId(1), EmailKind.REJECTED, NOW, rejection_occasion(NOW - timedelta(hours=1)))
+
+    assert is_history(a_drop_off(1, DropOffState.CLOSED), received)
+    assert not is_history(a_drop_off(1, DropOffState.FIRED), received)
+    assert not is_history(rejected_drop_off, current)
+    assert is_history(rejected_drop_off, stale)
+    assert is_history(a_drop_off(1), current)  # waiting again: the rejection was undone

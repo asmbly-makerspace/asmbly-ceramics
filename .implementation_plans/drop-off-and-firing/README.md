@@ -207,7 +207,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [2a](phase-2a-logging-studio-and-form-reads.md) | Use cases: logging, keyed hashes, the studio and the form's reads | app | L | [x] Complete |
 | [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [x] Complete |
 | [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [x] Complete |
-| [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [ ] Pending |
+| [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [x] Complete |
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [ ] Pending |
@@ -265,8 +265,8 @@ Pairs with no `depends_on` path between them:
 | 2c and 2a or 2b | parallel-safe | 2c touches only `mail/`, `ports/composer.py`, `tests/mail/`, its port's test, `pyproject.toml` and `uv.lock`, which 2a and 2b don't |
 | 4 and 2c | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 4 and 2a | sequential-only | 2a changed `tests/domain/test_imports.py` (it walks `use_cases/`), which phase 4 extends to `mail/`, `web/` and the AWS libraries; 2a is built first |
-| 4 and 2b or 2d | parallel-safe | 2b and 2d touch only `use_cases/` and `tests/use_cases/`, which phase 4 doesn't; 2d's use cases import the `Composer` port from 2c's `ports/composer.py`, never `mail/`, so neither changes the import check (decided in 2a's review) |
-| 6 and 2d | parallel-safe | 6 touches `web/` and `mail/templates/`; 2d touches only `use_cases/` and `tests/use_cases/` (its test fixture builds 2c's `JinjaComposer` but changes nothing in `mail/`) |
+| 4 and 2b or 2d | parallel-safe | 2b and 2d touch only `use_cases/` and `tests/use_cases/` (2d also `domain/email.py` and `tests/domain/test_email.py`), which phase 4 doesn't; 2d's use cases import the `Composer` port from 2c's `ports/composer.py`, never `mail/`, so neither changes the import check (decided in 2a's review) |
+| 6 and 2d | parallel-safe | 6 touches `web/` and `mail/templates/`; 2d touches only `use_cases/`, `tests/use_cases/`, `domain/email.py` and `tests/domain/test_email.py` (its test fixture builds 2c's `JinjaComposer` but changes nothing in `mail/`) |
 | 4 and 6 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 
 In practice: 5 can be built while 1a to 4 and 6 are; 2c beside 2a or 2b, 4 beside 2b

@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 2d: Use cases: the waiting list, search, one drop-off and rejection
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-13 on branch feat/drop-off-and-firing-phases-2-4
 
 Part of phase 2, split into 2a to 2d by `/prep` (see
 [phase 2a](phase-2a-logging-studio-and-form-reads.md)). The logging rules,
@@ -43,13 +43,17 @@ same-day undo that cancels the rejection email if it hasn't gone.
 
 | Path | What |
 | --- | --- |
-| `src/asmbly_ceramics/use_cases/waiting.py` | `WaitingRow`, `WaitingView`, `WaitingList`, `FindDropOffs` |
+| `src/asmbly_ceramics/use_cases/waiting.py` | `WaitingRow`, `WaitingView`, `WaitingList`, `Found`, `FindDropOffs` |
 | `src/asmbly_ceramics/use_cases/view_drop_off.py` | `DropOffView`, `ViewDropOff` |
-| `src/asmbly_ceramics/use_cases/reject.py` | `RejectRequest`, `PreviewRejection`, `RejectDropOff`, `UndoRequest`, `Undone`, `UndoRejection` |
+| `src/asmbly_ceramics/use_cases/reject.py` | `RejectRequest`, `PreviewRejection`, `RejectDropOff`, `UndoRequest`, `RejectionEmail`, `Undone`, `UndoRejection` |
 | `tests/use_cases/test_waiting.py`, `test_view_drop_off.py`, `test_reject.py`, `test_no_personal_details_logged.py` | The use cases |
 
 ## Files to modify
 
+- `src/asmbly_ceramics/domain/email.py` and `tests/domain/test_email.py` (from the
+  review): `is_history(drop_off, email)`, the one rule that an email is past acting on.
+- `src/asmbly_ceramics/use_cases/studio.py` (from the review): `item_name(studio,
+  which, id)`, an item's name for a console page.
 - `tests/use_cases/conftest.py`: build this phase's use cases (and a `JinjaComposer`
   from `mail.compose`: tests may import it) in the `world` fixture.
 - `use_cases/reject.py` imports `Composer` and `ComposedEmail` from
@@ -76,6 +80,7 @@ class WaitingView:
     rows: tuple[WaitingRow, ...]
     totals: WaitingTotals
     firing_types: tuple[CatalogItem, ...]  # for the filter
+    glaze_types: tuple[CatalogItem, ...]  # names for totals.pieces_by_glaze (from the review)
 
 
 class WaitingList:
@@ -83,9 +88,15 @@ class WaitingList:
     def __call__(self, firing_type: ItemId | None = None) -> WaitingView: ...
 
 
+@dataclass(frozen=True, slots=True)
+class Found:
+    rows: tuple[WaitingRow, ...]
+    truncated: bool  # more matched than SEARCH_MAX: the page says to type more
+
+
 class FindDropOffs:
     def __init__(self, records: Records, clock: Clock, studio: CurrentStudio) -> None: ...
-    def __call__(self, raw_query: str, *, waiting_only: bool = False) -> list[WaitingRow]: ...
+    def __call__(self, raw_query: str, *, waiting_only: bool = False) -> Found: ...
 ```
 
 - `WaitingList` (#3): `records.drop_offs_in({WAITING})`, `waiting_order`, `totals`
@@ -98,8 +109,9 @@ class FindDropOffs:
   (any state, closed included, so staff can look up an old slip; with
   `waiting_only=True`, only when it is waiting). Text searches waiting, in-load, fired
   and rejected drop-offs (`waiting_only=True`: waiting only) with `matches`, oldest
-  first, at most 50 rows (`SEARCH_MAX`, a named constant in `use_cases/waiting.py`). An
-  empty query gives no rows. `waiting_only=True` is what the load page's search uses
+  first, at most 50 rows (`SEARCH_MAX`, a named constant in `use_cases/waiting.py`), with
+  `truncated` set when more matched (from prep: a short fragment typed on a phone would
+  otherwise hide the newest matches without a sign). An empty query gives no rows. `waiting_only=True` is what the load page's search uses
   (phase 9).
 - For a row whose drop-off isn't waiting, `days_waiting` is still the domain's count
   and `overdue` is `False` (`is_overdue` says so).
@@ -115,6 +127,7 @@ class DropOffView:
     drop_off: DropOff
     firing_type: str
     glaze_type: str | None
+    rejection_reason: str | None  # the reason's name, retired or not, while rejected
     load: Load | None
     emails: tuple[Email, ...]
     emails_needing_attention: tuple[Email, ...]
@@ -164,10 +177,23 @@ class UndoRequest:
     staff: StaffMember
 
 
+class RejectionEmail(StrEnum):
+    """What became of the rejection email when the rejection was undone."""
+
+    CANCELLED = "cancelled"  # it was pending: it never went
+    MAY_HAVE_GONE = "may_have_gone"  # it was sending: cancelled, but it may be going out now
+    SENT = "sent"
+    NOT_SENT = "not_sent"  # it had failed (or none was stored): it never went
+
+
 @dataclass(frozen=True, slots=True)
 class Undone:
     drop_off: DropOff
-    email_cancelled: bool  # False: the rejection email may already have gone; staff contact the person (#5)
+    email: RejectionEmail
+
+    @property
+    def contact_the_person(self) -> bool:  # SENT or MAY_HAVE_GONE: staff contact the person (#5)
+        ...
 
 
 class UndoRejection:
@@ -196,24 +222,29 @@ how the console points at them.)
   `Update(drop_off)` and `Put(new_email(id, EmailKind.REJECTED, now,
   occasion=rejection_occasion(rejection.at)))` (`domain.email`: UTC to the microsecond,
   the one format; no caller formats the time itself). Returns the drop-off as read back
-  after the commit. The drop-off leaves the waiting list and can't join a load, because
+  after the commit or, when that read fails or misses it, the rejected drop-off at
+  `version + 1` (as `Records` stores it): the change landed, so staff are never told to
+  try again. `UndoRejection` does the same with its drop-off. The drop-off leaves the waiting list and can't join a load, because
   its state is `REJECTED` (the domain refuses it in `add_to_load`). Logs
   `event=drop_off_rejected`, `drop_off_id`, `user`, `reason` (the reason's item ID).
 - `UndoRejection`: `NotFound`; `Conflict` on a stale `version`; take the occasion
   `rejection_occasion(drop_off.rejection.at)` before the undo clears the rejection;
   `undo_rejection(...)` (`NotRejected`, `UndoTooLate`); read the email by
   `records.email(id, EmailKind.REJECTED, occasion)`. If it is `PENDING` or `SENDING`,
-  `mark_cancelled` it in the same commit as `Update(drop_off)` and return
-  `email_cancelled=True`; a `SENDING` one may be mid-send, and a mailer whose
-  `mark_sent` then meets the new version loses its commit, which phase 3's
-  `SendPendingEmail` handles by re-reading and checking `is_still_rejected` before it
-  sends. If it is `SENT` or `FAILED` (or missing), only the drop-off changes and
-  `email_cancelled=False`: an email already sent can't be unsent, so staff contact the
-  person (#5). A `FAILED` one stays `FAILED` (the domain cancels only `PENDING` and
+  `mark_cancelled` it in the same commit as `Update(drop_off)`. A `PENDING` one gives
+  `RejectionEmail.CANCELLED`. A `SENDING` one gives `MAY_HAVE_GONE` (from prep): the
+  mailer checks `is_still_rejected` before it composes, not at the moment it sends, so
+  one already past that check may still send; staff are told to contact the person, and
+  the mailer's `mark_sent` meets the new version and loses its commit. If it is `SENT`,
+  only the drop-off changes and the outcome is `SENT`: an email already sent can't be
+  unsent, so staff contact the person (#5). Missing gives `NOT_SENT`: none was queued.
+  `FAILED` also gives `NOT_SENT` for now, taking a failed send as not gone; whether a
+  `FAILED` email whose send may have left (a lost response) should give
+  `MAY_HAVE_GONE` is phase 3's call (see the hand-off). A `FAILED` one stays `FAILED` (the domain cancels only `PENDING` and
   `SENDING`) and `ViewDropOff` no longer lists it as needing attention; phase 3's
   `RetryEmail` must refuse a rejected email that `is_still_rejected` says is stale
   (noted for phase 3's prep). Sends nothing. Logs `event=rejection_undone`,
-  `drop_off_id`, `user`, `outcome` (`email_cancelled` or `email_not_cancelled`).
+  `drop_off_id`, `user`, `outcome` (the `RejectionEmail` value).
 
 ## Tests
 
@@ -230,16 +261,21 @@ values):
   `test_view_unknown_id_is_not_found`;
   `test_an_undone_rejections_failed_email_does_not_need_attention`.
 - `test_preview_shows_the_email_with_reason_and_message_and_saves_nothing` (#5).
-- `test_preview_refuses_other_without_a_message` and `..._over_1000_characters`.
+- `test_preview_refuses_other_without_a_message` and
+  `test_preview_refuses_a_message_over_1000_characters`.
 - `test_reject_stores_the_rejection_and_queues_one_email` (#5).
-- `test_reject_with_an_unknown_or_retired_reason_is_refused`.
+- `test_reject_with_an_unknown_reason_is_refused` and
+  `test_reject_with_a_retired_reason_is_refused`.
 - `test_a_rejected_drop_off_leaves_the_waiting_list`.
 - `test_reject_with_a_stale_version_is_a_conflict_and_stores_nothing`.
 - `test_undo_the_same_day_returns_it_to_waiting_and_sends_nothing` (#5).
-- `test_undo_cancels_the_rejection_email_if_still_pending` and
-  `..._if_sending` (the drop-off as read back from the fake with its rejection time in
-  another offset still finds the email: the key is `rejection_occasion`'s).
-- `test_undo_after_the_email_was_sent_says_so` (`email_cancelled` is `False`).
+- `test_undo_cancels_the_rejection_email_if_still_pending`.
+- `test_undo_while_sending_cancels_and_says_it_may_have_gone` (the drop-off as read
+  back from the fake with its rejection time in another offset still finds the email:
+  the key is `rejection_occasion`'s).
+- `test_undo_after_the_email_was_sent_says_so` (`SENT`, `contact_the_person`) and
+  `test_undo_after_the_email_failed_says_it_never_went`.
+- `test_find_says_when_more_matched_than_it_returns`.
 - `test_undo_the_next_day_is_refused`.
 - `test_the_request_repr_holds_no_message`.
 - `test_no_personal_details_logged.py`, `test_nothing_logged_holds_personal_details`:
@@ -256,7 +292,7 @@ values):
 2. `PreviewRejection` returns the email as the template renders it and stores nothing;
    `RejectDropOff` stores the rejection and queues exactly one rejected email (#5).
 3. `UndoRejection` the same Austin day returns the drop-off to waiting, cancels the
-   rejection email if it hasn't gone, says whether it did, and queues nothing; the next
+   rejection email if it hasn't gone, says whether it may have (`RejectionEmail`), and queues nothing; the next
    day it is refused (#5).
 4. No log record from these use cases holds a name, email, phone, message or token.
 
@@ -281,14 +317,77 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done.
+What the next phase can rely on (built):
 
-What the next phase can rely on, as planned:
-
-- `WaitingList` (`WaitingView`, `WaitingRow`), `FindDropOffs`, `ViewDropOff`
-  (`DropOffView`), `PreviewRejection`, `RejectDropOff` (`RejectRequest`),
-  `UndoRejection` (`UndoRequest`, `Undone`), with the errors each raises.
-- For phase 3: `RetryEmail` refuses a rejected email whose rejection was undone, and
-  `SendPendingEmail` checks `is_still_rejected` before sending one.
-- For phase 8: search text stays out of access logs and the address bar; the undo
-  page tells staff when the rejection email had already gone.
+- `asmbly_ceramics.use_cases.waiting`: `WaitingList(records, clock, studio)(firing_type:
+  ItemId | None = None) -> WaitingView(rows, totals, firing_types, glaze_types)`;
+  `FindDropOffs(records, clock, studio)(raw_query, *, waiting_only=False) ->
+  Found(rows, truncated)`; `WaitingRow(drop_off, days_waiting, overdue, firing_type,
+  glaze_type)`; `SEARCH_MAX = 50`. Neither logs. An unknown filter gives no rows.
+- `asmbly_ceramics.use_cases.view_drop_off`: `ViewDropOff(records, clock, studio)(id) ->
+  DropOffView(drop_off, firing_type, glaze_type, rejection_reason, load, emails,
+  emails_needing_attention, can_undo_rejection, reasons)`; `NotFound`. Logs nothing.
+  `rejection_reason` names the reason, retired or not, while the drop-off has one.
+- `RejectDropOff` and `UndoRejection` return the stored drop-off even when the read-back
+  after their commit fails or misses it (at `version + 1`, as `Records` stores it), so
+  staff are never told to try again for a change that landed.
+- "Logs nothing" holds for these use cases, but the first read on an empty table seeds
+  the studio through `CurrentStudio` and logs `studio_seeded` (phase 2a's design).
+- `asmbly_ceramics.use_cases.reject`: `RejectRequest(drop_off_id, reason, message,
+  version, staff)` (`message` `repr=False`); `PreviewRejection(records, clock, studio,
+  composer)(request, image_src) -> ComposedEmail`; `RejectDropOff(records, clock,
+  studio)(request) -> DropOff`; `UndoRejection(records, clock)(UndoRequest(drop_off_id,
+  version, staff)) -> Undone(drop_off, email: RejectionEmail)` with
+  `Undone.contact_the_person`; `RejectionEmail` is `cancelled`, `may_have_gone`, `sent`
+  or `not_sent`.
+- Errors: preview and reject raise `NotFound`, `Conflict` (a stale `version`, or a
+  commit lost to someone else), `UnknownItem`, `ItemRetired`, `NotWaiting`,
+  `MessageRequired`, `MessageTooLong`; undo raises `NotFound`, `Conflict` (also when the
+  mailer claimed the email first), `NotRejected`, `UndoTooLate`; every one may raise
+  `RecordsUnavailable`.
+- Logs: `drop_off_rejected` (`drop_off_id`, `user`, `reason`: the item ID) and
+  `rejection_undone` (`drop_off_id`, `user`, `outcome`: the `RejectionEmail` value).
+  Phase 8's document predates this phase: its prep corrects `event=rejected` to these
+  names, the call shapes (every reject and undo form posts the drop-off's `version`;
+  `WaitingList(records, clock, studio)(firing_type)`, not `WaitingList(now)`;
+  `PreviewRejection(...)(RejectRequest(...), image_src)`, not `PreviewRejection(id,
+  reason, message)`; `UndoRejection(records, clock)(UndoRequest(...))`), and "the rejection email already
+  queued or sent is not recalled", which the built cancel and `contact_the_person`
+  replace. Phase 3's prep likewise switches `SendPendingEmail` and `RetryEmail` to
+  `is_history`.
+- For phase 3's prep (review): once `RetryEmail` can put a stale `SENDING` rejected
+  email back to `PENDING`, an undo reports it `CANCELLED` though it may have gone;
+  count a `PENDING` rejected email with `attempts > 0` as `MAY_HAVE_GONE`.
+- For phase 3's prep (review): an undo reports a `FAILED` rejected email as `NOT_SENT`
+  (`contact_the_person` false). Phase 3 stores `mark_failed(email, "unexpected")` for a
+  send that may have half-happened, and phase 4's SES adapter could map a lost response
+  to `SendFailed`, so such an email may have reached the person (#5). Phase 3 decides:
+  give `MAY_HAVE_GONE` for a `FAILED` rejected email whose send may have left (by its
+  failure reason), and keep `NOT_SENT` only for a send known not to have gone.
+- `domain.email.is_history(drop_off, email)`: closed, or a rejected email that
+  `is_still_rejected` says is stale. `ViewDropOff` uses it; phase 3's
+  `SendPendingEmail` and `RetryEmail`, and phase 9's failed-email lists, use the same.
+- `use_cases.studio.item_name(studio, which, id)`: a retired item's name, or the ID for
+  one the studio lacks; `use_cases.studio.active_items(items)`: the active ones, for a
+  form.
+- For phase 8: none of these use cases takes the caller, so every console route checks
+  the token and the `ceramics` group itself, with tests for no token and for a token
+  outside the group. A preview's `image_src` (`/console/drop-offs/AC-n/photos/n`) is served
+  only to a signed-in `ceramics` member. Search text stays out of access logs and the
+  address bar (the privacy review would block `GET /console?q=`: use a POST, or record
+  why not). The undo page tells staff to contact the person when
+  `Undone.contact_the_person`; the search says to type more when `Found.truncated`; a
+  refused reject or preview re-shows the form with the typed message kept; on
+  `Conflict` the page reloads the drop-off; with every reason retired the reject form
+  points staff to settings; the waiting list renders only the fields #3 shows (a
+  `WaitingRow` carries the whole `DropOff`); the glaze card names
+  `totals.pieces_by_glaze` from `WaitingView.glaze_types`.
+- For phases 3 and 9: an undone rejection's `FAILED` email stays `FAILED` (the domain
+  cancels only `PENDING` and `SENDING`); `is_history` keeps it out of every list and
+  retry.
+- For phase 3's prep (review): `RejectDropOff` doesn't version-check the studio, so a
+  reason retired and deleted within one request would leave a rejection naming a
+  missing reason (`DropOffView.rejection_reason` shows its ID); `DeleteCatalogItem`
+  should consider it.
+- The record keeps no trace of an undone rejection (`undo_rejection` clears it): the
+  log line and the cancelled email are the trace. Accepted.

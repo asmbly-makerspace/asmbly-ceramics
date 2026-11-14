@@ -209,7 +209,9 @@ session usually makes that one tap.
 
 ### web: the waiting list (`GET /console`)
 
-Calls `WaitingList(now)` and, when `q` is set, `FindDropOffs(q)`. Shows, as in the
+Calls `WaitingList(records, clock, studio)(firing_type)` (phase 2d: the use case reads
+the clock itself; `firing_type` is the filter, or `None`) and, when `q` is set,
+`FindDropOffs(records, clock, studio)(q)`. Shows, as in the
 design's "Waiting to fire" screen:
 
 - the heading "Waiting to fire", "Oldest first.", a "Find a drop-off" search box
@@ -260,7 +262,9 @@ reason's `needs_message`), and "Preview the email", a GET form to
 - **`POST .../reject/preview`** (form fields `reason`, `message`, the CSRF token; a POST
   so the message, which is personal data, never sits in a URL, browser history or a log
   of query strings) calls
-  `PreviewRejection(id, reason, message)`. Refusals are shown next to the field on the
+  `PreviewRejection(records, clock, studio, composer)(RejectRequest(id, reason, message,
+  version, staff), image_src)` (phase 2d), with `image_src` giving each photo's
+  console address. Refusals are shown next to the field on the
   drop-off page's panel, with the typed message kept, each as the domain error's
   `.message` from `domain/errors.py` (any extra detail is built by the page from the
   records, never parsed from `.message`): an unknown reason (`UnknownItem`, "That reason

@@ -267,6 +267,14 @@ whose new image has `status = pending`. In order:
    email stores `mark_failed(email, "unexpected")`), and return instead of raising, so
    the stream doesn't retry a send that may have half-happened.
 
+   Because such a send may have reached the person, phase 2d's `UndoRejection` must not
+   keep telling staff it never went: today it reports any `FAILED` rejected email as
+   `NOT_SENT` (`contact_the_person` false). This phase decides, with its failure
+   reasons, which `FAILED` rejected emails give `MAY_HAVE_GONE` (at least
+   `"unexpected"`, and any `SendFailed` code phase 4's SES adapter uses for a lost
+   response), keeping `NOT_SENT` only for a send known not to have gone, with a test
+   for each (phase 2d's review, #5).
+
 **The log line phase 7's alarm counts** is exactly:
 `{"level": "ERROR", "event": "email_failed", "kind": "<received|ready|rejected>", "drop_off_id": "AC-12", "error_code": "<code>"}`
 (plus the formatter's own fields). Its metric filter is `{ $.event = "email_failed" }`.
