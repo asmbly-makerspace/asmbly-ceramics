@@ -294,8 +294,9 @@ whose new image has `status = pending`. In order:
    plus this module's pre-send codes, which are stored when the failure happened before
    `mailer.send` was called: `photo_missing` (`UploadMissing` reading a photo),
    `photos_unavailable` (`PhotosUnavailable`), `compose_failed` (the `Composer` or
-   `outgoing` raised `ValueError`), `drop_off_missing`, and `records_unavailable` (the
-   drop-off or the studio couldn't be read after the claim). `was_not_sent(code)` is
+   `outgoing` raised `ValueError`), `drop_off_missing`, `records_unavailable` (the
+   drop-off or the studio couldn't be read after the claim), and `studio_missing` (the
+   mailer's read-only `CurrentStudio` raised `StudioNotSeeded`). `was_not_sent(code)` is
    that check, and `may_have_gone(email)` adds that an email tried more than once may
    have gone on an earlier attempt. `UndoRejection` gives `NOT_SENT` for a `FAILED`
    email only when `may_have_gone` is false, and `MAY_HAVE_GONE` otherwise (`unexpected`, `unknown`, a timeout,
@@ -705,7 +706,7 @@ on, as built:
   only when nothing was sent. `RetryEmail(drop_off_id, kind, occasion, staff)`.
   `was_not_sent(code)`, `NOT_SENT_CODES` and the pre-send codes `photo_missing`,
   `photos_unavailable`, `compose_failed`, `drop_off_missing`, `records_unavailable`,
-  plus `unexpected`; `may_have_gone(email)`.
+  `studio_missing`, plus `unexpected`; `may_have_gone(email)`.
   Log events: `email_sent`, `email_failed` (ERROR: the alarm's line), `email_cancelled`,
   `email_unrecorded` (ERROR: sent, or failed, but the record couldn't be saved), and
   `email_retried`.

@@ -612,7 +612,7 @@ class CognitoStaffTokens:
   a constant in `domain/staff.py` (phase 1), not a setting.
 - **`sign_in_url`** builds `f"{sign_in_origin}/oauth2/authorize?"` +
   `urlencode({"response_type": "code", "client_id": ..., "redirect_uri": ...,
-  "scope": "openid", "state": ..., "code_challenge": ..., "code_challenge_method": "S256"})`
+  "scope": "openid email", "state": ..., "code_challenge": ..., "code_challenge_method": "S256"})`
   (authorization-endpoint.html). `sign_in_origin` is asmbly-staff-login's
   `/config/cognito/staff/sign-in-url` value, which includes `https://` and no path.
 - **`sign_out_url`**: `f"{sign_in_origin}/logout?"` + `urlencode({"client_id": ...,
@@ -850,7 +850,9 @@ Phase 7 (and phase 8, for sign-in) can rely on:
   (`sign_in_origin` is `/config/cognito/staff/sign-in-url`, an https origin with no path).
 - **Client settings**: build the DynamoDB, S3 and SSM clients with
   `adapters.aws.clients.CLIENT_CONFIG` (2 s to connect, 4 s per read, 3 tries in
-  standard mode: one call gives up in under 30 s) and the SES client with
+  standard mode: one call gives up in under 30 s; S3 `addressing_style="virtual"`, so a
+  presigned POST's `url` is `https://<bucket>.s3.<region>.amazonaws.com/`, the host the
+  form's CSP `connect-src` allows, not botocore's global default) and the SES client with
   `adapters.aws.mailer.SES_CLIENT_CONFIG` (one try, 2 s and 10 s). botocore's defaults
   (60 s each, and 10 tries for DynamoDB) outlast API Gateway's 30 s.
   `CognitoStaffTokens` already times out its own calls at 5 s.

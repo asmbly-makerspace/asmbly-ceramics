@@ -34,7 +34,7 @@ from typing import Any
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
-from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
+from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
@@ -109,6 +109,32 @@ def email_pk(drop_off_id: DropOffId) -> str:
 
 def email_key(drop_off_id: DropOffId, kind: EmailKind, occasion: str = "") -> AttributeMap:
     return key(email_pk(drop_off_id), f"{kind}#{occasion}" if occasion else str(kind))
+
+
+def parse_email_key(stored_key: Mapping[str, Any]) -> tuple[DropOffId, EmailKind, str]:
+    """`email_key`'s inverse: the (`drop_off_id`, `kind`, `occasion`) an outbox item's
+    low-level `PK`/`SK` name, as a stream record's `dynamodb.Keys` holds them (phase 7's
+    mailer passes them to `SendPendingEmail`). `ValueError` for any key `email_key`
+    doesn't make, so a stray record never reaches the use case. The error never quotes
+    the key."""
+    try:
+        pk = stored_key["PK"]["S"]
+        sk = stored_key["SK"]["S"]
+    except KeyError, TypeError:
+        raise ValueError("not a records key") from None
+    if not isinstance(pk, str) or not isinstance(sk, str) or not pk.startswith("EMAIL#"):
+        raise ValueError("not an email key")
+    kind_text, _, occasion = sk.partition("#")
+    try:
+        drop_off_id = DropOffId.parse(pk.removeprefix("EMAIL#"))
+        kind = EmailKind(kind_text)
+    except ValueError:
+        raise ValueError("not an email key") from None
+    if (kind is EmailKind.REJECTED) != bool(occasion) or (occasion and not is_rejection_occasion(occasion)):
+        raise ValueError("not an email key")
+    if email_key(drop_off_id, kind, occasion) != key(pk, sk):
+        raise ValueError("not an email key")
+    return drop_off_id, kind, occasion
 
 
 def submission_key(token_hash: str) -> AttributeMap:

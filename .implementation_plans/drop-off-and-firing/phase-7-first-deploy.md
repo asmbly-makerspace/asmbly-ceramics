@@ -121,6 +121,7 @@ address isn't published until phase 10.
 | `AppVersion` | String | the workflow (the commit's short SHA) |
 | `SiteHost` | String | samconfig: `ceramics-stage.asmbly.org` or `ceramics.asmbly.org` |
 | `EmailDomain` | String, `asmbly.org` | default |
+| `PhotoBucketSuffix` | String, `AllowedPattern ^[a-z0-9]{8}$` | samconfig: 8 random lowercase hex characters per environment, made once when this phase is built (`python -c "import secrets; print(secrets.token_hex(4))"`); it keeps the bucket's global name unique without the account ID, and changing it replaces the bucket |
 | `WebAdapterLayerArn` | String, `AllowedPattern ^arn:aws:lambda:us-east-2:[0-9]+:layer:LambdaAdapterLayerArm64:[0-9]+$` | the GitHub variable `WEB_ADAPTER_LAYER_ARN` (AWS's published ARN for the arm64 layer, version 27 or later; it holds AWS's account number, which the repository's test refuses in a file) |
 | `AlertEmail` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/alert-email` (a String the maintainer sets by hand) |
 | `InitialSendingAddress` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/initial-sending-address` (a String the maintainer sets by hand; the domain refuses an address outside `asmbly.org`) |
@@ -185,7 +186,8 @@ it ever happens. Adding a GSI or changing PITR updates in place.
 `PhotoBucket` (`AWS::S3::Bucket`, Retain on delete and replace):
 
 ```yaml
-BucketName: !Sub ${ProjectSlug}-${AppEnv}-photos-${AWS::AccountId}
+BucketName: !Sub ${ProjectSlug}-${AppEnv}-photos-${PhotoBucketSuffix}
+# No VersioningConfiguration: versioning stays off (never Enabled or Suspended).
 PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true,
                                  IgnorePublicAcls: true, RestrictPublicBuckets: true}
 OwnershipControls: {Rules: [{ObjectOwnership: BucketOwnerEnforced}]}
@@ -199,22 +201,28 @@ CorsConfiguration:
                AllowedHeaders: ["*"], MaxAge: 3000}]
 ```
 
-Bucket names are global across all AWS accounts; the account number, added by
-CloudFormation at deploy time, keeps the name unique without writing it in the file.
-The name still starts with `asmbly-ceramics-`. Changing `BucketName` replaces the
+Bucket names are global across all AWS accounts; `PhotoBucketSuffix`, a random value
+in `samconfig.toml`, keeps the name unique. The name never holds the account ID: the
+presigned POST's `url` and the form's CSP show the bucket's name to anyone who opens the
+form (below). The name still starts with `asmbly-ceramics-`, and phase 5's boundary
+pattern `${ProjectSlug}-*-photos-*` matches it. Changing `BucketName` replaces the
 bucket (Retain keeps the old one).
 
-**To settle before this phase is built (phase 4's privacy review).** The presigned POST
+**Versioning stays off.** `S3PhotoStore.delete_drop_off` deletes a drop-off's photos
+without version IDs (phase 4), so on a versioned bucket each delete would only add a
+delete marker and the photos would outlive the drop-off's close (#7). Phase 4's hand-off
+defers this to here: the template sets no `VersioningConfiguration`, and
+`test_app_template.py` fails if `PhotoBucket` has one. Turning versioning on later needs a
+decision record and a delete that removes every version.
+
+**Settled (phase 4's privacy review): no account ID in the bucket's name.** The presigned POST
 that `S3PhotoStore.upload_slots` returns has a `url` naming the bucket
 (`https://<bucket>.s3.<region>.amazonaws.com/`), and `WebSettings.photo_upload_origin`
 puts the same name in the page's CSP: with the account ID in the bucket's name, the
-public form shows the account ID to anyone who opens it. CLAUDE.md keeps the account ID
-out of every file; a page served to the public is no better. So this phase either names
-the bucket without it (for example `${ProjectSlug}-${AppEnv}-photos-<a random suffix>`,
-the suffix a template parameter in `samconfig.toml`, which holds no account detail;
-phase 5's boundary pattern `${ProjectSlug}-*-photos-*` still matches it), or says in the pull
-request's **Risk** section that the form shows the account ID and why that is accepted.
-The first is the plan's choice unless the maintainer decides otherwise.
+public form would show the account ID to anyone who opens it. CLAUDE.md keeps the account
+ID out of every file; a page served to the public is no better. So the bucket is named
+`${ProjectSlug}-${AppEnv}-photos-${PhotoBucketSuffix}` (above), the suffix a template
+parameter in `samconfig.toml`, which holds no account detail.
 
 `PhotoBucketPolicy`: one statement, `Deny` `s3:*` to `*` on the bucket and its objects
 when `aws:SecureTransport` is `false`. No `Allow`: access comes only from the functions'
@@ -368,7 +376,12 @@ could still overwrite a drop-off item with a `Put`; that is accepted in decision
 (the mailer re-reads each drop-off by key, so only an overwritten one could be
 affected). `STUDIO` writes are for phase 2a's
 `CurrentStudio` first-use seeding of the studio from `INITIAL_SENDING_ADDRESS` (a conditional put that
-does nothing once it exists). Decrypting the SecureStrings uses the AWS managed key for
+does nothing once it exists). Decision 0002 lets the form only read settings, so this
+right, and the `DROPOFF#*`/`EMAIL#*` puts above, are in the decision record amending 0002
+that the README's Admin actions ask for before this phase merges; the pull request's
+**Risk** section names both. No other function exists in this phase to seed the studio
+(the console comes in phase 8), and seeding from the deploy would give the deploy role
+rights over the table's data. Decrypting the SecureStrings uses the AWS managed key for
 SSM, which the boundary allows through `kms:ViaService` (phase 5).
 
 Mailer function:
@@ -436,11 +449,12 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
 fail_on_empty_changeset = false
 tags = "Project=asmbly-ceramics Component=App Environment=stage Owner=it-volunteers ManagedBy=sam"
-parameter_overrides = "AppEnv=stage SiteHost=ceramics-stage.asmbly.org"
+parameter_overrides = "AppEnv=stage SiteHost=ceramics-stage.asmbly.org PhotoBucketSuffix=<8 random hex characters>"
 
 [prod.deploy.parameters]
 stack_name = "asmbly-ceramics-prod"
-# … the same, with Environment=prod, AppEnv=prod, SiteHost=ceramics.asmbly.org
+# … the same, with Environment=prod, AppEnv=prod, SiteHost=ceramics.asmbly.org and
+# prod's own PhotoBucketSuffix
 ```
 
 `[default.build.parameters]` sets `template = "infra/app.yaml"`, `cached = true`,
@@ -512,7 +526,11 @@ Two timeouts the composition sets, from phase 4's review:
   checks it.
 
 `WebSettings.photo_upload_origin` is
-`https://<bucket>.s3.<region>.amazonaws.com`; `WebSettings.cookie_key` is
+`https://<bucket>.s3.<region>.amazonaws.com`, the host `S3PhotoStore.upload_slots`
+presigns its POSTs to because the S3 client is built with `CLIENT_CONFIG` (its
+`addressing_style="virtual"`; botocore's default would presign to the global
+`https://<bucket>.s3.amazonaws.com`, which the CSP blocks). `test_form_services_build_on_stubbed_clients`
+asserts a slot's `post.url` starts with `photo_upload_origin`; `WebSettings.cookie_key` is
 `Secrets.get(SecretName.FORM_KEY)`, with `SsmSecrets(client, settings.app_env)`. The
 form function reads `hash-key` and `form-key` only. Phase 8 adds `build_console_services` and
 phase 9 `build_closer`.
@@ -546,7 +564,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, list[dict[str, 
 ```
 
 For each record: read `PK`/`SK` from `dynamodb.Keys` (never the image's personal
-fields), call `SendPendingEmail(EmailKey(...))`; a `SendFailed` is the use case's
+fields), turn them into the email's key with phase 4's `keys.parse_email_key` (the
+inverse of `email_key`; a key it refuses is logged as `mailer_bad_key` with no key text
+and skipped, not retried), and call `SendPendingEmail(drop_off_id, kind, occasion)`; a
+`SendFailed` is the use case's
 business (it marks the email `failed` and logs `email_failed`) and is not a retry; any
 other exception adds `{"itemIdentifier": record["dynamodb"]["SequenceNumber"]}` to
 `batchItemFailures` and logs `mailer_crashed` with the exception's class only.
@@ -651,6 +672,10 @@ checks:
 - `RecordsTable` and `PhotoBucket` have `DeletionPolicy` and `UpdateReplacePolicy`
   `Retain`; the table has PITR with 7 days, deletion protection, TTL on `ttl`, and a
   `NEW_IMAGE` stream;
+- `PhotoBucket`'s `BucketName` is `${ProjectSlug}-${AppEnv}-photos-${PhotoBucketSuffix}`
+  (no `AWS::AccountId` in it), and `PhotoBucket` has no
+  `VersioningConfiguration` (versioning stays off: `delete_drop_off` deletes without
+  version IDs, so versions would outlive the close, #7);
 - the bucket's four public-access settings are true, ownership is `BucketOwnerEnforced`,
   encryption is set, the policy denies non-TLS, the lifecycle expires `uploads/` after 1
   day, CORS allows only `POST` from the site;
@@ -840,7 +865,7 @@ Filled in when the phase is done. Phases 8 and 9 rely on:
   `build_mailer()`; `web.app.create_from_environment()`; `entry/run.sh`.
 - **The smoke test**: `scripts/smoke.py <site> <version>`; check 3 is phase 8's to change.
 - **Names**: stacks `asmbly-ceramics-stage` and `asmbly-ceramics-prod`; table
-  `asmbly-ceramics-<env>-records`; bucket `asmbly-ceramics-<env>-photos-<account>`;
+  `asmbly-ceramics-<env>-records`; bucket `asmbly-ceramics-<env>-photos-<suffix>`;
   alarm topic `asmbly-ceramics-<env>-alarms`.
 - The S3 answer to a too-large POST, as the first smoke run printed it, and the phone
   tests' results (iOS version, JPEG or not).

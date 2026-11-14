@@ -11,6 +11,13 @@ photo still downloads.
 SES is the exception: `mailer.SES_CLIENT_CONFIG` makes one attempt (a retried send may
 have been sent twice), with the same connect timeout and a longer read for a large
 message.
+
+S3 is addressed virtual-hosted on the regional endpoint
+(`https://<bucket>.s3.<region>.amazonaws.com/`): without `addressing_style="virtual"`
+botocore presigns a POST to the global `https://<bucket>.s3.amazonaws.com/`, which the
+form's CSP `connect-src` (`WebSettings.photo_upload_origin`, phase 6 and 7) doesn't
+allow, and which a bucket made outside us-east-1 answers with a 307 redirect for a day or
+so after it's created.
 """
 
 from botocore.config import Config
@@ -23,5 +30,6 @@ CLIENT_CONFIG = Config(
     connect_timeout=CONNECT_TIMEOUT_SECONDS,
     read_timeout=READ_TIMEOUT_SECONDS,
     retries={"total_max_attempts": TOTAL_MAX_ATTEMPTS, "mode": "standard"},
+    s3={"addressing_style": "virtual"},
 )
 """For the DynamoDB, S3 and SSM clients."""

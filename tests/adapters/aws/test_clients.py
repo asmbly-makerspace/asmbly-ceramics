@@ -30,3 +30,9 @@ def test_a_send_gives_up_before_the_gateway() -> None:
     assert worst < GATEWAY_SECONDS
     assert config["connect_timeout"] < 60  # not botocore's default
     assert config["read_timeout"] < 60
+
+
+def test_s3_is_addressed_on_its_regional_virtual_host() -> None:
+    # The host `photo_upload_origin` (the form's CSP connect-src) names, not the global
+    # `<bucket>.s3.amazonaws.com` botocore presigns to by default.
+    assert vars(CLIENT_CONFIG)["s3"] == {"addressing_style": "virtual"}

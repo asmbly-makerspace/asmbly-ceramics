@@ -137,3 +137,33 @@ def test_a_drop_off_holding_anothers_photos_is_refused() -> None:
     other: Any = replace(drop_off, photos=a_drop_off(2).photos)
     with pytest.raises(ValueError, match="own"):
         keys.to_item(other, keys.item_key(other), 1)
+
+
+@pytest.mark.parametrize(
+    ("kind", "occasion"),
+    [(EmailKind.RECEIVED, ""), (EmailKind.READY, ""), (EmailKind.REJECTED, rejection_occasion(NOW))],
+)
+def test_parse_email_key_inverts_email_key(kind: EmailKind, occasion: str) -> None:
+    stored = keys.email_key(DropOffId(12), kind, occasion)
+    assert keys.parse_email_key(stored) == (DropOffId(12), kind, occasion)
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        keys.drop_off_key(DropOffId(12)),
+        keys.studio_key(),
+        keys.key("EMAIL#AC-012", "received"),
+        keys.key("EMAIL#AC-12", "sent"),
+        keys.key("EMAIL#AC-12", "received#" + rejection_occasion(NOW)),
+        keys.key("EMAIL#AC-12", "rejected"),
+        keys.key("EMAIL#AC-12", "rejected#yesterday"),
+        keys.key("EMAIL#AC-12", "received#"),
+        {"PK": {"S": "EMAIL#AC-12"}},
+        {"PK": {"N": "12"}, "SK": {"S": "received"}},
+        {},
+    ],
+)
+def test_parse_email_key_refuses_any_other_key(stored: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match=r"^not an? (email|records) key$"):
+        keys.parse_email_key(stored)

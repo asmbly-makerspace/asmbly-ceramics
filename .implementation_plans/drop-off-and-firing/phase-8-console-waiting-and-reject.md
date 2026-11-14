@@ -68,7 +68,8 @@ Ceramics staff in the `ceramics` group sign in through Asmbly's staff sign-in, s
 drop-off waiting to fire (oldest first, with totals, search, thumbnails and days
 waiting), open a drop-off with all its photos at full size and its contact details,
 reject it with a reason and a message after seeing the email exactly as it will go out,
-undo a rejection the same day, and retry a failed email. Anyone not signed in is sent to
+undo a rejection the same day, see every email needing attention studio-wide and retry
+a failed one. Anyone not signed in is sent to
 the sign-in and back; anyone signed in but not in the group sees "not allowed". After
 this phase #3 is done and #5 is done.
 
@@ -82,6 +83,8 @@ this phase #3 is done and #5 is done.
 | `src/asmbly_ceramics/web/console/csrf.py` | `csrf_token(member)`, `check_csrf(request, member)`, `check_origin(request)` |
 | `src/asmbly_ceramics/web/console/waiting.py` | `GET /console` |
 | `src/asmbly_ceramics/web/console/dropoffs.py` | The drop-off page, its photos, the rejection preview, reject, undo, retry |
+| `src/asmbly_ceramics/web/console/emails.py` | `GET /console/emails`: every email needing attention |
+| `src/asmbly_ceramics/web/templates/console/emails.html` | The needs-attention list |
 | `src/asmbly_ceramics/web/templates/console/layout.html` | The console's band, "Signed in as", Sign out, the tab row (Waiting (n), Loads, Weekly counts, Settings) |
 | `src/asmbly_ceramics/web/templates/console/waiting.html` | The waiting list |
 | `src/asmbly_ceramics/web/templates/console/drop_off.html` | One drop-off, with the reject panel and the email statuses |
@@ -94,6 +97,7 @@ this phase #3 is done and #5 is done.
 | `tests/web/console/test_csrf.py` | Forged requests |
 | `tests/web/console/test_waiting.py` | The waiting list and search |
 | `tests/web/console/test_dropoffs.py` | The drop-off page, photos, preview, reject, undo, retry |
+| `tests/web/console/test_emails.py` | The needs-attention list |
 | `tests/web/console/test_privacy.py` | Nothing personal on public pages or in logs |
 | `tests/web/console/test_real_tokens.py` | The same per-request check through phase 4's real verifier, with tokens signed by a test key |
 
@@ -115,8 +119,10 @@ this phase #3 is done and #5 is done.
 
 | Path | Method | Who | Calls |
 | --- | --- | --- | --- |
-| `/console` | GET | `ceramics` | `WaitingList`, `FindDropOffs` |
+| `/console` | GET | `ceramics` | `WaitingList` |
+| `/console/search` | POST | `ceramics`, CSRF | `WaitingList`, `FindDropOffs` |
 | `/console/drop-offs/{id}` | GET | `ceramics` | `ViewDropOff` |
+| `/console/emails` | GET | `ceramics` | `EmailsNeedingAttention` |
 | `/console/drop-offs/{id}/photos/{k}` | GET | `ceramics` | `PhotoStore.read` through `ViewDropOff`'s photo refs |
 | `/console/drop-offs/{id}/photos/{k}/thumb` | GET | `ceramics` | the same, thumbnail |
 | `/console/drop-offs/{id}/reject/preview` | POST | `ceramics`, CSRF | `PreviewRejection` |
@@ -172,7 +178,7 @@ Every console response, including the 302, 403 and 503, carries the headers from
   `next` is kept only if it is a relative path starting with `/console` and not `//`,
   without a scheme or backslash; otherwise `/console`. Then `302` to
   `StaffTokens.sign_in_url(state=..., code_challenge=S256(verifier), redirect_uri=SITE_URL + "/console/auth/callback")`,
-  which builds `<STAFF_SIGN_IN_URL>/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...&scope=openid&state=...&code_challenge=...&code_challenge_method=S256`.
+  which builds `<STAFF_SIGN_IN_URL>/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...&scope=openid%20email&state=...&code_challenge=...&code_challenge_method=S256`.
 - **`GET /console/auth/callback?code=...&state=...`**: refuses (400, "Sign-in didn't
   finish. Try again.", with a link to sign in) when the `__Host-signin` cookie is
   missing, its signature fails, it is older than 10 minutes, or its state doesn't match
@@ -225,15 +231,22 @@ session usually makes that one tap.
   otherwise the same 403. SameSite=Lax on the session already keeps a cross-site POST
   from carrying the cookie; these two checks hold even if it didn't.
 
-### web: the waiting list (`GET /console`)
+### web: the waiting list (`GET /console`) and search (`POST /console/search`)
 
-Calls `WaitingList(records, clock, studio)(firing_type)` (phase 2d: the use case reads
-the clock itself; `firing_type` is the filter, or `None`) and, when `q` is set,
-`FindDropOffs(records, clock, studio)(q)`. Shows, as in the
-design's "Waiting to fire" screen:
+`GET /console` calls `WaitingList(records, clock, studio)(firing_type)` (phase 2d: the
+use case reads the clock itself; `firing_type` is the filter, or `None`).
+`POST /console/search` (form fields `q` and the CSRF token) calls the same and
+`FindDropOffs(records, clock, studio)(q)`, and renders the same page with the matches,
+`200` with no redirect. Search is a POST, never `GET /console?q=...`: the search text is
+often part of a person's name, and in a URL it would stay in the browser's history, in
+any proxy's or server's logs and in a `Referer`; in a form body it stays out of all of
+them (phase 7's access log already omits query strings, but the browser's history would
+not). The response carries `Cache-Control: no-store`, as every console page does. Shows,
+as in the design's "Waiting to fire" screen:
 
 - the heading "Waiting to fire", "Oldest first.", a "Find a drop-off" search box
-  (`type=search`, placeholder "AC-12, 12 or part of a name"), and "Start a load"
+  (`type=search`, placeholder "AC-12, 12 or part of a name", in a
+  `<form method="post" action="/console/search">` with the CSRF token), and "Start a load"
   (a link to `/console/loads`, live from phase 9);
 - three cards: Bisque (pieces, in n drop-offs), Glaze (pieces, in n drop-offs, then the
   split by glaze type, e.g. "38 house dip, 14 commercial"), Overdue (drop-offs waiting
@@ -313,6 +326,28 @@ reason's `needs_message`), and "Preview the email", a GET form to
   with "The email to AC-12 will be sent again."; an email that isn't failed: "That
   email isn't failed." Logged `event=email_retried`.
 
+### web: emails needing attention (`GET /console/emails`)
+
+Calls phase 3's `EmailsNeedingAttention(records, clock)()`: every email, studio-wide,
+that is failed, or stuck pending or sending, and isn't history (its drop-off closed or
+its rejection undone), oldest first. It is the only page that shows a fired drop-off
+whose ready email never went out once its load has left the loads list: such a drop-off
+keeps its contact details and photos until the email is sent (the close waits for it,
+#7; how long it may wait is #20, phase 9), so it must not be out of sight.
+
+- The console's band shows "Emails need attention (n)" linking here whenever n > 0
+  (the layout calls the use case on every console page; one GSI query per unfinished
+  status, about a few items).
+- A table, oldest first: the drop-off's ID (a link to `/console/drop-offs/{id}`), the
+  email ("Received", "Ready for pickup", "Rejected"), its state ("Sending failed (code)",
+  "Stuck sending since <Austin time>", "Waiting to send since <Austin time>"), and "Try
+  sending again" (the same POST form as the drop-off page's, to
+  `/console/drop-offs/{id}/emails/{kind}/retry` with the hidden `occasion` exactly as
+  the row holds it). A row whose drop-off record is missing still shows, without the
+  link. Nothing else: no name, address or message, since the rows carry only keys and
+  states.
+- Empty: "No email needs attention."
+
 ### web: photos
 
 `GET .../photos/{k}` and `.../thumb` answer, after `require_staff`, with the JPEG bytes
@@ -363,6 +398,7 @@ class ConsoleServices:
     reject_drop_off: RejectDropOff
     undo_rejection: UndoRejection
     retry_email: RetryEmail
+    emails_needing_attention: EmailsNeedingAttention
     photos: PhotoStore
 ```
 
@@ -495,7 +531,7 @@ Two new checks, after the form's, against each environment, with no credentials:
 
 - `test_a_console_page_without_a_session_redirects_to_sign_in_with_next`
 - `test_sign_in_sets_a_signed_state_cookie_and_redirects_to_the_authorize_endpoint`:
-  `response_type=code`, `scope=openid`, `code_challenge_method=S256`, the redirect URI.
+  `response_type=code`, `scope=openid email`, `code_challenge_method=S256`, the redirect URI.
 - `test_callback_with_a_wrong_state_is_refused_and_sets_no_session`
 - `test_callback_with_an_old_or_tampered_signin_cookie_is_refused`
 - `test_callback_for_a_group_member_sets_the_session_and_returns_to_next`
@@ -525,6 +561,16 @@ public key is refused.
 - `test_a_post_from_another_origin_is_refused`
 - `test_a_post_with_no_origin_and_a_console_referer_is_accepted`
 
+`tests/web/console/test_emails.py`:
+
+- `test_a_failed_ready_email_of_a_fired_drop_off_is_listed_after_its_load_leaves_the_loads_list`
+- `test_the_band_links_to_the_list_only_when_an_email_needs_attention`
+- `test_each_row_retries_its_own_email` (the form posts the row's ID, kind and occasion;
+  a rejected email's `occasion` exactly as stored)
+- `test_history_emails_are_not_listed` (a closed drop-off's, an undone rejection's)
+- `test_the_list_shows_no_name_address_or_message`
+- `test_the_list_needs_the_ceramics_group`
+
 `tests/web/console/test_waiting.py`:
 
 - `test_waiting_drop_offs_are_listed_oldest_first_with_days_waiting`
@@ -537,6 +583,10 @@ public key is refused.
 - `test_markup_in_a_name_is_shown_escaped` (a name of `<script>alert(1)</script>` is
   shown as text, and the response holds no `<script>alert`)
 - `test_a_very_long_search_is_cut_not_refused`
+- `test_search_is_a_post_and_the_text_never_reaches_a_url` (the search form's `method`
+  is `post`; `GET /console?q=<a made-up name>` ignores `q` and shows the plain list; the
+  `POST /console/search` response has no `Location` and no link holding the text)
+- `test_a_search_without_the_csrf_token_is_refused`
 
 `tests/web/console/test_dropoffs.py`:
 
@@ -596,7 +646,9 @@ public key is refused.
    type, a thumbnail and days waiting; bisque and glaze are each totalled in pieces (#3).
 5. Opening a drop-off shows all its photos at full size, only to the group; a photo's
    console address without a session is a redirect, not the photo (#3, #2).
-6. One search box finds drop-offs by `AC-12`, `ac12`, `12` or any part of the name (#3).
+6. One search box finds drop-offs by `AC-12`, `ac12`, `12` or any part of the name (#3);
+   the search is sent as a POST, so the text never appears in a URL, the browser's
+   history or a log.
 7. Contact details appear only on console pages, never on a public page or in a log (#3).
 8. Staff pick a reason from the console's list and may write a message of up to 1,000
    characters; a reason that needs a message refuses an empty one, next to the field,
@@ -608,7 +660,12 @@ public key is refused.
 11. A rejection can be undone the same Austin day, sending no email; the next day it
     can't (#5).
 12. A failed email can be sent again from the drop-off's page (#4, part).
-13. A console POST without the right CSRF token or from another origin changes nothing.
+13. Every email needing attention (failed, or stuck pending or sending, and not history),
+    studio-wide and oldest first, is listed at `/console/emails` with "Try sending
+    again", and the console's band links to it whenever there is one, so a fired
+    drop-off whose ready email never went out is never out of sight after its load
+    leaves the loads list (#4, #7). The list shows IDs and states only.
+14. A console POST without the right CSRF token or from another origin changes nothing.
 
 ## Verification
 
@@ -656,7 +713,10 @@ undoing.
 ## Admin actions
 
 - **Before the merge**, in asmbly-staff-login: the `ceramics` group exists
-  (asmbly-staff-login#4); the `ceramics-staff` client exists with return URLs
+  (asmbly-staff-login#4); the `ceramics-staff` client exists, allowing the OAuth scopes
+  `openid` and `email` (`sign_in_url` asks for both, and the test email needs the
+  verified `email` claim; a client allowing `openid` only answers `invalid_scope`), with
+  return URLs
   `https://ceramics.asmbly.org/console/auth/callback` and
   `https://ceramics-stage.asmbly.org/console/auth/callback` and sign-out URLs
   `https://ceramics.asmbly.org/console/signed-out` and

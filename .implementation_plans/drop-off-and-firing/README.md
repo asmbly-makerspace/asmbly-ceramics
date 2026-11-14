@@ -40,7 +40,10 @@ What was found on 13 November 2026, before planning:
   app registry that would create this app's client (its #5, `apps/ceramics-staff.yaml`,
   publishing `/config/cognito/staff/ceramics-staff-app-client-id`) are planned, not
   built. Web clients are public, use the code flow with PKCE and `openid` only, and get
-  60-minute tokens. There is one pool for stage and prod. Usernames are handles, not
+  60-minute tokens. This app's client needs `openid email` instead (the test email,
+  phase 9, goes to the signed-in staff member's verified `email` claim, and the app
+  asks for both scopes: a client allowing `openid` only refuses the sign-in with
+  `invalid_scope`); the admin action for asmbly-staff-login below asks for it. There is one pool for stage and prod. Usernames are handles, not
   addresses.
 - **The facilities repository** serves the kiln drop-off viewer, a public page listing
   the last day's ClickUp drop-offs by name, which the ClickUp form redirects to. Its
@@ -161,7 +164,9 @@ by ID and username only.
   autoescape); 2d: `WaitingList`, `FindDropOffs`, `ViewDropOff`, `PreviewRejection`,
   `RejectDropOff`, `UndoRejection`.
 - Phase 3: `StartLoad`, `ChangeLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
-  `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `ViewStudio`,
+  `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `EmailsNeedingAttention`
+  (the console's studio-wide list of failed or stuck emails, phase 8's
+  `/console/emails`), `ViewStudio`,
   `ChangeEmailSettings`, `SendTestEmail`, `AddCatalogItem`, `RetireCatalogItem`,
   `RestoreCatalogItem`, `DeleteCatalogItem`, `CloseFinished`, `WeeklyCounts`.
 
@@ -249,7 +254,7 @@ Outside this repository:
 | Phase 5 runs | Rights to add records to the `asmbly.org` zone (the maintainer deploys the bootstrap) | By hand; the zone belongs to another project |
 | Phase 7 merges | Agreement that asmbly-ceramics' roles may send from the `asmbly.org` identity, From limited to `asmbly.org` | AsmblyMCPs: an issue and a decision record there (the identity is in `mcp-bootstrap`) |
 | Phase 8 merges | The `ceramics` group | asmbly-staff-login#4 (plan `access-groups`, phase 1) |
-| Phase 8 merges | This app's client and `/config/cognito/staff/ceramics-staff-app-client-id` | asmbly-staff-login#5 (plan `add-an-app`), then the `apps/ceramics-staff.yaml` pull request there |
+| Phase 8 merges | This app's client (scopes `openid` and `email`) and `/config/cognito/staff/ceramics-staff-app-client-id` | asmbly-staff-login#5 (plan `add-an-app`), then the `apps/ceramics-staff.yaml` pull request there |
 | Phase 8 is checked | Ceramics staff in the `ceramics` group | asmbly-staff-login#3, Manage users |
 | Phase 10 | The kiln drop-off viewer retired and pointed at the new form | The facilities repository (an issue there) |
 | Phase 10 | The ClickUp form closed to new drop-offs, its redirect changed | ClickUp, by hand |
@@ -281,11 +286,11 @@ or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a ti
 | After phase 5 merges | The maintainer, with rights to the `asmbly.org` zone | Deploy `asmbly-ceramics-bootstrap` by hand, following `docs/runbooks/aws-bootstrap.md` (phase 5); check the certificates are issued |
 | After phase 5 merges | The maintainer | Create the GitHub environments `stage` and `prod` (deployments from `main` only) and their variables: `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`. No address is a GitHub variable: the repository's Actions logs are public |
 | Before phase 7 merges | The maintainer, by hand | For stage and prod, set the SecureStrings `/asmbly-ceramics/<env>/hash-key`, `form-key` and `session-key` (32 random bytes each) and the Strings `/asmbly-ceramics/<env>/alert-email` (the maintainers' address) and `initial-sending-address` (the studio's address at `asmbly.org`), by phase 5's runbook |
-| Before phase 7 merges | The maintainer | His word, recorded in a new decision record amending decision 0002, that the form function's role may delete photos under `dropoffs/` (the submit's cleanup; 0002 gives that to the close only; it lists only `uploads/`, never `dropoffs/`), and that the backstop for photos left under `dropoffs/` with no record (#19) is decided and built before prod takes real drop-offs (phase 7, Admin actions) |
+| Before phase 7 merges | The maintainer | His word, recorded in a new decision record amending decision 0002, on each of: (1) the form function's role may delete photos under `dropoffs/` (the submit's cleanup; 0002 gives that to the close only; it lists only `uploads/`, never `dropoffs/`), and the backstop for photos left under `dropoffs/` with no record (#19) is decided and built before prod takes real drop-offs (phase 7, Admin actions); (2) the form function's role may `PutItem` on `STUDIO` (phase 2a's first-use seeding of the studio from `INITIAL_SENDING_ADDRESS`; 0002 lets the form only read settings), so a form function whose code was taken over (it decodes hostile images) could rewrite the studio's settings and lists, the sending address still limited to `asmbly.org` by the domain's check and the mailer's `ses:FromAddress` condition; no other function exists before phase 8 to seed it, and seeding from the deploy would give the deploy role data rights; (3) restating what 0002 already accepts: the form's role can `PutItem` on `DROPOFF#*` and `EMAIL#*`, and IAM can't require `attribute_not_exists`, so a taken-over form function could rewrite an existing drop-off's email address and queue an email that sends that drop-off's photos there |
 | Before phase 7 merges | AsmblyMCPs | Agree the sending right (Dependencies); no change to `mcp-bootstrap` is needed for a same-account sender, but the identity's owner decides |
 | After phase 7's first deploy | The maintainer | Confirm the alarm topic's email subscription |
 | Before phase 9 merges | The maintainer | Answer #20: the retention of a fired drop-off whose ready email never sends, and whether a rejected drop-off waits for its email before it closes |
-| Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
+| Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), allowing the OAuth scopes `openid` and `email` (the app asks for both; `openid` alone refuses the sign-in), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
 | Before phase 8 is checked | asmbly-staff-login, Manage users | Put ceramics staff in the `ceramics` group |
 | Phase 10 | The maintainer and ceramics staff | Tell staff the switch date beforehand; replace the QR sign; close the ClickUp form; open the facilities issue and see it merged |
 

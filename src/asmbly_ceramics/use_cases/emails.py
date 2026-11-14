@@ -39,7 +39,7 @@ from asmbly_ceramics.ports.photos import PhotoStore, UploadMissing
 from asmbly_ceramics.ports.records import Conflict, Records, Update
 from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.log import log_event
-from asmbly_ceramics.use_cases.studio import CurrentStudio
+from asmbly_ceramics.use_cases.studio import CurrentStudio, StudioNotSeeded
 
 # Failures before `Mailer.send` was called: the email certainly didn't go.
 PHOTO_MISSING = "photo_missing"
@@ -47,6 +47,7 @@ PHOTOS_UNAVAILABLE = "photos_unavailable"
 COMPOSE_FAILED = "compose_failed"
 DROP_OFF_MISSING = "drop_off_missing"
 RECORDS_UNAVAILABLE = "records_unavailable"  # the drop-off or the studio couldn't be read
+STUDIO_MISSING = "studio_missing"  # the mailer's read-only studio isn't stored yet
 # Any other exception after the claim: it may have come from inside the send.
 UNEXPECTED = "unexpected"
 
@@ -56,6 +57,7 @@ NOT_SENT_CODES = REFUSED_CODES | {
     COMPOSE_FAILED,
     DROP_OFF_MISSING,
     RECORDS_UNAVAILABLE,
+    STUDIO_MISSING,
 }
 
 
@@ -134,6 +136,9 @@ class SendPendingEmail:
             studio = self._studio()  # the settings in force now (#6)
         except Unavailable as error:
             return self._fail(email, RECORDS_UNAVAILABLE, error_code=error.code)
+        except StudioNotSeeded:
+            # Before any send: nothing went, so staff aren't told to contact the person.
+            return self._fail(email, STUDIO_MISSING)
         if drop_off is None:
             return self._fail(email, DROP_OFF_MISSING)
         if is_history(drop_off, email):

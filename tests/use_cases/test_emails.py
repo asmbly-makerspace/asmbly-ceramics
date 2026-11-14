@@ -17,8 +17,9 @@ from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER, STUDIO_TZ
 from asmbly_ceramics.ports.errors import PhotosUnavailable, RecordsUnavailable
 from asmbly_ceramics.ports.records import Conflict, Update
-from asmbly_ceramics.use_cases.emails import EmailNeedingAttention, SendPendingEmail
+from asmbly_ceramics.use_cases.emails import EmailNeedingAttention, SendPendingEmail, may_have_gone
 from asmbly_ceramics.use_cases.reject import RejectRequest, UndoRequest
+from asmbly_ceramics.use_cases.studio import CurrentStudio
 from tests.domain.builders import NOW, TEST_EMAIL, TEST_MESSAGE, a_sending_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import STAFF_MEMBER, dropped_off, email_of, fired, pending, send_all
@@ -226,6 +227,22 @@ def test_an_email_whose_drop_off_is_missing_fails(world: World) -> None:
 
     assert send(world, email) is EmailStatus.FAILED
     assert received(world).error_code == "drop_off_missing"
+
+
+def test_a_missing_studio_fails_the_email_as_not_sent(world: World) -> None:
+    # The mailer's studio is read-only (phase 7): a missing studio raises before any send.
+    dropped_off(world, 1)
+    world.records._items.pop(("studio",))  # a broken record, not a state any move makes
+    read_only = CurrentStudio(world.records, world.clock, a_sending_address(), seed=False)
+    w = world
+    mailer = SendPendingEmail(w.records, w.photos, w.mailer, w.clock, read_only, w.composer)
+
+    assert mailer(AC_1, EmailKind.RECEIVED, received(world).occasion) is EmailStatus.FAILED
+
+    failed = received(world)
+    assert failed.error_code == "studio_missing"
+    assert not may_have_gone(failed)  # staff aren't told to contact the person
+    assert world.mailer.sent == []
 
 
 def test_a_sent_email_whose_record_cant_be_saved_stays_sending(

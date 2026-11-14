@@ -9,6 +9,7 @@ import pytest
 from botocore.exceptions import ReadTimeoutError
 from botocore.stub import ANY, Stubber
 
+from asmbly_ceramics.adapters.aws.clients import CLIENT_CONFIG
 from asmbly_ceramics.adapters.aws.photos import (
     PHOTO_INDEXES_EVER,
     S3PhotoStore,
@@ -21,7 +22,7 @@ from asmbly_ceramics.domain.limits import PHOTO_MAX_BYTES, PHOTOS_MAX
 from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoSize
 from asmbly_ceramics.ports.errors import PhotosUnavailable
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, UploadMissing
-from tests.adapters.conftest import BUCKET, a_client, assert_nothing_holds
+from tests.adapters.conftest import BUCKET, REGION, a_client, assert_nothing_holds
 from tests.domain.builders import NOW, TEST_EMAIL
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ def a_put(key: str, body: bytes) -> dict[str, Any]:
 
 
 def test_upload_slots_sign_exact_key_size_and_type_conditions() -> None:
-    client = a_client("s3")
+    client = a_client("s3", CLIENT_CONFIG)
     [slot] = S3PhotoStore(client, BUCKET).upload_slots(1, NOW)
     fields = dict(slot.post.fields)
     policy = json.loads(base64.b64decode(fields["policy"]))
@@ -56,7 +57,8 @@ def test_upload_slots_sign_exact_key_size_and_type_conditions() -> None:
     assert fields["key"] == upload_key(slot.slot_id)
     assert fields["success_action_status"] == "204"
     assert "x-amz-signature" in fields
-    assert slot.post.url.startswith("https://")
+    # The regional virtual-hosted host the form's CSP `connect-src` allows (phase 6, 7).
+    assert slot.post.url == f"https://{BUCKET}.s3.{REGION}.amazonaws.com/"
     # Signed for UPLOAD_SLOT_LIFETIME (900 seconds) from when it was signed.
     assert policy["expiration"].endswith("Z")
 

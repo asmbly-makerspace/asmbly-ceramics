@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import boto3
 import pytest
+from botocore.config import Config
 from moto import mock_aws
 
 if TYPE_CHECKING:
@@ -73,13 +74,15 @@ def s3(aws_env: None) -> Iterator[S3Client]:
         yield client
 
 
-def a_client(service: str) -> Any:
-    """A client for `Stubber`: made-up credentials, us-east-2, no network."""
+def a_client(service: str, config: Config | None = None) -> Any:
+    """A client for `Stubber`: made-up credentials, us-east-2, no network; built with
+    `config` when given (the composition root's `CLIENT_CONFIG`)."""
     return boto3.client(
         service,  # type: ignore[call-overload]  # any service name, for Stubber tests
         region_name=REGION,
         aws_access_key_id="testing",
         aws_secret_access_key="testing",
+        config=config,
     )
 
 

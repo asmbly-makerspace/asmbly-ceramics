@@ -5,7 +5,7 @@
   "feature_branch": "feat/drop-off-and-firing-phases-2-4",
   "worktree": null,
   "status": "in-progress",
-  "stage": "phases",
+  "stage": "pr",
   "selected_phases": [
     "2a",
     "2b",
@@ -167,7 +167,7 @@
       ],
       "status": "done",
       "base_sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30",
-      "squashed_sha": null,
+      "squashed_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
       "review_rounds": 2,
       "cold_review": "fixed",
       "split_from": null,
@@ -182,16 +182,16 @@
     }
   ],
   "gate": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
+    "result": "clean",
     "squashed_sha": null,
-    "test_count": null,
-    "coverage": null,
+    "test_count": 2034,
+    "coverage": "99.47%",
     "steps_skipped": []
   },
   "final_review": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
+    "result": "fixed",
     "squashed_sha": null
   },
   "docs": {
@@ -750,6 +750,52 @@
       "topic": "request deadline",
       "choice": "phase 7 prep picks it",
       "reason": "design"
+    },
+    {
+      "ts": "2026-11-14T17:35:22Z",
+      "type": "squash",
+      "phase": "4",
+      "sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a"
+    },
+    {
+      "ts": "2026-11-14T17:38:13Z",
+      "type": "gate_result",
+      "result": "clean",
+      "tests": 2034
+    },
+    {
+      "ts": "2026-11-14T17:38:13Z",
+      "type": "decision",
+      "topic": "sam validate",
+      "choice": "not run",
+      "reason": "no SAM template on branch"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "final_review",
+      "lead": "REQUEST_CHANGES 1 BLOCK -> fixed, re-review APPROVE 5 WARN (plan docs, carried to docs PR)",
+      "privacy": "FLAG 2 WARN fixed"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "form STUDIO PutItem",
+      "choice": "added to 0002 amending record list",
+      "reason": "nothing else can seed before phase 8"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "emails needing attention route",
+      "choice": "phase 8 GET /console/emails",
+      "reason": "phase 8 owns retry"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "merge order",
+      "choice": "merge code PR before docs/QA/briefing; those go in a follow-up PR",
+      "reason": "maintainer asked to merge soon"
     }
   ]
 }

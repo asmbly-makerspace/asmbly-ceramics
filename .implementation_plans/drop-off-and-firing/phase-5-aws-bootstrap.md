@@ -621,7 +621,7 @@ Phase 7 can rely on:
   - every resource tagged with all five tags at creation, `Project=asmbly-ceramics`
     (stack tags plus explicit `Tags` on alarms, which `PutMetricAlarm` checks);
   - names: table `asmbly-ceramics-<env>-records`, bucket
-    `asmbly-ceramics-<env>-photos-<account>`, functions `asmbly-ceramics-<env>-<job>`, log groups
+    `asmbly-ceramics-<env>-photos-<suffix>`, functions `asmbly-ceramics-<env>-<job>`, log groups
     `/aws/lambda/asmbly-ceramics-<env>-<job>` and
     `/aws/apigateway/asmbly-ceramics-<env>`, topic `asmbly-ceramics-<env>-alarms`,
     alarms `asmbly-ceramics-<env>-*`, queue `asmbly-ceramics-<env>-close-dlq`, schedule
