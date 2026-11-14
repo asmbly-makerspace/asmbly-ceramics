@@ -24,6 +24,7 @@ from asmbly_ceramics.domain.email import (
     new_email,
     rejection_occasion,
     retry,
+    stuck_since,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER, STUDIO_TZ
@@ -293,3 +294,21 @@ def test_needs_acting_on_leaves_out_history() -> None:
 
 def test_a_sending_email_without_its_claim_time_shows_as_stuck() -> None:
     assert needs_attention(replace(sending(), claimed_at=None), NOW)
+
+
+def test_stuck_since_is_when_the_wait_that_goes_stale_began() -> None:
+    later = NOW + timedelta(hours=1)
+    assert stuck_since(pending()) == NOW
+    assert stuck_since(retry(failed(), later)) == later
+    assert stuck_since(claim(pending(), later)) == later
+    assert stuck_since(replace(sending(), claimed_at=None)) is None
+    assert stuck_since(failed()) is None
+    assert stuck_since(sent()) is None
+
+
+def test_needs_attention_counts_from_stuck_since() -> None:
+    requeued = retry(failed(), NOW + timedelta(hours=1))
+    since = stuck_since(requeued)
+    assert since is not None
+    assert not needs_attention(requeued, since + STALE_SENDING_AFTER)
+    assert needs_attention(requeued, since + STALE_SENDING_AFTER + timedelta(seconds=1))

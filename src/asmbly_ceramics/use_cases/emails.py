@@ -26,6 +26,7 @@ from asmbly_ceramics.domain.email import (
     mark_sent,
     needs_attention,
     retry,
+    stuck_since,
 )
 from asmbly_ceramics.domain.errors import EmailNotRetryable, NotFound
 from asmbly_ceramics.domain.ids import DropOffId
@@ -265,10 +266,10 @@ class EmailNeedingAttention:
     status: EmailStatus
     error_code: str | None
     created_at: datetime
-    # "Stuck sending since" is `claimed_at`; "Waiting to send since" is `retried_at`, or
-    # `created_at` when staff never retried it.
-    claimed_at: datetime | None
-    retried_at: datetime | None
+    # "Stuck sending since" or "Waiting to send since": the domain's `stuck_since`, so the
+    # page shows the time the staleness is counted from. None for a failed email, and for
+    # a sending one with no claim's time ("Stuck sending").
+    since: datetime | None
 
 
 class EmailsNeedingAttention:
@@ -301,8 +302,7 @@ class EmailsNeedingAttention:
                     email.status,
                     email.error_code,
                     email.created_at,
-                    email.claimed_at,
-                    email.retried_at,
+                    stuck_since(email),
                 )
             )
         return tuple(rows)

@@ -177,17 +177,28 @@ def needs_acting_on(drop_off: DropOff, email: Email, now: datetime) -> bool:
     return needs_attention(email, now) and not is_history(drop_off, email)
 
 
-def _is_stale(email: Email, now: datetime) -> bool:
+def stuck_since(email: Email) -> datetime | None:
+    """When the email's wait began, which `needs_attention` counts `STALE_SENDING_AFTER`
+    from and the console shows ("Stuck sending since", "Waiting to send since"): a
+    sending email's claim, or a pending one's last retry, or its creation when staff
+    never retried it. None for a sending email with no claim's time (a broken record)
+    and for any other status, which never goes stale."""
     match email.status:
         case EmailStatus.SENDING:
-            # A sending email always has its claim's time; one without is a broken record,
-            # shown as stuck rather than hidden.
-            return email.claimed_at is None or now - email.claimed_at > STALE_SENDING_AFTER
+            return email.claimed_at
         case EmailStatus.PENDING:
-            queued = email.retried_at or email.created_at
-            return now - queued > STALE_SENDING_AFTER
+            return email.retried_at or email.created_at
         case _:
-            return False
+            return None
+
+
+def _is_stale(email: Email, now: datetime) -> bool:
+    since = stuck_since(email)
+    if since is None:
+        # A sending email always has its claim's time; one without is a broken record,
+        # shown as stuck rather than hidden.
+        return email.status is EmailStatus.SENDING
+    return now - since > STALE_SENDING_AFTER
 
 
 def _require(email: Email, *allowed: EmailStatus) -> None:
