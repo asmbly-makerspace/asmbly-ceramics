@@ -34,7 +34,7 @@ from typing import Any
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
-from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_rejection_occasion
+from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_email_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
@@ -130,7 +130,7 @@ def parse_email_key(stored_key: Mapping[str, Any]) -> tuple[DropOffId, EmailKind
         kind = EmailKind(kind_text)
     except ValueError:
         raise ValueError("not an email key") from None
-    if (kind is EmailKind.REJECTED) != bool(occasion) or (occasion and not is_rejection_occasion(occasion)):
+    if not is_email_occasion(kind, occasion):
         raise ValueError("not an email key")
     if email_key(drop_off_id, kind, occasion) != key(pk, sk):
         raise ValueError("not an email key")

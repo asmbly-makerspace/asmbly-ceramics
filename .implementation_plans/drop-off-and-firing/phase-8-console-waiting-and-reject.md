@@ -143,8 +143,9 @@ Every route above except sign-in, callback and signed-out goes through
 `require_staff(request) -> StaffMember`, before anything else:
 
 1. No `__Host-session` cookie: a GET is answered `302` to
-   `/console/auth/sign-in?next=<the path and query>`; a POST gets `303` to the same
-   (the form's data is not kept).
+   `/console/auth/sign-in?next=<the path and query>`; a POST gets `303` to
+   `/console/auth/sign-in?next=/console` (the form's data is not kept, and a POST-only
+   path such as `/console/search` would answer the returning GET with 405).
 2. `StaffTokens.verify(token)` (phase 4) checks the signature against the pool's keys,
    `iss == STAFF_ISSUER`, `aud == STAFF_CLIENT_ID`, `token_use == "id"`, `exp` (with no
    leeway beyond 60 seconds), and that `cognito:groups` contains `ceramics`. It returns
@@ -285,8 +286,8 @@ Calls `ViewDropOff(id)`. Unknown ID: 404 "There's no drop-off AC-999." Shows:
 "Reject…" opens the panel on the same page (`?reject=1`), without a script: a Reason
 select (the active rejection reasons, from `ViewStudio` through the use case's result),
 a Message textarea (`maxlength=1000`, "(required for Other)" or "(optional)" from the
-reason's `needs_message`), and "Preview the email", a GET form to
-`/console/drop-offs/{id}/reject`.
+reason's `needs_message`), and "Preview the email", a POST form (with the CSRF token)
+to `/console/drop-offs/{id}/reject/preview`, so the message never sits in a URL.
 
 ### web: the rejection preview, reject and undo
 
@@ -340,7 +341,10 @@ keeps its contact details and photos until the email is sent (the close waits fo
   status, about a few items).
 - A table, oldest first: the drop-off's ID (a link to `/console/drop-offs/{id}`), the
   email ("Received", "Ready for pickup", "Rejected"), its state ("Sending failed (code)",
-  "Stuck sending since <Austin time>", "Waiting to send since <Austin time>"), and "Try
+  "Stuck sending since <Austin time>" from the row's `since`, or "Stuck sending"
+  when it has none, "Waiting to send since <Austin time>" from `since`; the row's
+  `since` is the domain's `stuck_since`, so the template never picks between
+  `claimed_at`, `retried_at` and `created_at` itself), and "Try
   sending again" (the same POST form as the drop-off page's, to
   `/console/drop-offs/{id}/emails/{kind}/retry` with the hidden `occasion` exactly as
   the row holds it). A row whose drop-off record is missing still shows, without the

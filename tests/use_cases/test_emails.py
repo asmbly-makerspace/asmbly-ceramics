@@ -550,6 +550,7 @@ def test_needs_attention_rows_hold_keys_and_states_only() -> None:
         "status",
         "error_code",
         "created_at",
+        "since",
     ]
 
 
@@ -566,6 +567,25 @@ def test_a_stuck_email_needs_attention_only_once_stale(world: World) -> None:
         ("AC-1", EmailKind.RECEIVED, EmailStatus.PENDING, None),
         ("AC-2", EmailKind.RECEIVED, EmailStatus.SENDING, None),
     ]
+
+
+def test_a_stuck_row_carries_when_it_was_claimed_or_queued(world: World) -> None:
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    world.records.commit([Update(claim(email_of(world, DropOffId(2), EmailKind.RECEIVED), NOW))])
+    world.clock.advance(STALE_SENDING_AFTER + timedelta(seconds=1))
+
+    waiting, sending = world.emails_needing_attention()
+
+    assert (waiting.status, waiting.since) == (EmailStatus.PENDING, waiting.created_at)
+    assert (sending.status, sending.since) == (EmailStatus.SENDING, NOW)
+
+    retried_at = world.clock.now()
+    world.retry_email(waiting.drop_off_id, waiting.kind, waiting.occasion, STAFF_MEMBER)
+    world.clock.advance(STALE_SENDING_AFTER + timedelta(seconds=1))
+
+    [again] = [row for row in world.emails_needing_attention() if row.drop_off_id == waiting.drop_off_id]
+    assert again == replace(waiting, since=retried_at)
 
 
 def test_history_never_needs_attention(world: World) -> None:

@@ -13,11 +13,12 @@ If you find a security problem, please report it privately ([SECURITY.md](SECURI
 
 ## Status
 
-**The domain is built; the app isn't.** `src/asmbly_ceramics/` holds the domain model
-(drop-offs, photos, the email outbox, loads, the waiting list, search, closing and the
-studio's settings), the ports (storage, photos, email, staff sign-in, rate limit, clock,
-IDs, secrets) and in-memory fakes of them, all tested without AWS. There is no AWS
-adapter, no page and no deploy yet, so no story is delivered and nothing is in AWS. The
+**The domain, the use cases and the AWS adapters are built; the app isn't.**
+`src/asmbly_ceramics/` holds the domain model, the ports with in-memory fakes, the use
+cases (submit a drop-off, the email composer and outbox, the waiting list, search,
+rejection, kiln loads, settings, the daily close, counts) and AWS adapters (DynamoDB,
+S3, SES, Cognito tokens, Parameter Store). They are tested without AWS. There is no
+template, no page and no deploy yet, so no story is delivered and nothing is in AWS. The
 plan's next phases are in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
@@ -46,7 +47,8 @@ docs/                   architecture, decisions, runbooks (docs/README.md is the
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
-src/asmbly_ceramics/    the app: domain/, ports/ and adapters/memory/ so far (no AWS adapter or page yet)
+src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/ and adapters/ (memory/, aws/, the
+                        system clock and the photo inspector); no page or template yet
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 

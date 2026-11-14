@@ -148,6 +148,21 @@ def test_parse_email_key_inverts_email_key(kind: EmailKind, occasion: str) -> No
     assert keys.parse_email_key(stored) == (DropOffId(12), kind, occasion)
 
 
+@pytest.mark.parametrize("kind", list(EmailKind))
+def test_parse_email_key_takes_back_every_email_the_domain_makes(kind: EmailKind) -> None:
+    occasion = rejection_occasion(NOW) if kind is EmailKind.REJECTED else ""
+    email = new_email(DropOffId(12), kind, NOW, occasion)
+    stored = keys.email_key(email.drop_off_id, email.kind, email.occasion)
+    assert keys.parse_email_key(stored) == (email.drop_off_id, email.kind, email.occasion)
+
+
+def test_parse_email_key_applies_the_domains_occasion_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored = keys.email_key(DropOffId(12), EmailKind.RECEIVED)
+    monkeypatch.setattr(keys, "is_email_occasion", lambda kind, occasion: False)
+    with pytest.raises(ValueError, match=r"^not an email key$"):
+        keys.parse_email_key(stored)
+
+
 @pytest.mark.parametrize(
     "stored",
     [

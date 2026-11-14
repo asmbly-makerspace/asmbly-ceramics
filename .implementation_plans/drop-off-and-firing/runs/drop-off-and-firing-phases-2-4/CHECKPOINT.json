@@ -4,8 +4,8 @@
   "issue": 1,
   "feature_branch": "feat/drop-off-and-firing-phases-2-4",
   "worktree": null,
-  "status": "in-progress",
-  "stage": "pr",
+  "status": "complete",
+  "stage": "done",
   "selected_phases": [
     "2a",
     "2b",
@@ -205,8 +205,8 @@
     "refs": []
   },
   "pr": {
-    "number": null,
-    "result": null,
+    "number": 23,
+    "result": "merged #23; docs follow-up PR",
     "rounds": []
   },
   "merge_deploys": false,
@@ -796,6 +796,25 @@
       "topic": "merge order",
       "choice": "merge code PR before docs/QA/briefing; those go in a follow-up PR",
       "reason": "maintainer asked to merge soon"
+    },
+    {
+      "ts": "2026-11-14T17:58:59Z",
+      "type": "pr_opened",
+      "number": 23
+    },
+    {
+      "ts": "2026-11-14T18:11:54Z",
+      "type": "main_merged",
+      "pr": 23,
+      "sha": "94d22cd"
+    },
+    {
+      "ts": "2026-11-14T18:11:54Z",
+      "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-14T18:11:54Z",
+      "type": "complete"
     }
   ]
 }

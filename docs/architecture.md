@@ -8,9 +8,14 @@ decided and why is in
 ## Today
 
 Built, and tested without AWS: the domain model (`src/asmbly_ceramics/domain/`), the
-ports (`ports/`) and in-memory fakes of them (`adapters/memory/`). Not built: any AWS
-adapter, any page, the scheduled close, and every use case. Nothing is in AWS and there
-is no deploy. The rest is planned in
+ports (`ports/`), in-memory fakes of them (`adapters/memory/`), the use cases
+(`use_cases/`: submit a drop-off, the waiting list, search, one drop-off, rejection,
+loads, settings, the daily close, counts, emails needing attention), the email composer
+and its templates (`mail/`), the AWS adapters (`adapters/aws/`: DynamoDB records,
+counters and rate limiter, the S3 photo store, the SES mailer, Cognito staff tokens,
+Parameter Store secrets), the system clock (`adapters/clock.py`) and the photo
+inspector, which checks and re-encodes photos with Pillow (`adapters/images.py`). Not built: any page, any SAM template and the deploy. Nothing
+is in AWS. The rest is planned in
 [.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
 
@@ -58,7 +63,8 @@ What the domain code settles, beyond the stories:
 ## The shape of the code
 
 [CLAUDE.md](../CLAUDE.md#the-shape-of-the-code) has the rules. The domain, the ports and
-the in-memory adapters exist; use cases, AWS adapters and entry points are planned. In short:
+the in-memory adapters, the use cases and the AWS adapters exist; entry points (pages and
+the scheduled close's handler) are planned. In short:
 
 ```
 entry points (the form's and the console's pages, the scheduled close)

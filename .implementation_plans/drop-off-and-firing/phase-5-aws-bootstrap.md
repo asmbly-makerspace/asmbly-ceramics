@@ -248,7 +248,7 @@ The name patterns, the only resources the Allow statements reach:
 | Service | Pattern |
 | --- | --- |
 | DynamoDB | `table/asmbly-ceramics-*` (and `.../stream/*`, `.../index/*`) |
-| S3 | `arn:aws:s3:::asmbly-ceramics-*-photos-*` (buckets: the name ends with the account ID, phase 7) and `.../*` (objects, for the bucket policy's check) |
+| S3 | `arn:aws:s3:::asmbly-ceramics-*-photos-*` (buckets: the name ends with a random suffix, never the account ID, phase 7) and `.../*` (objects, for the bucket policy's check) |
 | Lambda | `function:asmbly-ceramics-*`; `event-source-mapping:*` (mappings have generated IDs; the tag conditions are their fence) |
 | Logs | `log-group:/aws/lambda/asmbly-ceramics-*`, `log-group:/aws/apigateway/asmbly-ceramics-*`, `log-group:/aws/vendedlogs/asmbly-ceramics-*` |
 | SNS | `asmbly-ceramics-*` |
