@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from asmbly_ceramics.domain.errors import SendingAddressOutsideAsmbly
-from asmbly_ceramics.domain.studio import check_sending_address
+from asmbly_ceramics.domain.studio import check_sending_address, is_valid_email
 from asmbly_ceramics.ports.errors import PortError, error_code
 
 
@@ -74,6 +74,16 @@ out: phase 4's SES client either turns its own retries off or reports such a sen
 `unknown`."""
 
 
+def check_outgoing(message: OutgoingEmail) -> None:
+    """What every `Mailer` refuses before sending, with `ValueError` naming no address: a
+    `from_address` or `reply_to` outside `SENDING_DOMAIN`, or a `to` that isn't one
+    address."""
+    if not is_sending_address(message.from_address) or not is_sending_address(message.reply_to):
+        raise ValueError("mail is sent only from an address at asmbly.org")
+    if not is_valid_email(message.to):
+        raise ValueError("the recipient is not one email address")
+
+
 class SendFailed(PortError):
     def __init__(self, code: str) -> None:
         self.code = error_code(code)  # the provider's error code, never its message
@@ -82,5 +92,5 @@ class SendFailed(PortError):
 
 class Mailer(Protocol):
     def send(self, message: OutgoingEmail) -> None:
-        """`SendFailed`; `ValueError` for a `from_address` outside `SENDING_DOMAIN`."""
+        """`SendFailed`; `ValueError` for what `check_outgoing` refuses."""
         ...

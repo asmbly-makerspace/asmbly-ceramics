@@ -35,12 +35,11 @@ from collections.abc import Callable
 
 from asmbly_ceramics.domain.email import is_error_code
 from asmbly_ceramics.domain.ids import is_drop_off_id, is_item_id, is_load_id
+from asmbly_ceramics.ports.staff import is_staff_username
 
 _EVENT = re.compile(r"[a-z][a-z0-9_]{0,63}", flags=re.ASCII)
 _WORD_MAX = 40  # far beyond any fixed word; refuses a 64-character hex digest
 _WORD = re.compile(rf"[a-z][a-z0-9_]{{0,{_WORD_MAX - 1}}}", flags=re.ASCII)
-# A staff username can be a UUID (36), so 40 at most; a handle can look like a token.
-_USER = re.compile(rf"(?=[A-Za-z0-9_.-]*[A-Za-z])[A-Za-z0-9_.-]{{1,{_WORD_MAX}}}", flags=re.ASCII)
 # Narrower than `is_error_code`: no `-` (a phone number, a token), no digits-only value
 # longer than a status (a phone number), something with a letter unless it's a status (an
 # IPv4 address), and under 64 characters (a SHA-256 hex digest).
@@ -69,7 +68,7 @@ def _is_code(value: object) -> bool:
 _SHAPES: dict[str, Callable[[object], bool]] = {
     "drop_off_id": is_drop_off_id,
     "load_id": is_load_id,
-    "user": _matches(_USER),
+    "user": is_staff_username,  # the shape `ports.staff` gives a username: one regex
     "kind": _matches(_WORD),
     "outcome": _matches(_WORD),
     "reason": _is_reason,

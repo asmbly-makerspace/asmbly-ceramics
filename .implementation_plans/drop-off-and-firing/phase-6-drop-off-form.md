@@ -474,4 +474,7 @@ Filled in when the phase is done. It will say: `create_app(services, settings)` 
 `csp`, `require_same_origin`, `sign`, `verify`) for the console to reuse; the base
 template's blocks; the S3 CORS rule phase 7 must add (AllowedOrigins the site's
 address, AllowedMethods `POST`, AllowedHeaders `*`, MaxAgeSeconds 3000); and the
-results of the phone tests once phase 7 has run them.
+results of the phone tests once phase 7 has run them. It also says where the submit
+route checks a bound for the request as a whole: phase 4's per-call timeouts don't bound
+a submit's many calls in sequence, and phase 7 (Composition) sets that bound under the
+function's 29 s.

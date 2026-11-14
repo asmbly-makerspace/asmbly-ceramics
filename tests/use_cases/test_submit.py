@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 
 import pytest
 
-from asmbly_ceramics.adapters.memory.images import NOT_IMAGE, TOO_LARGE, TOO_MANY_PIXELS
+from asmbly_ceramics.adapters.memory.images import NOT_IMAGE, TOO_LARGE, TOO_MANY_PIXELS, UNSUPPORTED_TYPE
 from asmbly_ceramics.adapters.memory.photos import MemoryPhotoStore
 from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.domain.dropoff import DropOffState
@@ -27,7 +27,7 @@ from asmbly_ceramics.ports.errors import (
     SecretsUnavailable,
 )
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, UploadMissing
-from asmbly_ceramics.ports.records import Change, Conflict, Put, Submission
+from asmbly_ceramics.ports.records import Change, CommitOutcomeUnknown, Conflict, Put, Submission
 from asmbly_ceramics.use_cases.received import ReceivedView
 from asmbly_ceramics.use_cases.studio import CurrentStudio
 from asmbly_ceramics.use_cases.submit import SubmitDropOff, SubmitRequest, Submitted
@@ -364,6 +364,7 @@ def test_no_photo_is_refused(world: World) -> None:
         (NOT_IMAGE, "photo.not_image"),
         (TOO_LARGE, "photo.too_large"),
         (TOO_MANY_PIXELS, "photo.too_many_pixels"),
+        (UNSUPPORTED_TYPE, "photo.unsupported_type"),
     ],
 )
 def test_a_refused_photo_is_refused_next_to_it(world: World, data: bytes, key: str) -> None:
@@ -691,6 +692,24 @@ def test_a_commit_that_timed_out_and_didnt_land_deletes_the_photos(world: World)
     with pytest.raises(RecordsUnavailable):
         world.submit(a_request(world))
     assert world.photos.kept_count(DropOffId(1)) == 0
+
+
+def test_a_commit_whose_outcome_is_unknown_leaves_the_photos_to_the_backstop(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The re-read finds nothing, but a transaction that timed out can still land after it
+    # (phase 4, acceptance criterion 9): its photos must not be deleted under it.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    arm(world, CommitOutcomeUnknown("ReadTimeoutError"))
+    with pytest.raises(CommitOutcomeUnknown):
+        world.submit(a_request(world))
+    assert world.photos.kept_count(DropOffId(1)) == 4
+    [event] = events(caplog, "photos_not_deleted")
+    assert (event["drop_off_id"], event["error_code"], event["levelno"]) == (
+        "AC-1",
+        "ReadTimeoutError",
+        logging.ERROR,
+    )
 
 
 class LostToTheSameToken(TimedOutRecords):

@@ -13,6 +13,9 @@ PHOTOS_MIN, PHOTOS_MAX = 1, 6
 PHOTO_MAX_BYTES = 10 * 1024 * 1024
 PHOTO_FULL_LONG_SIDE = 2048  # pixels, the copy kept and emailed
 PHOTO_THUMB_LONG_SIDE = 320
+# A photo's pixels, checked before decoding: a 48-megapixel phone photo fits, and one
+# inspection stays within the form function's memory (phase 7).
+PHOTO_MAX_PIXELS = 50_000_000
 NAME_MAX = 100
 EMAIL_MAX = 254
 PHONE_DIGITS_MIN, PHONE_DIGITS_MAX = 10, 15

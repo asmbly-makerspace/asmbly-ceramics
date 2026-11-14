@@ -54,6 +54,7 @@ def test_an_upload_slots_repr_holds_neither_its_handle_nor_its_post() -> None:
 def test_a_refusals_message_key_is_its_value() -> None:
     assert {f"photo.{refusal}" for refusal in PhotoRefusal} == {
         "photo.not_image",
+        "photo.unsupported_type",
         "photo.too_large",
         "photo.too_many_pixels",
         "photo.missing",

@@ -18,6 +18,7 @@ from asmbly_ceramics.adapters.memory.images import (
     NOT_IMAGE,
     TOO_LARGE,
     TOO_MANY_PIXELS,
+    UNSUPPORTED_TYPE,
     MemoryPhotoInspector,
 )
 from asmbly_ceramics.adapters.memory.mailer import MemoryMailer
@@ -666,6 +667,7 @@ def test_photo_store_failure_switch() -> None:
         (NOT_IMAGE, PhotoRefusal.NOT_IMAGE),
         (TOO_LARGE, PhotoRefusal.TOO_LARGE),
         (TOO_MANY_PIXELS, PhotoRefusal.TOO_MANY_PIXELS),
+        (UNSUPPORTED_TYPE, PhotoRefusal.UNSUPPORTED_TYPE),
     ],
 )
 def test_inspector_refuses_each_marker(marker: bytes, kind: PhotoRefusal) -> None:

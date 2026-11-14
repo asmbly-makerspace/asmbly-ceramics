@@ -139,7 +139,7 @@
       ],
       "status": "done",
       "base_sha": "647001285409b003aa147ec4c5ae5785928c4947",
-      "squashed_sha": null,
+      "squashed_sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30",
       "review_rounds": 3,
       "cold_review": "fixed",
       "split_from": null,
@@ -165,17 +165,20 @@
       "depends_on": [
         "1d"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 2,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
       "closes": [],
-      "refs": [],
+      "refs": [
+        2,
+        3
+      ],
       "admin_actions": [],
-      "notes": "From 2b review, for prep: delete_drop_off deletes the 12 known keys (dropoffs/AC-n/1..6.jpg and -thumb.jpg) without listing, so the form role needs no ListBucket; make the timed-out TransactWriteItems re-read an acceptance criterion; wrap botocore ClientError (message can quote item values); state the staff username shape in StaffTokens"
+      "notes": "2034 tests, 99.47% cov; opened #22; inspector memory unmeasured (1GB)"
     }
   ],
   "gate": {
@@ -661,6 +664,92 @@
       "topic": "loads_between",
       "choice": "dropped with phase 4 LOADDATE index",
       "reason": "no caller"
+    },
+    {
+      "ts": "2026-11-14T03:05:05Z",
+      "type": "squash",
+      "phase": "3",
+      "sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30"
+    },
+    {
+      "ts": "2026-11-14T03:05:10Z",
+      "type": "phase_start",
+      "phase": "4"
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "phase_done",
+      "phase": "4",
+      "lines": 4781
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "commit outcome",
+      "choice": "CommitOutcomeUnknown; submit leaves photos to backstop",
+      "reason": "AC9"
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "read_upload",
+      "choice": "list prefix, no HEAD",
+      "reason": "403 without ListBucket"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "cold_review",
+      "phase": "4",
+      "lead": "REQUEST_CHANGES 1 BLOCK 3 WARN",
+      "privacy": "FLAG 1 WARN"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "timeouts",
+      "choice": "CLIENT_CONFIG 2s/4s/3 tries; SES 2s/10s/1",
+      "reason": "under API Gateway 30s"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "key names",
+      "choice": "drop *_KEY_PARAMETER from plans",
+      "reason": "SsmSecrets names from env"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "bucket name",
+      "choice": "phase 7: random suffix, else Risk",
+      "reason": "presigned POST url shows it"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "cold_review",
+      "phase": "4",
+      "rereview": "APPROVE 1 WARN (plan IAM), fixed + 6 more role mismatches"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "mailer SES read",
+      "choice": "phase 7 doc: 30s read for stream mailer",
+      "reason": "timeout is client config"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "request deadline",
+      "choice": "phase 7 prep picks it",
+      "reason": "design"
     }
   ]
 }

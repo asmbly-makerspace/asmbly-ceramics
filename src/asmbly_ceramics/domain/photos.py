@@ -83,6 +83,9 @@ class PhotoRefusal(StrEnum):
     """Why the inspector refused a photo; `photo.<value>` is its message key."""
 
     NOT_IMAGE = "not_image"
+    # A real image in a type the app doesn't take (HEIC from a phone's camera, GIF): the
+    # message can say to choose JPEG, PNG or WebP, unlike `not_image`.
+    UNSUPPORTED_TYPE = "unsupported_type"
     TOO_LARGE = "too_large"
     TOO_MANY_PIXELS = "too_many_pixels"
     MISSING = "missing"

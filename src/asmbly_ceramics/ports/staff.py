@@ -8,15 +8,31 @@ Only the `ceramics` group may open the console: a valid token without it is
 # contract names them, not with an `Error` suffix.
 # ruff: noqa: N818
 
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from asmbly_ceramics.ports.errors import PortError
 
+STAFF_GROUP = "ceramics"  # asmbly-staff-login's group (asmbly-staff-login#4); not a setting
+STAFF_USERNAME_MAX = 40
+# A staff username is logged and stored (a rejection's `by`, a load's `started_by`), so
+# it is a handle, never an address: 1 to 40 of `[A-Za-z0-9_.-]` with a letter, which a
+# Cognito username or its `sub` (a UUID) fits and an email address or a phone number
+# doesn't. The same shape `use_cases.log` logs as `user`.
+_STAFF_USERNAME = re.compile(
+    rf"(?=[A-Za-z0-9_.-]*[A-Za-z])[A-Za-z0-9_.-]{{1,{STAFF_USERNAME_MAX}}}", flags=re.ASCII
+)
+
+
+def is_staff_username(text: object) -> bool:
+    """`text` has a staff username's shape (see `_STAFF_USERNAME`)."""
+    return isinstance(text, str) and _STAFF_USERNAME.fullmatch(text) is not None
+
 
 @dataclass(frozen=True, slots=True)
 class StaffMember:
-    username: str
+    username: str  # `is_staff_username`'s shape: an adapter refuses any other as `NotSignedIn`
     # The token's `email` claim only when its `email_verified` claim is the boolean true,
     # else `None`: `SendTestEmail` sends to it as given. For the test email only; never
     # logged.
@@ -41,8 +57,9 @@ class NotAllowed(PortError):
 class StaffTokens(Protocol):
     def verify(self, id_token: str) -> StaffMember:
         """The signed-in staff member; `email` is set only from a verified email claim
-        (`email_verified` is `True`), never from an unverified one. `NotSignedIn`,
-        `NotAllowed`, `SignInUnavailable`."""
+        (`email_verified` is `True`), never from an unverified one. A token whose username
+        hasn't `is_staff_username`'s shape is `NotSignedIn`; one without `STAFF_GROUP` is
+        `NotAllowed`. `SignInUnavailable`."""
         ...
 
     def sign_in_url(self, *, state: str, code_challenge: str, redirect_uri: str) -> str:

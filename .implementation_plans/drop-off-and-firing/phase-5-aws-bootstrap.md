@@ -317,8 +317,7 @@ Statement:
       - dynamodb:GetItem
       - dynamodb:Query
       - dynamodb:PutItem
-      - dynamodb:UpdateItem
-      - dynamodb:ConditionCheckItem
+      - dynamodb:UpdateItem   # the ID counter only (phase 4); a commit sends Puts
       - dynamodb:DescribeStream
       - dynamodb:GetRecords
       - dynamodb:GetShardIterator

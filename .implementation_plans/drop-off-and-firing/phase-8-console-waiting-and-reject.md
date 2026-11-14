@@ -167,7 +167,8 @@ Every console response, including the 302, 403 and 503, carries the headers from
 - **`GET /console/auth/sign-in?next=...`**: makes a PKCE verifier (32 random bytes,
   base64url) and a state (32 random bytes), and sets `__Host-signin` (HttpOnly, Secure,
   SameSite=Lax, Path=/, Max-Age=600) to `{verifier, state, next, iat}` signed with
-  HMAC-SHA256 under the session key (`SESSION_KEY_PARAMETER`, read through `Secrets`).
+  HMAC-SHA256 under the session key (`Secrets.get(SecretName.SESSION_KEY)`: phase 4's
+  `SsmSecrets` reads `/asmbly-ceramics/<APP_ENV>/session-key`; no variable names it).
   `next` is kept only if it is a relative path starting with `/console` and not `//`,
   without a scheme or backslash; otherwise `/console`. Then `302` to
   `StaffTokens.sign_in_url(state=..., code_challenge=S256(verifier), redirect_uri=SITE_URL + "/console/auth/callback")`,
@@ -193,6 +194,23 @@ The ID token is about 1 to 2 KB, under the 4 KB cookie limit. Tokens last 60 min
 are not refreshed (asmbly-staff-login's web clients get a 60-minute refresh token, its
 add-an-app open question 2), so staff sign in again about hourly; the managed-login
 session usually makes that one tap.
+
+**From phase 4's privacy review** (the adapter leaves these to this phase):
+
+- **Fixed return addresses.** `CognitoStaffTokens.sign_in_url`, `sign_out_url` and
+  `exchange` pass `redirect_uri` (and `logout_uri`) to Cognito as given. The console
+  passes only the fixed addresses on this site, `SITE_URL + "/console/auth/callback"`
+  and `SITE_URL + "/console/signed-out"`, built from settings, never from the request
+  (no `Host` header, query string or `next`). A test pins both. Cognito also refuses an
+  address the client doesn't list, but that is asmbly-staff-login's setting, not a
+  check here.
+- **Throttle key fetches.** `PyJWKClient` fetches the pool's keys again for every token
+  whose `kid` it hasn't cached, so a stream of forged tokens with made-up `kid`s makes
+  the console fetch the JWKS once per request. Wrap the `SigningKeys` passed to
+  `CognitoStaffTokens(keys=...)` so an unknown `kid` refetches at most once a minute per
+  container (otherwise `NotSignedIn` without a fetch), or check the `kid` against the
+  cached set before asking; a test sends many unknown `kid`s and counts one fetch. The
+  console function's reserved concurrency of 5 bounds it meanwhile.
 
 ### web: forged requests (`csrf.py`)
 
@@ -325,7 +343,8 @@ token is logged. `q` is never logged.
 
 Builds, from the environment: `Records`, `IdNumbers`, `PhotoStore`, `Clock`, `Secrets`
 and `StaffTokens` (phase 4's `CognitoStaffTokens(issuer=STAFF_ISSUER,
-client_id=STAFF_CLIENT_ID, sign_in_url=STAFF_SIGN_IN_URL)`), then the use cases above
+sign_in_origin=STAFF_SIGN_IN_URL, client_id=STAFF_CLIENT_ID)`: keyword-only;
+`sign_in_origin` is an https origin with no path, which the adapter checks), then the use cases above
 into `ConsoleServices`. It doesn't build a `Mailer`: in this phase the console sends
 nothing itself (rejections go through the outbox). It refuses to start when any
 `STAFF_*` variable is empty.
@@ -392,7 +411,6 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
       Environment:
         Variables:
           APP_ROLE: console
-          SESSION_KEY_PARAMETER: !Sub /${ProjectSlug}/${AppEnv}/session-key
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           PORT: "8080"
           AWS_LWA_READINESS_CHECK_PATH: /health
@@ -404,16 +422,22 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
           Statement:
             - Sid: Records
               Effect: Allow
-              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:ConditionCheckItem]
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]  # a commit's Update is a conditional Put (phase 4)
               Resource: [!GetAtt RecordsTable.Arn, !Sub '${RecordsTable.Arn}/index/*']
             - Sid: Transactions
               Effect: Allow
-              Action: dynamodb:TransactWriteItems   # authorised per item action above; listed for clarity
+              Action: dynamodb:TransactWriteItems   # authorised per item action above (PutItem); listed for clarity
               Resource: !GetAtt RecordsTable.Arn
             - Sid: ReadKeptPhotos
               Effect: Allow
               Action: s3:GetObject
               Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            - Sid: ListKeptPhotos          # read lists dropoffs/AC-n/ after a 403: a gone photo is
+              Effect: Allow                 # UploadMissing, not PhotosUnavailable (phase 4)
+              Action: s3:ListBucket
+              Resource: !GetAtt PhotoBucket.Arn
+              Condition:
+                StringLike: {s3:prefix: 'dropoffs/*'}
             - Sid: ReadSessionKey
               Effect: Allow
               Action: ssm:GetParameter
@@ -436,13 +460,16 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
 
 The shared environment variables (`APP_ENV`, `APP_VERSION`, `TABLE_NAME`,
 `PHOTO_BUCKET`, `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `LOG_LEVEL`) come from phase 7's
-`Globals`; the console function adds `SESSION_KEY_PARAMETER`
-(`!Sub /${ProjectSlug}/${AppEnv}/session-key`) itself. The session key is the console's
-alone: the form function's role can't read it, and the console's role reads no other
+`Globals`; no variable names the session key's parameter (`SsmSecrets` builds it from
+`APP_ENV`), so the role below decides which key the console reads. The session key is
+the console's alone: the form function's role can't read it, and the console's role reads no other
 key (not `hash-key`, not `form-key`). `kms:Decrypt` for the SecureString through SSM comes from the function
 boundary (phase 5). `dynamodb:TransactWriteItems` is checked by DynamoDB against the
-`Put`/`Update`/`ConditionCheck` rights on the items, as phase 4's adapter uses it; phase
-4's tests name the exact actions, and this statement must match them. The role's path
+rights for the actions in it, and phase 4's `commit` sends only `Put` actions (an
+`Update` is the whole item put under its version check), so `dynamodb:PutItem` is the
+only write this phase's console needs: no `UpdateItem` (phase 9 adds it, on `COUNTER#*`
+only, for load IDs) and no `ConditionCheckItem`. Phase 4's tests name the exact actions,
+and this statement must match them. The role's path
 (`/asmbly-ceramics-app/`) and boundary come from `Globals`.
 
 No `ses:SendEmail` here: the console sends its first email (the test email) in phase 9,
@@ -551,6 +578,8 @@ public key is refused.
 
 - `test_the_console_reads_only_kept_photos_and_its_session_key`
 - `test_the_console_role_cannot_send_email_yet`
+- `test_the_console_writes_with_put_item_only` (no `UpdateItem`, `ConditionCheckItem`,
+  `DeleteItem` or `Scan`)
 - `test_the_console_routes_go_to_the_console_function_only`
 - `test_the_staff_sign_in_values_come_from_parameter_store`
 

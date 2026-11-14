@@ -286,22 +286,34 @@ if any failed, the handler raises at the end so that the schedule's retry runs i
 and, after the retries, the event lands in the dead-letter queue (alarmed). The event's
 content is ignored.
 
-`build_closer()` builds `Records`, `PhotoStore` and `Clock` only: the close sends no
-email and needs no secret.
+`build_closer()` builds `Records`, `PhotoStore`, `Clock` and a `CurrentStudio` that
+doesn't seed (as the mailer's, phase 7): the close sends no email and needs no secret.
 
 ### infra: `infra/app.yaml`
 
-The console's role gains the right to send the test email:
+The console's role gains the right to send the test email, and the right to count load
+IDs (`StartLoad` calls `IdNumbers.next_load_id`, phase 4's `DynamoDbIdNumbers`: one
+`UpdateItem` with `ADD` on `COUNTER#load`, the only `UpdateItem` the adapters send):
 
 ```yaml
             - Sid: SendTestEmail
               Effect: Allow
               Action: ses:SendEmail
-              Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/asmbly.org'
+              Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}'
               Condition:
                 StringLike:
-                  ses:FromAddress: '*@asmbly.org'
+                  ses:FromAddress: !Sub '*@${EmailDomain}'
+            - Sid: CountLoadIds
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*"]}
 ```
+
+The load, settings and retry writes are commits, which phase 8's `Records` statement
+already covers with `dynamodb:PutItem` (phase 4 sends an `Update` as a conditional
+`Put`).
 
 It is the same statement as the mailer's (phase 7), on the same identity, agreed in
 AsmblyMCPs before phase 7. Recipients can't be limited in IAM (each staff member's own
@@ -329,18 +341,16 @@ The close function and its schedule:
       Policies:
         - Version: '2012-10-17'
           Statement:
-            - Sid: Records
-              Effect: Allow
-              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:UpdateItem, dynamodb:ConditionCheckItem]
+            - Sid: Records                 # list (GSI1), re-read each drop-off and its ready
+              Effect: Allow                 # email by key, close it: a commit's Update is a
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]  # conditional Put (phase 4)
               Resource: [!GetAtt RecordsTable.Arn, !Sub '${RecordsTable.Arn}/index/*']
-            - Sid: ListKeptPhotos
+            - Sid: Transactions
               Effect: Allow
-              Action: s3:ListBucket
-              Resource: !GetAtt PhotoBucket.Arn
-              Condition:
-                StringLike: {s3:prefix: 'dropoffs/*'}
-            - Sid: DeleteKeptPhotos
-              Effect: Allow
+              Action: dynamodb:TransactWriteItems   # authorised per item action above (PutItem); listed for clarity
+              Resource: !GetAtt RecordsTable.Arn
+            - Sid: DeleteKeptPhotos          # delete_drop_off: one DeleteObjects of the 12 known
+              Effect: Allow                   # keys, without listing (phase 4), so no s3:ListBucket
               Action: s3:DeleteObject
               Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
 
@@ -534,7 +544,13 @@ first night's run is checked under Rollout.
 - `test_the_close_schedule_runs_daily_in_austin_time_with_a_dead_letter_queue`
 - `test_the_scheduler_role_invokes_only_the_close_function`
 - `test_the_close_role_deletes_only_kept_photos_and_cannot_read_them`
-- `test_ses_send_is_limited_to_the_asmbly_org_identity_and_from_address` (both roles)
+- `test_ses_send_is_limited_to_the_asmbly_org_identity_and_from_address` (both roles;
+  phase 7's "the only `ses:SendEmail` is the mailer's" becomes the mailer's and the
+  console's)
+- `test_the_close_role_writes_with_put_item_only` (no `UpdateItem`, `ConditionCheckItem`
+  or `DeleteItem`: closing is a commit, a conditional `Put`)
+- `test_the_console_updates_only_the_id_counter` (`UpdateItem` only with
+  `dynamodb:LeadingKeys` `COUNTER#*`)
 - `test_every_new_name_starts_with_the_prefix_and_every_alarm_has_actions`
 
 ## Acceptance criteria

@@ -6,10 +6,12 @@ from asmbly_ceramics.ports.images import PhotoRefused
 NOT_IMAGE = b"NOT-IMAGE"
 TOO_LARGE = b"TOO-LARGE"
 TOO_MANY_PIXELS = b"TOO-MANY-PIXELS"
+UNSUPPORTED_TYPE = b"UNSUPPORTED-TYPE"
 _MARKERS = {
     NOT_IMAGE: PhotoRefusal.NOT_IMAGE,
     TOO_LARGE: PhotoRefusal.TOO_LARGE,
     TOO_MANY_PIXELS: PhotoRefusal.TOO_MANY_PIXELS,
+    UNSUPPORTED_TYPE: PhotoRefusal.UNSUPPORTED_TYPE,
 }
 
 

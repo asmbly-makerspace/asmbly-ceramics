@@ -150,10 +150,12 @@ own JSON), `Environment.Variables` (all functions):
 | `INITIAL_SENDING_ADDRESS` | `!Ref InitialSendingAddress` |
 | `LOG_LEVEL` | `INFO` |
 
-Each function adds only the keys it reads: `FormFunction` sets `HASH_KEY_PARAMETER`
-(`!Sub /${ProjectSlug}/${AppEnv}/hash-key`) and `FORM_KEY_PARAMETER`
-(`!Sub /${ProjectSlug}/${AppEnv}/form-key`); phase 8's `ConsoleFunction` sets
-`SESSION_KEY_PARAMETER`; the mailer reads no key.
+No variable names a key's parameter: phase 4's `SsmSecrets(client, env)`, built with
+`APP_ENV`, reads `/asmbly-ceramics/<APP_ENV>/<SecretName>` itself (`hash-key`,
+`form-key`, `session-key`; `ProjectSlug` must stay `asmbly-ceramics` for the names to
+agree). Which keys a function may read is set by its role alone: the form's role reads
+`hash-key` and `form-key`, phase 8's console role `session-key` only, and the mailer
+reads no key.
 
 Tags come from the stack (`sam deploy --tags`, below); `PropagateTags: true` on every
 SAM resource that has it, so the generated roles and the API carry them too.
@@ -201,6 +203,18 @@ Bucket names are global across all AWS accounts; the account number, added by
 CloudFormation at deploy time, keeps the name unique without writing it in the file.
 The name still starts with `asmbly-ceramics-`. Changing `BucketName` replaces the
 bucket (Retain keeps the old one).
+
+**To settle before this phase is built (phase 4's privacy review).** The presigned POST
+that `S3PhotoStore.upload_slots` returns has a `url` naming the bucket
+(`https://<bucket>.s3.<region>.amazonaws.com/`), and `WebSettings.photo_upload_origin`
+puts the same name in the page's CSP: with the account ID in the bucket's name, the
+public form shows the account ID to anyone who opens it. CLAUDE.md keeps the account ID
+out of every file; a page served to the public is no better. So this phase either names
+the bucket without it (for example `${ProjectSlug}-${AppEnv}-photos-<a random suffix>`,
+the suffix a template parameter in `samconfig.toml`, which holds no account detail;
+phase 5's boundary pattern `${ProjectSlug}-*-photos-*` still matches it), or says in the pull
+request's **Risk** section that the form shows the account ID and why that is accepted.
+The first is the plan's choice unless the maintainer decides otherwise.
 
 `PhotoBucketPolicy`: one statement, `Deny` `s3:*` to `*` on the bucket and its objects
 when `aws:SecureTransport` is `false`. No `Allow`: access comes only from the functions'
@@ -291,19 +305,19 @@ phase 5 caps them):
 Form function:
 
 ```yaml
-- Sid: ReadStudioAndSubmissions        # never a drop-off: the ID page reads the submission's summary
-  Effect: Allow
-  Action: [dynamodb:GetItem, dynamodb:Query]
+- Sid: ReadStudioAndSubmissions        # never a drop-off: the ID page reads the submission's summary;
+  Effect: Allow                         # GetItem only: the form's use cases read by key, never query
+  Action: dynamodb:GetItem
   Resource: !GetAtt RecordsTable.Arn
   Condition:
-    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["STUDIO", "STUDIO#*", "SUBMISSION#*"]}
-- Sid: CreateDropOffs                  # new items only, through the submit transaction
-  Effect: Allow
-  Action: [dynamodb:PutItem, dynamodb:ConditionCheckItem]
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["STUDIO", "SUBMISSION#*"]}
+- Sid: CreateDropOffs                  # new items only, through the submit transaction; the
+  Effect: Allow                         # studio's seeding puts STUDIO/CURRENT and STUDIO/HISTORY#…
+  Action: dynamodb:PutItem              # commit sends only Put actions (phase 4): no ConditionCheckItem
   Resource: !GetAtt RecordsTable.Arn
   Condition:
     ForAllValues:StringLike:
-      dynamodb:LeadingKeys: ["DROPOFF#*", "EMAIL#*", "SUBMISSION#*", "STUDIO", "STUDIO#*"]
+      dynamodb:LeadingKeys: ["DROPOFF#*", "EMAIL#*", "SUBMISSION#*", "STUDIO"]
 - Sid: CountIds
   Effect: Allow
   Action: dynamodb:UpdateItem
@@ -316,24 +330,24 @@ Form function:
   Resource: !GetAtt RecordsTable.Arn
   Condition:
     ForAllValues:StringLike: {dynamodb:LeadingKeys: ["RATE#*"]}
-- Sid: TransactOnTheTable                # TransactWriteItems is authorised per item action above
+- Sid: TransactOnTheTable                # TransactWriteItems is authorised per item action above (PutItem)
   Effect: Allow
   Action: dynamodb:TransactWriteItems   # if the IAM reference lists it as an action; see Required reading
   Resource: !GetAtt RecordsTable.Arn
-- Sid: Uploads                         # GetObject also covers discard_uploads' marker check (HeadObject)
-  Effect: Allow
+- Sid: Uploads                         # PutObject: the role that signs the POST must hold it;
+  Effect: Allow                         # GetObject: read_upload; Put and Delete: discard_uploads
   Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
   Resource: !Sub ${PhotoBucket.Arn}/uploads/*
 - Sid: KeepPhotos                      # DeleteObject: keep's own rollback and the submit's
   Effect: Allow                         # cleanup after a failed commit (phase 2b, step 7);
   Action: [s3:PutObject, s3:DeleteObject] # the backstop for a failed cleanup is #19
   Resource: !Sub ${PhotoBucket.Arn}/dropoffs/*
-- Sid: ListKeptPhotos                  # delete_drop_off lists dropoffs/AC-n/ first (phase 4)
-  Effect: Allow
+- Sid: ListUploads                     # read_upload lists uploads/<slot id>/ (the upload and
+  Effect: Allow                         # its `used` marker): a GET's 403 can't tell "absent"
   Action: s3:ListBucket
   Resource: !GetAtt PhotoBucket.Arn
   Condition:
-    StringLike: {s3:prefix: 'dropoffs/*'}
+    StringLike: {s3:prefix: 'uploads/*'}
 - Sid: ReadOwnKeys
   Effect: Allow
   Action: ssm:GetParameter
@@ -342,9 +356,13 @@ Form function:
     - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/form-key
 ```
 
-The form never gets `s3:GetObject` on `dropoffs/*`, any read of a `DROPOFF#`, `EMAIL#`
-or `LOAD#` item, `UpdateItem` on them, `dynamodb:Scan`, a `Query` outside the studio and
-its own submissions, the console's `session-key`, or any SES right. IAM can't require
+The form never gets `s3:GetObject` on `dropoffs/*`, `s3:ListBucket` on any prefix but
+`uploads/*` (it can't list kept photos' keys: `delete_drop_off` deletes 12 known keys
+without listing, phase 4), any read of a `DROPOFF#`, `EMAIL#`
+or `LOAD#` item, `UpdateItem` on them, `dynamodb:Scan`, any `Query` (its use cases read
+by key only: the studio, a submission, a rate item), `ConditionCheckItem` (phase 4's
+`commit` sends only `Put` actions, each with its own condition), the console's
+`session-key`, or any SES right. IAM can't require
 `attribute_not_exists` on a `PutItem`, so a form function whose code was taken over
 could still overwrite a drop-off item with a `Put`; that is accepted in decision 0002
 (the mailer re-reads each drop-off by key, so only an overwritten one could be
@@ -356,18 +374,22 @@ SSM, which the boundary allows through `kms:ViaService` (phase 5).
 Mailer function:
 
 ```yaml
-- Sid: ReadWhatAnEmailNeeds
-  Effect: Allow
+- Sid: ReadWhatAnEmailNeeds            # the email, its drop-off and the studio (STUDIO/CURRENT);
+  Effect: Allow                         # SendPendingEmail reads no load
   Action: dynamodb:GetItem
   Resource: !GetAtt RecordsTable.Arn
   Condition:
-    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["EMAIL#*", "DROPOFF#*", "LOAD#*", "STUDIO", "STUDIO#*"]}
-- Sid: MarkEmails                      # claim, sent, failed: the only writes the mailer makes
-  Effect: Allow
-  Action: dynamodb:UpdateItem
-  Resource: !GetAtt RecordsTable.Arn
+    ForAllValues:StringLike: {dynamodb:LeadingKeys: ["EMAIL#*", "DROPOFF#*", "STUDIO"]}
+- Sid: MarkEmails                      # claim, sent, failed, cancelled: the only writes the mailer
+  Effect: Allow                         # makes. Each is an `Update` that phase 4's commit sends as a
+  Action: dynamodb:PutItem              # transactional Put of the whole item under its version
+  Resource: !GetAtt RecordsTable.Arn    # check, so PutItem, not UpdateItem
   Condition:
     ForAllValues:StringLike: {dynamodb:LeadingKeys: ["EMAIL#*"]}
+- Sid: TransactOnTheTable                # as the form's: authorised per item action (PutItem above)
+  Effect: Allow
+  Action: dynamodb:TransactWriteItems   # if the IAM reference lists it as an action; see Required reading
+  Resource: !GetAtt RecordsTable.Arn
 - Sid: ReadTheStream
   Effect: Allow
   Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator, dynamodb:ListStreams]
@@ -376,6 +398,12 @@ Mailer function:
   Effect: Allow
   Action: s3:GetObject
   Resource: !Sub ${PhotoBucket.Arn}/dropoffs/*
+- Sid: ListKeptPhotos                  # read lists dropoffs/AC-n/ after a 403, so a gone
+  Effect: Allow                         # photo is UploadMissing, not PhotosUnavailable (phase 4)
+  Action: s3:ListBucket
+  Resource: !GetAtt PhotoBucket.Arn
+  Condition:
+    StringLike: {s3:prefix: 'dropoffs/*'}
 - Sid: SendFromAsmblyOrg
   Effect: Allow
   Action: ses:SendEmail
@@ -432,9 +460,6 @@ class Settings:
     table_name: str
     photo_bucket: str
     site_url: str
-    hash_key_parameter: str | None  # form only
-    form_key_parameter: str | None  # form only
-    session_key_parameter: str | None  # console only (phase 8)
     initial_sending_address: str
     region: str  # AWS_REGION, set by Lambda
     log_level: str
@@ -453,13 +478,43 @@ def build_form_services(settings: Settings | None = None) -> tuple[WebServices, 
 def build_mailer(settings: Settings | None = None) -> SendPendingEmail: ...
 ```
 
-Each creates its boto3 clients once (module-level cache), builds phase 4's adapters
+Each creates its boto3 clients once (module-level cache), the DynamoDB, S3 and SSM
+clients with `adapters.aws.clients.CLIENT_CONFIG` and the SES client with
+`adapters.aws.mailer.SES_CLIENT_CONFIG` (phase 4: timeouts and tries that give up
+before API Gateway's 30 s; botocore's defaults don't), builds phase 4's adapters
 (`DynamoDbRecords`, `DynamoDbIdNumbers`, `DynamoDbRateLimiter`, `S3PhotoStore`,
 `PillowPhotoInspector`, `SesMailer`, `SsmSecrets`, `SystemClock`) and phase 2's and 3's
-use cases. `WebSettings.photo_upload_origin` is
+use cases.
+
+Two timeouts the composition sets, from phase 4's review:
+
+- **The mailer's SES read timeout.** `SES_CLIENT_CONFIG`'s 10 s read is sized for a call
+  behind API Gateway's 30 s (phase 9's test email). The mailer runs from the stream with
+  no gateway and a 60 s timeout, and a slow answer to a six-photo message would turn into
+  "may have been sent" (`SendFailed(<timeout class>)`, outside `REFUSED_CODES`).
+  `build_mailer` builds its SES client with
+  `SES_CLIENT_CONFIG.merge(Config(read_timeout=30))`: still one attempt, the same connect
+  timeout, and well inside the function's 60 s with the photos' reads. The console's
+  client (phase 9) keeps `SES_CLIENT_CONFIG` as it is. `test_the_mailer_builds` asserts
+  the mailer's client has one attempt and the 30 s read.
+- **A whole request's bound.** `clients.CLIENT_CONFIG` bounds each call (at most about
+  18 s with its retries), not a request: a submit makes many calls in sequence (two rate
+  hits, the studio and the submission, a listing and a read per photo, the ID, twelve
+  photo puts, the commit, the discards), so a slow AWS could run it past the function's
+  29 s and API Gateway's 30 s, ending in a gateway timeout with nothing logged by the
+  app. The form function needs a bound for the request as a whole that ends it, logged,
+  before 29 s: a per-request deadline (for example 25 s from the request's start) that
+  the web layer checks between the submit's steps and answers with phase 6's 503 page
+  and a `drop_off_unavailable` line, or a shorter per-call config for the form's clients
+  with the worst case summed and shown under 29 s. Either way a submit cut short may
+  already have committed, which phase 2b's repeat-with-the-same-token answers. `/prep`
+  of this phase picks one and states it; phase 6's hand-off says where the web layer
+  checks it.
+
+`WebSettings.photo_upload_origin` is
 `https://<bucket>.s3.<region>.amazonaws.com`; `WebSettings.cookie_key` is
-`Secrets.get(SecretName.FORM_KEY)`. The form function reads `hash-key` and `form-key`
-only. Phase 8 adds `build_console_services` and
+`Secrets.get(SecretName.FORM_KEY)`, with `SsmSecrets(client, settings.app_env)`. The
+form function reads `hash-key` and `form-key` only. Phase 8 adds `build_console_services` and
 phase 9 `build_closer`.
 
 `logs.py`: `configure_logging(level)` installs one handler on the root logger with a
@@ -600,7 +655,14 @@ checks:
   encryption is set, the policy denies non-TLS, the lifecycle expires `uploads/` after 1
   day, CORS allows only `POST` from the site;
 - no statement in any role has `Resource: "*"`, `s3:*` with an `Allow`, or `iam:*`;
-- the form's role has no `s3:GetObject` on `dropoffs/*`, no `dynamodb:Scan`, no `ses:*`;
+- the form's role has no `s3:GetObject` on `dropoffs/*`, no `s3:ListBucket` except with
+  `s3:prefix` `uploads/*`, no `dynamodb:Scan`, no `dynamodb:Query`, no `ses:*`; the
+  mailer's (and phase 8's console's) `s3:ListBucket` has `s3:prefix` `dropoffs/*`;
+- the DynamoDB writes match phase 4's adapters: every role that commits has
+  `dynamodb:PutItem` (a commit's `Update` is a conditional `Put`); `dynamodb:UpdateItem`
+  appears only with `dynamodb:LeadingKeys` `COUNTER#*` (the ID counter); no role has
+  `dynamodb:ConditionCheckItem`, `DeleteItem` or `Scan`; the mailer's only write is
+  `PutItem` on `EMAIL#*`;
 - the only `ses:SendEmail` is the mailer's, on the `asmbly.org` identity, with
   `ses:FromAddress` limited to that domain;
 - the mailer's event filter matches `status = pending` and the outbox type, with retries
@@ -661,7 +723,9 @@ and use only `vars.*` (no `secrets.*`).
    `ManagedBy=sam` (`aws resourcegroupstaggingapi get-resources` read-only check).
 7. The form's role can't read kept photos, read, update or list any `DROPOFF#`,
    `EMAIL#` or `LOAD#` item, scan the table, or read `session-key`; the mailer's role
-   writes only `EMAIL#` items (`UpdateItem`, no `PutItem`); only the mailer can send
+   writes only `EMAIL#` items (`PutItem` with `dynamodb:LeadingKeys` `EMAIL#*`, since
+   phase 4's `commit` sends every `Update` as a conditional `Put`; no `UpdateItem`, no
+   `ConditionCheckItem`) and reads no `LOAD#` item; only the mailer can send
    email, only from `asmbly.org` (`test_app_template.py` pins each). The mailer can't
    seed the studio's starting values, and needn't: an email exists only after a
    submit, which reads (and so seeds) the studio first; `build_mailer` passes
@@ -732,8 +796,8 @@ that), and no QR code points to it. Nobody is told yet.
 - Before merging (phase 2b's reviews): the maintainer's word on two points, recorded in
   a new decision record that amends decision 0002 (CLAUDE.md: a past decision is
   changed only by a new record that says why; a Risk section is not enough). The form function's
-  role may delete and list photos under `dropoffs/` (for the submit's cleanup), which
-  decision 0002's role table gives the close only; and the backstop for photos left
+  role may delete photos under `dropoffs/` (for the submit's cleanup; it never lists
+  them, phase 4), which decision 0002's role table gives the close only; and the backstop for photos left
   under `dropoffs/` with no record (#19) is decided and built before prod takes real
   drop-offs, so no photo outlives #7.
 - Before merging: the sending right agreed in AsmblyMCPs (README, Dependencies). The
@@ -766,9 +830,8 @@ Filled in when the phase is done. Phases 8 and 9 rely on:
   (more specific than `$default`), and the parameters `StaffIssuer`, `StaffSignInUrl`,
   `StaffClientId`; phase 9 adds `CloseFunction`, `CloseSchedule`, `CloseDeadLetterQueue`.
 - **Environment variables**: `APP_ENV`, `APP_VERSION`, `TABLE_NAME`, `PHOTO_BUCKET`,
-  `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `HASH_KEY_PARAMETER` and `FORM_KEY_PARAMETER`
-  (form only; phase 8 adds `SESSION_KEY_PARAMETER` on the console only),
-  `LOG_LEVEL`, and on web functions `AWS_LAMBDA_EXEC_WRAPPER`, `PORT`,
+  `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `LOG_LEVEL` (no key's parameter name: `SsmSecrets`
+  builds it from `APP_ENV`; the roles decide which keys each function reads), and on web functions `AWS_LAMBDA_EXEC_WRAPPER`, `PORT`,
   `AWS_LWA_READINESS_CHECK_PATH`, `APP_ROLE` (`form`). Phase 8 adds `STAFF_ISSUER`, `STAFF_SIGN_IN_URL`,
   `STAFF_CLIENT_ID`.
 - **Log fields**: `level`, `message`, `event`, `drop_off_id`, `load_id`, `user`, `error_code`,
@@ -781,3 +844,10 @@ Filled in when the phase is done. Phases 8 and 9 rely on:
   alarm topic `asmbly-ceramics-<env>-alarms`.
 - The S3 answer to a too-large POST, as the first smoke run printed it, and the phone
   tests' results (iOS version, JPEG or not).
+- **Timeouts**: the mailer's SES client reads for 30 s (one attempt); the console's test
+  email keeps `SES_CLIENT_CONFIG`'s 10 s. The bound chosen for a whole web request (the
+  deadline, or the per-call worst case summed), which phase 8's console requests follow
+  too.
+- **Rights**: every role that commits holds `dynamodb:PutItem` (phase 4 sends a commit's
+  `Update` as a conditional `Put`); `dynamodb:UpdateItem` only on `COUNTER#*`; no role
+  holds `ConditionCheckItem`. Phase 8's console role and phase 9's close role follow it.

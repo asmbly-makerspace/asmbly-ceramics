@@ -3,14 +3,14 @@ phase_id: 4
 title: The AWS adapters
 epic: 1
 implements: [2]
-depends_on: [1d]
+depends_on: [1d, 2b, 2c, 3]
 domain: [app]
 estimated_size: L
 ---
 
 # Phase 4: The AWS adapters
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-14 on branch feat/drop-off-and-firing-phases-2-4
 
 ## Required reading
 
@@ -90,6 +90,106 @@ port's contract says, including its failures, and is tested against `botocore`'s
 no network and no AWS. Nothing logged or raised holds a person's details, a token or
 AWS's error message. Nothing is wired into a running app yet: phase 7's composition
 root does that.
+
+## Prep revisions (binding)
+
+`/prep` on 2026-11-13 (run drop-off-and-firing-phases-2-4) found this document written
+against the ports as planned, not as phases 1 to 3 built them. **Where a section below
+disagrees with this one, this section and the code in `src/asmbly_ceramics/ports/` win.**
+
+- **Signatures are the ports'.** `Records`: `drop_off`, `load`, `studio`,
+  `email(drop_off_id, kind, occasion="")`, `submission(token_hash)`, the list queries,
+  `history`, and `is_item_used` (designed below). `PhotoStore.upload_slots(count, now)`
+  (no clock in any constructor), `read_upload(slot_id: str)`, `discard_uploads(slot_ids)`,
+  `keep(drop_off_id, photos)`; `UploadMissing()` takes no argument; `UploadSlot(slot_id,
+  post=PresignedPost(url, fields), expires_at=now + UPLOAD_SLOT_LIFETIME)`, and
+  `ExpiresIn` comes from `UPLOAD_SLOT_LIFETIME`. `CheckedPhoto(full, thumb)` only.
+  `OutgoingEmail(from_address, from_name, reply_to, to, subject, html, text, inline)` with
+  `InlineImage(content_id, filename, data, content_type)`; the adapter uses the message's
+  own name, reply-to and content type, and refuses a `from_address` outside `asmbly.org`
+  with `ValueError` (the port's contract). `Mailer.send` has no `log_context`: the use
+  case logs the ID and kind. `NotSignedIn()` takes no reason; `StaffTokens` methods are
+  keyword-only and `sign_out_url(*, redirect_uri)`. `Secrets.get(name: SecretName)`.
+  Constructors: `DynamoDbRecords(client, table)`, `DynamoDbIdNumbers(client, table)`,
+  `DynamoDbRateLimiter(client, table)`, `S3PhotoStore(client, bucket)`,
+  `SesMailer(client)`, `CognitoStaffTokens(issuer=, sign_in_origin=, client_id=)`,
+  `SsmSecrets(client, env)`. Limits come from `domain.limits`, never literals.
+- **Domain and port additions.** `PhotoRefusal.UNSUPPORTED_TYPE` (`unsupported_type`):
+  a HEIC/HEIF/AVIF (`ftyp` brand at offset 4) or GIF signature; phase 6 gives it a
+  message. `ports.staff.STAFF_GROUP = "ceramics"` and `is_staff_username` (1 to 40 of
+  `[A-Za-z0-9_.-]` with a letter, the shape `use_cases.log` logs as `user`: a Cognito
+  username or a `sub` UUID fits, an address doesn't); a token whose `cognito:username`
+  has another shape is `NotSignedIn`. `ports.records.CommitOutcomeUnknown`, a
+  `RecordsUnavailable` (below).
+- **Commit outcomes (acceptance criterion 9).** An `Update` is a transactional `Put` of
+  the whole item under `#v = :expected` (PutItem replaces the whole item, so a closed
+  drop-off's personal attributes are gone without a `REMOVE`). `ClientRequestToken` is a
+  fresh UUID per `commit` call, which botocore reuses across its own retries; never a
+  hash of the changes (that would make a repeated identical commit "succeed" without its
+  version check). Per TransactWriteItems' page, a repeat with the same token after a
+  success returns success without writing, a cancelled transaction writes nothing, and
+  `TransactionInProgressException` means the first is still running. So `Conflict` (a
+  cancellation with `ConditionalCheckFailed` or `TransactionConflict`) and throttling or
+  validation errors mean nothing was written, while a timeout, a lost connection,
+  `TransactionInProgressException`, `InternalServerError`, or any error after botocore
+  retried, is `CommitOutcomeUnknown`. `SubmitDropOff` then leaves the kept photos to the
+  backstop (#19) when its re-read finds nothing, instead of deleting them (a
+  `use_cases/submit.py` change with its test).
+- **Item attributes.** Every item has a top-level `type`; only versioned entities (drop-off,
+  load, email, studio) have `version`. Times use one formatter with fixed microseconds.
+  Base-table queries (`emails_for`, `history`) set `ConsistentRead=True`. An email stores
+  `pickup_window_days` and `retried_at`. A submission's `ttl` is its `expires_at`.
+- **Queries the key table didn't cover.** `drop_offs_created_between`: one `GSI1` query
+  per drop-off state with `GSI1SK BETWEEN <start> AND <end>`, then the half-open filter in
+  Python. `drop_offs_rejected_between`: the `rejected` and `closed` partitions with a
+  filter on `rejection_at`. `is_item_used`: `Select=COUNT` queries with a filter over the
+  partitions that can hold the item (loads for a kiln; drop-offs and loads for a firing
+  type; drop-offs for a glaze type; rejected and closed drop-offs for a reason). The
+  `DROPOFF#closed` partition grows by about 4,000 a year and these read it whole:
+  accepted for now; a sparse index is the fix if it grows (hand-off).
+- **Photos.** `delete_drop_off` sends one `DeleteObjects` of the 12 known keys
+  (`dropoffs/AC-n/1..6.jpg` and `-thumb.jpg`) without listing, so it needs no
+  `s3:ListBucket`. Without `s3:ListBucket`, S3 answers 403, not 404, for a missing key,
+  and a prefix-conditioned grant doesn't change a GET's answer (a GET has no prefix). So
+  the adapter never reads a 403 as "absent" by itself: `read_upload` lists
+  `uploads/<slot id>/` (one call shows the upload and the `used` marker), and `read`
+  lists `dropoffs/AC-n/` after a 403 to tell a gone photo (`UploadMissing`) from a denied
+  one (`PhotosUnavailable`). Phase 7 grants `s3:ListBucket` with `s3:prefix` `uploads/*`
+  (form) and `dropoffs/*` (console, mailer). S3 conditional writes (`IfNoneMatch="*"`)
+  answer `PreconditionFailed` (412) when the key exists, and `ConditionalRequestConflict`
+  (409) when another write is in flight; both are `PhotosAlreadyKept`, unless botocore
+  retried (`RetryAttempts > 0`: the 412 may be the call's own first try) or the put
+  timed out, which leave that photo to the backstop with `photos_not_deleted`. The
+  browser's form posts a `Content-Type` field (the policy's `starts-with image/`
+  condition) before the file (phase 6).
+- **Images.** The pixels are copied to a new RGB image (transparency onto white) with an
+  empty `info`, so nothing from the source (EXIF, XMP, comments, ICC) reaches the JPEG
+  writer; a test checks that the output holds no APP1 or COM segment. A photo over
+  `domain.limits.PHOTO_MAX_PIXELS` (50 million) is refused before decoding.
+- **Mailer.** The port's `REFUSED_CODES` rule replaces the errors bullet below. SES
+  answers with a refused code only when it didn't take the message, so the adapter
+  retries `Throttling`, `ThrottlingException` and `TooManyRequestsException` itself (3
+  tries, short backoff) before raising `SendFailed(code)`. Any `ClientError` that came
+  after botocore retried (`RetryAttempts > 0`) is `SendFailed("unknown")`, because an
+  earlier try may have been sent; phase 7 builds the client with
+  `mailer.SES_CLIENT_CONFIG` (one attempt). A `BotoCoreError` is `SendFailed(<class
+  name>)`, which `REFUSED_CODES` doesn't hold. The size cap is on the base64-encoded
+  message (SES's 40 MB counts after encoding): 38 MB.
+- **Staff tokens.** Key-set connection errors (`PyJWKClientConnectionError`, a subclass
+  of `PyJWTError`) are caught first and are `SignInUnavailable`; a token endpoint that
+  can't be reached or answers 5xx is `SignInUnavailable`; `exchange` verifies the token
+  it got but returns it even without the group (the console's `verify` says
+  `NotAllowed`).
+- **Secrets.** Values are base64 (`openssl rand -base64 32`, phase 5's runbook),
+  decoded with `validate=True`; a value that isn't base64 is `SecretsUnavailable`.
+- **Tests.** The contract suite runs the fakes and the adapters on moto (`uv add --dev
+  "moto[dynamodb,s3]"`), so conditions, ordering and uniqueness are real; error paths
+  use `botocore.stub.Stubber`. `test_throttling_is_retryable_and_message_rejected_is_not`
+  is replaced by the retry and `RetryAttempts` tests; the SES code test covers every
+  `REFUSED_CODES` member.
+- **Logging.** Adapters log through `use_cases.log.log_event` (`aws_call_failed`,
+  `kind=<operation>`, `error_code`). At DEBUG, botocore logs whole requests: phase 7
+  keeps the `botocore`, `boto3` and `urllib3` loggers at WARNING (hand-off).
 
 ## Files to create
 
@@ -345,11 +445,15 @@ class S3PhotoStore:
   `UploadMissing` for `read_upload` and ignored by `discard_uploads`, so no key outside
   `uploads/<22 characters>/` is ever read or deleted. (Phase 2 checks the same
   function first: there is one shape.)
-- **`read_upload(slot)`**: first `HeadObject` on `uploads/<id>/used`; if it exists the
-  slot was discarded, so `UploadMissing`. Then `GetObject` on `uploads/<id>/0` with
+- **`read_upload(slot)`**: first one `ListObjectsV2` of the prefix `uploads/<id>/`
+  (above: a listing answers "absent" plainly, where a GET or HEAD of a missing key
+  answers 403); if it shows `uploads/<id>/used` the slot was discarded, and if it doesn't
+  show `uploads/<id>/0` nothing was uploaded: either is `UploadMissing`. Then
+  `GetObject` on `uploads/<id>/0` with
   `Range="bytes=0-10485760"` (10 MB + 1 byte). If `ContentLength` from the response's
-  `ContentRange` total is over 10485760, raise `UploadMissing` (phase 1's contract: never more than `PHOTO_MAX_BYTES`); `NoSuchKey` →
-  `UploadMissing(slot)` (never uploaded, or already used); other codes →
+  `ContentRange` total is over 10485760, raise `UploadMissing` (phase 1's contract: never more than `PHOTO_MAX_BYTES`); `NoSuchKey`, or
+  `InvalidRange` (an empty object has no byte 0) → `UploadMissing` (gone between the
+  listing and the read); other codes →
   `PhotosUnavailable(code)`. The `Content-Type` the browser sent is ignored: the
   inspector decides the type.
 - **`keep(drop_off, photos)`**: for photo `k` (1 to 6), `PutObject` of the full JPEG to
@@ -365,9 +469,9 @@ class S3PhotoStore:
   deletes what it wrote under `dropoffs/AC-n/` and raises `PhotosUnavailable(code)`:
   `keep` is all or nothing (phase 1d's port). `SubmitDropOff` then stores nothing, and
   after a `keep` that returned, a commit that fails in any way makes it call
-  `delete_drop_off` (phase 2b, step 7). Both need `s3:DeleteObject` on `dropoffs/*` and
-  `s3:ListBucket` (prefix `dropoffs/*`) for the form's role, which phase 7 grants (from
-  phase 2b's reviews); the backstop for a cleanup that fails is #19.
+  `delete_drop_off` (phase 2b, step 7). Both need `s3:DeleteObject` on `dropoffs/*` for
+  the form's role (no listing: see `delete_drop_off`), which phase 7 grants (from phase
+  2b's reviews); the backstop for a cleanup that fails is #19.
 - **Commit outcomes (from phase 2b's review, deferred here):** `SubmitDropOff` re-reads
   the submission after a commit that raised something other than `Conflict`, and deletes
   the kept photos only when nothing is stored. Confirm against AWS's documentation
@@ -384,19 +488,23 @@ class S3PhotoStore:
   1-day lifecycle rule on `uploads/` removes the markers. Idempotent; deleting what is
   gone succeeds. Errors → `PhotosUnavailable(code)`.
 - **`read(ref, size)`**: `GetObject` on the full or thumbnail key; `NoSuchKey` →
-  `UploadMissing` (phase 1's contract for a kept photo that is gone).
-- **`delete_drop_off(id)`**: `ListObjectsV2` with `Prefix="dropoffs/AC-n/"`, then
-  `DeleteObjects` in one call (at most 12 keys); a per-key error in the response's
-  `Errors` → `PhotosUnavailable(code)` so `CloseFinished` retries tomorrow. Deleting
-  what's already gone succeeds.
+  `UploadMissing` (phase 1's contract for a kept photo that is gone); a 403 lists
+  `dropoffs/AC-n/` to tell a gone photo (`UploadMissing`) from a denied one.
+- **`delete_drop_off(id)`** (as built): one `DeleteObjects` of every key a drop-off can
+  have, both sizes of photos 1 to `PHOTO_INDEXES_EVER` (6, a constant in the adapter,
+  not `PHOTOS_MAX`, so lowering the limit later can't strand an older drop-off's
+  photos), without listing; a per-key error in the response's `Errors` →
+  `PhotosUnavailable(code)` so `CloseFinished` retries tomorrow. Deleting what's
+  already gone succeeds.
 - Object keys never hold a name or anything typed; the upload id is random and not
   logged.
-- Rights: `s3:PutObject` on `uploads/*` (signed into the POST: the role that signs
-  must hold it), `s3:GetObject` and `s3:DeleteObject` on `uploads/*`, `s3:PutObject` on
-  `dropoffs/*`, with `s3:DeleteObject` there and `s3:ListBucket` (prefix `dropoffs/*`)
-  for the submit's cleanup (form); `s3:GetObject` on `dropoffs/*` (console, mailer);
-  `s3:ListBucket` with `s3:prefix` `dropoffs/*` and `s3:DeleteObject` on `dropoffs/*`
-  (close). Phase 7 splits them by role.
+- Rights (as built): `s3:PutObject` on `uploads/*` (signed into the POST: the role that
+  signs must hold it), `s3:GetObject` and `s3:DeleteObject` on `uploads/*`,
+  `s3:ListBucket` with `s3:prefix` `uploads/*` (`read_upload`), `s3:PutObject` and
+  `s3:DeleteObject` on `dropoffs/*` (form; it never lists `dropoffs/`);
+  `s3:GetObject` on `dropoffs/*` and `s3:ListBucket` with `s3:prefix` `dropoffs/*`
+  (console, mailer: `read`); `s3:DeleteObject` on `dropoffs/*` (close, no listing).
+  Phase 7 splits them by role (the hand-off's table).
 
 ### app: `PillowPhotoInspector` (`PhotoInspector`)
 
@@ -467,10 +575,11 @@ class SesMailer:
 class CognitoStaffTokens:
     def __init__(
         self,
+        *,
         issuer: str,
-        sign_in_url: str,
+        sign_in_origin: str,  # as built; the plan first called it sign_in_url
         client_id: str,
-        jwks: PyJWKClient | None = None,
+        keys: SigningKeys | None = None,  # a PyJWKClient by default
         transport: TokenTransport | None = None,
     ) -> None: ...
     def verify(self, id_token: str) -> StaffMember: ...
@@ -501,14 +610,14 @@ class CognitoStaffTokens:
   Returns `StaffMember(username, email)`.
 - **The group name** `ceramics` is the staff pool's group (asmbly-staff-login#4),
   a constant in `domain/staff.py` (phase 1), not a setting.
-- **`sign_in_url`** builds `f"{sign_in_url}/oauth2/authorize?"` +
+- **`sign_in_url`** builds `f"{sign_in_origin}/oauth2/authorize?"` +
   `urlencode({"response_type": "code", "client_id": ..., "redirect_uri": ...,
   "scope": "openid", "state": ..., "code_challenge": ..., "code_challenge_method": "S256"})`
-  (authorization-endpoint.html). `sign_in_url` is asmbly-staff-login's
+  (authorization-endpoint.html). `sign_in_origin` is asmbly-staff-login's
   `/config/cognito/staff/sign-in-url` value, which includes `https://` and no path.
-- **`sign_out_url`**: `f"{sign_in_url}/logout?"` + `urlencode({"client_id": ...,
+- **`sign_out_url`**: `f"{sign_in_origin}/logout?"` + `urlencode({"client_id": ...,
   "logout_uri": ...})` (logout-endpoint.html).
-- **`exchange`**: `POST f"{sign_in_url}/oauth2/token"` with
+- **`exchange`**: `POST f"{sign_in_origin}/oauth2/token"` with
   `Content-Type: application/x-www-form-urlencoded` and body `grant_type=authorization_code`,
   `client_id`, `code`, `redirect_uri`, `code_verifier` (a public client: no secret,
   token-endpoint.html), through `urllib.request` with a 5-second timeout (no new HTTP
@@ -677,7 +786,7 @@ adapter-on-stub, so the fake can't drift from the adapter:
 3. `S3PhotoStore.upload_slots` signs a POST whose policy allows exactly one key, 1 byte
    to 10485760 bytes, a `Content-Type` starting `image/`, for 900 seconds (#2: 10 MB).
 4. `read_upload` refuses an object of 10485761 bytes with `UploadMissing` (#2).
-5. `PillowPhotoInspector.inspect` refuses a text file as `not_an_image`, a HEIC file as
+5. `PillowPhotoInspector.inspect` refuses a text file as `not_image`, a HEIC file as
    `unsupported_type`, and returns a JPEG with no EXIF for a JPEG that had GPS data
    (#2; photos keep no location).
 6. `SesMailer.send` sends one message from the given sender at `asmbly.org` with
@@ -723,31 +832,83 @@ None.
 
 ## Hand-off
 
-Phase 7 can rely on:
+Built on branch `feat/drop-off-and-firing-phases-2-4` (run drop-off-and-firing-phases-2-4).
+Phase 7 (and phase 8, for sign-in) can rely on:
 
-- Adapters, each taking a boto3 client (or, for tokens, plain values) in its
-  constructor: `DynamoDbRecords(client, table, clock)`,
-  `DynamoDbIdNumbers(client, table)`, `DynamoDbRateLimiter(client, table, clock)`,
-  `S3PhotoStore(client, bucket, clock)`, `PillowPhotoInspector()`,
-  `SesMailer(client)`, `SsmSecrets(client, env)`, `SystemClock()`, and (phase 8)
-  `CognitoStaffTokens(issuer, sign_in_url, client_id)`.
-- The table's key design and indexes above: `PK`, `SK` (strings), `GSI1` on
-  `GSI1PK`/`GSI1SK`, `GSI2` on `GSI2PK`/`GSI2SK`, TTL attribute `ttl`, a stream with
-  `NEW_IMAGE`, and the email items' top-level `status` for the filter
+- **Adapters**, each taking its client or plain values; nothing creates a client at
+  import:
+  `adapters.aws.records.DynamoDbRecords(client, table)`,
+  `adapters.aws.ids.DynamoDbIdNumbers(client, table)`,
+  `adapters.aws.rate_limit.DynamoDbRateLimiter(client, table)`,
+  `adapters.aws.photos.S3PhotoStore(client, bucket)`,
+  `adapters.images.PillowPhotoInspector()`,
+  `adapters.aws.mailer.SesMailer(client)` with the client built with
+  `adapters.aws.mailer.SES_CLIENT_CONFIG` (one attempt),
+  `adapters.aws.secrets.SsmSecrets(client, env)` (`env`: `prod` or `stage`),
+  `adapters.clock.SystemClock()`, and (phase 8)
+  `adapters.aws.staff_tokens.CognitoStaffTokens(issuer=, sign_in_origin=, client_id=)`
+  (`sign_in_origin` is `/config/cognito/staff/sign-in-url`, an https origin with no path).
+- **Client settings**: build the DynamoDB, S3 and SSM clients with
+  `adapters.aws.clients.CLIENT_CONFIG` (2 s to connect, 4 s per read, 3 tries in
+  standard mode: one call gives up in under 30 s) and the SES client with
+  `adapters.aws.mailer.SES_CLIENT_CONFIG` (one try, 2 s and 10 s). botocore's defaults
+  (60 s each, and 10 tries for DynamoDB) outlast API Gateway's 30 s.
+  `CognitoStaffTokens` already times out its own calls at 5 s.
+- **Port additions**: `ports.records.CommitOutcomeUnknown` (a `RecordsUnavailable`;
+  `SubmitDropOff` leaves kept photos to the backstop on it), `ports.staff.STAFF_GROUP`
+  and `is_staff_username`, `domain.photos.PhotoRefusal.UNSUPPORTED_TYPE` (phase 6 gives
+  `photo.unsupported_type` its message: choose JPEG, PNG or WebP).
+- **The table**: `PK`, `SK` (strings); `GSI1` on `GSI1PK`/`GSI1SK` and `GSI2` on
+  `GSI2PK`/`GSI2SK` (strings, projection ALL); TTL attribute `ttl`; a stream with
+  `NEW_IMAGE` and the filter
   `{"dynamodb": {"NewImage": {"type": {"S": ["email"]}, "status": {"S": ["pending"]}}}}`.
-- The bucket layout: `uploads/<random>/0` (expire after a day) and
-  `dropoffs/AC-n/<k>.jpg`, `dropoffs/AC-n/<k>-thumb.jpg`.
-- The SSM parameter names `/asmbly-ceramics/<env>/hash-key`,
-  `/asmbly-ceramics/<env>/form-key` and `/asmbly-ceramics/<env>/session-key`.
-- The rights per adapter, listed under each adapter above, for phase 7 to split by
-  function role:
+  `tests/adapters/conftest.py::create_table` is the shape the template must match.
+- **The bucket layout**: `uploads/<slot id>/0` and `uploads/<slot id>/used` (a 1-day
+  lifecycle rule on `uploads/`), `dropoffs/AC-n/<k>.jpg` and `dropoffs/AC-n/<k>-thumb.jpg`.
+  The browser's POST sends the returned `fields`, a `Content-Type` field with the file's
+  type, then the file (phase 6).
+- **SSM names**: `/asmbly-ceramics/<env>/hash-key`, `form-key`, `session-key`,
+  SecureStrings holding base64 (`openssl rand -base64 32`). `SsmSecrets(client, env)`
+  builds the name from `env` and the `SecretName` itself: no environment variable names
+  a parameter, and each role's `ssm:GetParameter` resources decide which keys it reads.
+- **Rights per adapter**, for phase 7 to split by function role:
 
   | Adapter | Actions | Resources |
   | --- | --- | --- |
-  | `DynamoDbRecords` | `dynamodb:GetItem`, `Query`, `PutItem`, `UpdateItem`, `ConditionCheckItem` | the table and `index/*` |
+  | `DynamoDbRecords` | `dynamodb:GetItem`, `Query`, `PutItem` (a transaction's puts are authorized per item; it sends nothing else) | the table and `index/*` |
   | `DynamoDbIdNumbers` | `dynamodb:UpdateItem` | the table, keys `COUNTER#*` |
   | `DynamoDbRateLimiter` | `dynamodb:GetItem`, `PutItem` | the table, keys `RATE#*` |
-  | `S3PhotoStore` | `s3:PutObject`, `GetObject`, `DeleteObject` on `uploads/*`; `PutObject`, `DeleteObject` on `dropoffs/*` and `ListBucket` (prefix `dropoffs/`) (form); `GetObject` on `dropoffs/*` (console, mailer); `ListBucket` (prefix `dropoffs/`), `DeleteObject` on `dropoffs/*` (close) | the photo bucket |
+  | `S3PhotoStore`, form | `s3:PutObject`, `GetObject`, `DeleteObject` on `uploads/*`; `PutObject`, `DeleteObject` on `dropoffs/*`; `s3:ListBucket` with `s3:prefix` `uploads/*` (`read_upload` lists `uploads/<slot id>/` to see the upload and the `used` marker). It never lists `dropoffs/`: `delete_drop_off` deletes 12 known keys (phase 7's roles match) | the photo bucket |
+  | `S3PhotoStore`, console and mailer | `s3:GetObject` on `dropoffs/*`; `s3:ListBucket` with `s3:prefix` `dropoffs/*` (`read` lists after a 403, so a gone photo is `UploadMissing`, not `PhotosUnavailable`) | the photo bucket |
+  | `S3PhotoStore`, close | `s3:DeleteObject` on `dropoffs/*` (one `DeleteObjects` of 12 known keys; no listing) | the photo bucket |
   | `SesMailer` | `ses:SendEmail` | `identity/asmbly.org`, `ses:FromAddress` like `*@asmbly.org` |
   | `SsmSecrets` | `ssm:GetParameter`; `kms:Decrypt` via SSM | `parameter/asmbly-ceramics/<env>/*` |
   | `CognitoStaffTokens`, `PillowPhotoInspector`, `SystemClock` | none | — |
+
+- **Deferred to phase 7**: keep the `botocore`, `boto3` and `urllib3` loggers at
+  WARNING (at DEBUG botocore logs whole requests: contact details and photos). Size the
+  form function's memory for `inspect` at `PHOTO_MAX_PIXELS` (50 million): Pillow holds
+  RGB at 4 bytes a pixel, about 200 MB a copy, and an image with transparency holds up to
+  three copies at once (source, RGBA, white RGB) before the source is freed, so about
+  600 MB at worst: give the form function 1 GB and measure it on stage (round 2's
+  measurement of the earlier code was about 680 MB). Photos are decoded one at a time. Keep bucket versioning off (or expire old versions): `delete_drop_off` deletes
+  without version IDs. The presigned POST's `url` names the bucket; if the bucket's name
+  holds the account ID, the public form shows it: say so in phase 7's Risk.
+- **Deferred to phase 8**: the app client must allow the `openid email` scopes (the test
+  email needs the verified `email` claim); confirm the pool's `cognito:username` has
+  `is_staff_username`'s shape (a handle or a `sub` UUID, never an address), or every
+  sign-in is `NotSignedIn`. Pass only fixed return addresses on this site to
+  `sign_in_url`, `sign_out_url` and `exchange` (they take `redirect_uri` as given), and
+  throttle `PyJWKClient`'s refetch for unknown `kid`s (one fetch per unknown `kid`
+  otherwise); phase 8's sign-in section has both. Phase 7 settles the bucket's name (the
+  presigned POST shows it to the public; phase 7's `PhotoBucket`).
+- **Accepted for now**: `drop_offs_rejected_between`, `drop_offs_created_between` and
+  `is_item_used` read the `DROPOFF#closed` partition whole (about 4,000 items a year); a
+  sparse index is the fix if it grows. The settings page multiplies it: one `COUNT` query
+  per catalog item per partition (phase 9 should read "used items" in one pass if it
+  shows them all at once).
+- **Order within one instant**: settings changes saved together come back from DynamoDB
+  in random-suffix order, from the fake in write order; nothing depends on it today.
+- **Only `SubmitDropOff` handles `CommitOutcomeUnknown` specially**; elsewhere it is a
+  `RecordsUnavailable`. An outbox claim that lands after one leaves the email `sending`
+  until staff retry it (#22).

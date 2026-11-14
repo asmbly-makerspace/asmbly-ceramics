@@ -70,3 +70,34 @@ def test_the_import_check_catches_a_forbidden_import() -> None:
         "asmbly_ceramics.ports"
     ]
     assert forbidden_imports("from asmbly_ceramics.domain.ids import DropOffId\n", (DOMAIN,)) == []
+
+
+AWS_LIBRARIES = ("boto3", "botocore", "mypy_boto3_", "PIL", "jwt", "cryptography", "moto")
+ADAPTERS = PACKAGE / "adapters"
+
+
+def imports_an_aws_library(source: str) -> list[str]:
+    return [module for module in imported_modules(source) if module.split(".")[0].startswith(AWS_LIBRARIES)]
+
+
+def test_only_adapters_import_aws_libraries() -> None:
+    """boto3, botocore, Pillow and PyJWT stay in `adapters/` (never its in-memory fakes):
+    the domain, the ports, the use cases, `mail/` and `web/` run without them."""
+    users = {
+        path.relative_to(PACKAGE).as_posix(): bad
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if (bad := imports_an_aws_library(path.read_text()))
+    }
+    assert users, "no adapter imports an AWS library: the check is looking in the wrong place"
+    outside = [
+        name for name in users if not name.startswith("adapters/") or name.startswith("adapters/memory/")
+    ]
+    assert not outside
+
+
+def test_the_aws_import_check_catches_one() -> None:
+    source = "import boto3\nfrom botocore.exceptions import ClientError\nfrom PIL import Image\nimport jwt\n"
+    assert imports_an_aws_library(source) == ["boto3", "botocore.exceptions", "PIL", "jwt"]
+    assert imports_an_aws_library("from mypy_boto3_s3.client import S3Client\nimport json\n") == [
+        "mypy_boto3_s3.client"
+    ]

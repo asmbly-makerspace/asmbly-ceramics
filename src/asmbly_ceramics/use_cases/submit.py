@@ -23,7 +23,7 @@ from asmbly_ceramics.ports.ids import IdNumbers
 from asmbly_ceramics.ports.images import PhotoInspector, PhotoRefused
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, PhotoStore, UploadMissing
 from asmbly_ceramics.ports.rate_limit import RateLimiter
-from asmbly_ceramics.ports.records import Conflict, Put, Records, Submission
+from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Put, Records, Submission
 from asmbly_ceramics.use_cases.keys import KeyHasher, is_form_token
 from asmbly_ceramics.use_cases.limits import check_limits
 from asmbly_ceramics.use_cases.log import log_event
@@ -199,6 +199,16 @@ class SubmitDropOff:
             except Exception as error:
                 landed = self._landed_anyway(drop_off_id, token_hash, error)
                 if landed is None:
+                    if isinstance(error, CommitOutcomeUnknown):
+                        # It may still land after this read: deleting the photos could
+                        # leave a drop-off without them, so the backstop (#19) has them.
+                        log_event(
+                            "photos_not_deleted",
+                            level=logging.ERROR,
+                            drop_off_id=str(drop_off_id),
+                            error_code=_code(error),
+                        )
+                        raise
                     self._delete_kept(drop_off_id)
                     raise
                 submission = landed
