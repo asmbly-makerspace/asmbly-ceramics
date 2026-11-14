@@ -95,12 +95,20 @@ class Email:
     version: int = 0
 
 
+def is_email_occasion(kind: EmailKind, occasion: str) -> bool:
+    """`occasion` is one an email of `kind` may have: a rejected email always has one,
+    exactly `rejection_occasion(rejection.at)`; every other kind has none (""). The one
+    rule `new_email` and the records' key parser both apply, so an email the domain makes
+    always has a key the parser takes back."""
+    if kind is EmailKind.REJECTED:
+        return is_rejection_occasion(occasion)
+    return occasion == ""
+
+
 def new_email(drop_off_id: DropOffId, kind: EmailKind, at: datetime, occasion: str = "") -> Email:
     _check_aware(at)
-    if (kind is EmailKind.REJECTED) != bool(occasion):
-        raise ValueError("only a rejected email has an occasion, and it always has one")
-    if occasion and not is_rejection_occasion(occasion):
-        raise ValueError("a rejected email's occasion is rejection_occasion(rejection.at)")
+    if not is_email_occasion(kind, occasion):
+        raise ValueError("only a rejected email has an occasion, always rejection_occasion(rejection.at)")
     return Email(drop_off_id, kind, occasion, EmailStatus.PENDING, created_at=at)
 
 

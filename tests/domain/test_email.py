@@ -12,6 +12,7 @@ from asmbly_ceramics.domain.email import (
     EmailKind,
     EmailStatus,
     claim,
+    is_email_occasion,
     is_history,
     is_rejection_occasion,
     is_still_rejected,
@@ -65,6 +66,27 @@ def test_a_rejected_email_needs_an_occasion_and_the_others_have_none() -> None:
         new_email(AC12, EmailKind.REJECTED, NOW)
     with pytest.raises(ValueError, match="occasion"):
         new_email(AC12, EmailKind.READY, NOW, occasion)
+
+
+@pytest.mark.parametrize("kind", list(EmailKind))
+def test_is_email_occasion_is_the_rule_new_email_applies(kind: EmailKind) -> None:
+    for occasion in ("", rejection_occasion(NOW), "yesterday"):
+        try:
+            new_email(AC12, kind, NOW, occasion)
+        except ValueError:
+            made = False
+        else:
+            made = True
+        assert is_email_occasion(kind, occasion) is made
+
+
+def test_only_a_rejected_email_has_an_occasion() -> None:
+    occasion = rejection_occasion(NOW)
+    assert is_email_occasion(EmailKind.REJECTED, occasion)
+    assert not is_email_occasion(EmailKind.REJECTED, "")
+    assert not is_email_occasion(EmailKind.REJECTED, "yesterday")
+    assert is_email_occasion(EmailKind.RECEIVED, "")
+    assert not is_email_occasion(EmailKind.READY, occasion)
 
 
 def test_the_occasion_is_utc_to_the_microsecond() -> None:

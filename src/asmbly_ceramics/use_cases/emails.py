@@ -265,6 +265,10 @@ class EmailNeedingAttention:
     status: EmailStatus
     error_code: str | None
     created_at: datetime
+    # "Stuck sending since" is `claimed_at`; "Waiting to send since" is `retried_at`, or
+    # `created_at` when staff never retried it.
+    claimed_at: datetime | None
+    retried_at: datetime | None
 
 
 class EmailsNeedingAttention:
@@ -297,6 +301,8 @@ class EmailsNeedingAttention:
                     email.status,
                     email.error_code,
                     email.created_at,
+                    email.claimed_at,
+                    email.retried_at,
                 )
             )
         return tuple(rows)
