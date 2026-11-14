@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "partials/field.html" import input, choices as radio_choices %}
+{% block scripts %}<script src="/static/upload.js?v={{ version }}" defer></script>{% endblock %}
+{% block content %}
+<noscript>
+  <div class="notice notice-error"><p>This form needs JavaScript to upload photos.</p></div>
+</noscript>
+{% if notice %}
+<div class="notice notice-error" role="alert">
+  <p>{{ notice }}</p>
+</div>
+{% endif %}
+{% if messages.count %}
+<div class="error-summary" role="alert" tabindex="-1" id="error-summary">
+  <h2>{% if messages.count == 1 %}There is 1 problem with your drop-off.{% else %}There are {{ messages.count }} problems with your drop-off.{% endif %}</h2>
+  <ul>
+    {% for field, message in messages.by_field.items() %}
+    <li><a href="#{{ field }}">{{ message }}</a></li>
+    {% endfor %}
+    {% for message in messages.photos %}
+    <li><a href="#photos">{{ message }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+<form method="post" action="/drop-off" id="drop-off-form" novalidate>
+  <input type="hidden" name="submission" value="{{ token }}">
+  {{ input("name", "Your name", "text", values.name, messages.by_field.get("name"),
+           attrs={"autocomplete": "name", "maxlength": limits.NAME_MAX}) }}
+  {{ input("email", "Email", "email", values.email, messages.by_field.get("email"),
+           hint="We send your drop-off's photos here.",
+           attrs={"autocomplete": "email", "inputmode": "email", "maxlength": limits.EMAIL_MAX}) }}
+  {{ input("phone", "Phone", "tel", values.phone, messages.by_field.get("phone"),
+           attrs={"autocomplete": "tel", "inputmode": "tel"}) }}
+
+  <div class="field{% if messages.by_field.get('pieces') %} field-invalid{% endif %}">
+    <label for="pieces">How many pieces</label>
+    {% if messages.by_field.get("pieces") %}<p class="field-error" id="pieces-error">{{ messages.by_field.get("pieces") }}</p>{% endif %}
+    <div class="stepper">
+      <button type="button" class="step" data-step="-1" aria-label="One fewer piece">−</button>
+      <input id="pieces" name="pieces" type="number" inputmode="numeric" min="{{ limits.PIECES_MIN }}" max="{{ limits.PIECES_MAX }}" value="{{ values.pieces }}" required
+        {%- if messages.by_field.get("pieces") %} aria-describedby="pieces-error" aria-invalid="true"{% endif %}>
+      <button type="button" class="step" data-step="1" aria-label="One more piece">+</button>
+    </div>
+  </div>
+
+  {{ radio_choices("firing_type", "Firing type", choices.firing_types, values.firing_type, messages.by_field.get("firing_type")) }}
+  {{ radio_choices("glaze_type", "Glaze type", choices.glaze_types, values.glaze_type, messages.by_field.get("glaze_type"), extra_class="glaze-types", glaze=True) }}
+
+  <div class="field photos{% if messages.photos or messages.by_field.get('photos') %} field-invalid{% endif %}" id="photos-field"
+    data-photos-min="{{ limits.PHOTOS_MIN }}" data-photos-max="{{ limits.PHOTOS_MAX }}" data-photo-max-bytes="{{ limits.PHOTO_MAX_BYTES }}"
+    data-message-count="{{ photo_messages.count }}" data-message-too-large="{{ photo_messages.too_large }}"
+    data-message-failed="{{ photo_messages.failed }}" data-message-expired="{{ photo_messages.expired }}" data-message-try-again="{{ photo_messages.try_again }}">
+    <label for="photos">Photos of your pieces</label>
+    <p class="hint" id="photos-hint">Add {{ limits.PHOTOS_MIN }} to {{ limits.PHOTOS_MAX }} photos, each under {{ limits.PHOTO_MAX_BYTES // 1048576 }} MB. Take them with your camera or choose them from your phone.</p>
+    <div id="photos-error" class="photo-errors" aria-live="polite">
+      {% if messages.by_field.get("photos") %}<p class="field-error">{{ messages.by_field.get("photos") }}</p>{% endif %}
+      {% for message in messages.photos %}<p class="field-error">{{ message }}</p>{% endfor %}
+    </div>
+    <ul class="photo-list" id="photo-list">
+      {% for slot in kept_slots %}
+      <li class="photo-item photo-kept" data-slot="{{ slot }}">
+        <input type="hidden" name="slot" value="{{ slot }}">
+        <span class="photo-label">A photo you already added</span>
+        <button type="button" class="remove">Remove</button>
+      </li>
+      {% endfor %}
+    </ul>
+    <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photos-hint photos-error">
+  </div>
+
+  <p class="upload-status" id="upload-status" role="status" aria-live="polite"></p>
+  <button type="submit" class="button submit" id="submit-button">Submit</button>
+</form>
+{% endblock %}

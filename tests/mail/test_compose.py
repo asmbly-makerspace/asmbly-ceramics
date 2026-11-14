@@ -375,3 +375,34 @@ def test_a_drop_off_of_another_number_names_its_own_id() -> None:
     assert email.subject.endswith("(AC-7)")
     assert str(DropOffId(7)) in email.text
     assert isinstance(drop_off.contact, Contact)
+
+
+def test_the_emails_take_their_colours_from_the_pages_brand() -> None:
+    """One source: the email layout's colours are `brand.py`'s, never a literal."""
+    from pathlib import Path
+
+    import asmbly_ceramics.mail
+    from asmbly_ceramics.brand import EMAIL_COLOURS
+
+    templates = Path(asmbly_ceramics.mail.__file__).parent / "templates"
+    for path in templates.glob("*.html"):
+        assert not re.search(r"#[0-9a-fA-F]{3,8}\b", path.read_text()), path.name
+    for email in all_emails().values():
+        for value in (EMAIL_COLOURS["band"], EMAIL_COLOURS["accent"], EMAIL_COLOURS["page"]):
+            assert value in email.html
+
+
+def test_the_composer_imports_no_web_layer() -> None:
+    """The mailer's bundle needs no `web/` and no Starlette: `mail` takes its colours
+    from the neutral `asmbly_ceramics.brand`, and only `web` imports `mail`."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, asmbly_ceramics.mail.compose; "
+        "print(sorted(m for m in sys.modules if m.startswith(('starlette', 'asmbly_ceramics.web'))))"
+    )
+    loaded = subprocess.run(  # noqa: S603  # this interpreter, fixed code
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert loaded.stdout.strip() == "[]"

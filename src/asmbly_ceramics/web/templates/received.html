@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Your drop-off ID{% endblock %}
+{% block content %}
+{% if again %}
+<div class="notice" role="status">
+  <p>This drop-off was already received as {{ view.id }}. To drop off another piece, start a new form.</p>
+</div>
+{% endif %}
+<p class="lead">Your drop-off ID</p>
+<p class="drop-off-id">{{ view.id }}</p>
+<p class="lead">Write this ID and your name on a slip for each piece.</p>
+<dl class="summary">
+  <dt>Pieces</dt><dd>{{ view.pieces }}</dd>
+  <dt>Firing type</dt><dd>{{ view.firing_type }}</dd>
+  {% if view.glaze_type %}<dt>Glaze</dt><dd>{{ view.glaze_type }}</dd>{% endif %}
+  <dt>Received</dt><dd>{{ when }}</dd>
+</dl>
+<p>We'll email you a copy with your photos.</p>
+<p><a class="button" href="/">Drop off another piece</a></p>
+{% endblock %}

@@ -217,7 +217,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [x] Complete |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [x] Complete |
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [ ] Pending |
-| [6](phase-6-drop-off-form.md) | The drop-off form | web | L | [ ] Pending |
+| [6](phase-6-drop-off-form.md) | The drop-off form | web | L | [x] Complete |
 | [7](phase-7-first-deploy.md) | First deploy: stage and prod | infra, ci | L | [ ] Pending |
 | [8](phase-8-console-waiting-and-reject.md) | Console: sign-in, waiting list, rejection | web, infra | L | [ ] Pending |
 | [9](phase-9-console-loads-settings-close.md) | Console: loads, settings, counts, the close | web, infra | L | [ ] Pending |
@@ -377,7 +377,7 @@ or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a ti
   number and real type and size of photos too, before anything is stored; text is
   escaped wherever it is shown or emailed; submissions are rate-limited per device and
   per address; a repeated submit (a refresh) makes no second drop-off. Pages send a
-  strict Content-Security-Policy, `nosniff`, `no-store` and `no-referrer`. The address the
+  strict Content-Security-Policy, `nosniff`, `no-store` and `Referrer-Policy: same-origin`. The address the
   limit counts is the last `X-Forwarded-For` value (API Gateway's), never one the caller
   can choose; the limit fails closed when the table can't be reached.
 - **The forms are findable before the switch.** Both names appear in Certificate

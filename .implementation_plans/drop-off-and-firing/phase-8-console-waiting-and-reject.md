@@ -167,7 +167,7 @@ Every route above except sign-in, callback and signed-out goes through
 
 Every console response, including the 302, 403 and 503, carries the headers from
 `web/security.py` (`Content-Security-Policy` with `form-action 'self'`, `nosniff`,
-`Cache-Control: no-store`, `Referrer-Policy: no-referrer`).
+`Cache-Control: no-store`, `Referrer-Policy: same-origin`).
 
 ### web: sign-in and sign-out
 

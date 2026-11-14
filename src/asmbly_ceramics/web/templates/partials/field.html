@@ -1,0 +1,28 @@
+{# A labelled input with its hint and its error message. `attrs` are fixed attributes
+   from the template, never anything a person typed; `value` is escaped. #}
+{% macro input(name, label, type, value, message=None, hint=None, attrs={}) %}
+<div class="field{% if message %} field-invalid{% endif %}">
+  <label for="{{ name }}">{{ label }}</label>
+  {% if hint %}<p class="hint" id="{{ name }}-hint">{{ hint }}</p>{% endif %}
+  {% if message %}<p class="field-error" id="{{ name }}-error">{{ message }}</p>{% endif %}
+  <input id="{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}" required
+    {%- for key, val in attrs.items() %} {{ key }}="{{ val }}"{% endfor %}
+    {%- if message or hint %} aria-describedby="{% if hint %}{{ name }}-hint{% endif %}{% if message and hint %} {% endif %}{% if message %}{{ name }}-error{% endif %}"{% endif %}
+    {%- if message %} aria-invalid="true"{% endif %}>
+</div>
+{% endmacro %}
+
+{% macro choices(name, legend, items, chosen, message=None, extra_class="", glaze=False) %}
+<fieldset class="field choices{% if message %} field-invalid{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}" id="{{ name }}"
+  {%- if message %} aria-describedby="{{ name }}-error"{% endif %}>
+  <legend>{{ legend }}</legend>
+  {% if message %}<p class="field-error" id="{{ name }}-error">{{ message }}</p>{% endif %}
+  {% for item in items %}
+  <label class="choice">
+    <input type="radio" name="{{ name }}" value="{{ item.id }}"{% if item.id == chosen %} checked{% endif %}
+      {%- if not glaze %} data-needs-glaze="{{ 'true' if item.needs_glaze_type else 'false' }}"{% endif %}>
+    <span>{{ item.name }}</span>
+  </label>
+  {% endfor %}
+</fieldset>
+{% endmacro %}

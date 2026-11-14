@@ -91,3 +91,16 @@ def test_a_slot_id_is_exactly_22_url_safe_characters() -> None:
 )
 def test_is_photo_count_takes_an_int_from_1_to_6(count: object, allowed: bool) -> None:
     assert is_photo_count(cast(int, count)) is allowed
+
+
+def test_distinct_slots_keeps_the_first_order_and_the_limits() -> None:
+    from asmbly_ceramics.domain.photos import distinct_slots
+
+    a, b = "A" * 22, "B" * 22
+    assert distinct_slots((a, b, a)) == (a, b)
+    assert distinct_slots(()) == ()
+    assert distinct_slots([a]) is None  # not a tuple
+    assert distinct_slots((a, "short")) is None
+    six = tuple(chr(ord("C") + n) * 22 for n in range(6))
+    assert distinct_slots((*six, six[0])) == six
+    assert distinct_slots((*six, "Z" * 22)) is None

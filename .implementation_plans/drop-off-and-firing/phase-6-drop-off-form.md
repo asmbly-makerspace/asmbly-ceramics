@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 6: The drop-off form
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-14 on branch feat/drop-off-form-phase-6
 
 ## Required reading
 
@@ -61,7 +61,7 @@ in-memory fakes; phase 7 deploys it.
 | `src/asmbly_ceramics/web/app.py` | `WebServices`, `WebSettings`, `create_app()`: routes, templates, static files, the security middleware, error handlers |
 | `src/asmbly_ceramics/web/public.py` | The public endpoints: the form, upload slots, submit, received, health |
 | `src/asmbly_ceramics/web/security.py` | Security headers and CSP, the same-origin check, signed cookies, the device cookie |
-| `src/asmbly_ceramics/web/brand.py` | The brand and ceramics tokens and the inline logo and icon, used by the templates and the email partials |
+| `src/asmbly_ceramics/brand.py` (planned in `web/`; moved beside it in review, see the hand-off) | The brand and ceramics tokens and the inline logo and icon, used by the templates and the email partials |
 | `src/asmbly_ceramics/web/errors.py` | `PageError` and the handlers that turn a refusal into a page without details |
 | `src/asmbly_ceramics/web/fields.py` | Reading the posted form into the use case's request, and mapping `FieldErrors` to messages |
 | `src/asmbly_ceramics/web/local.py` | `app`: the form on the in-memory fakes, for a person to try on their machine; never deployed |
@@ -87,8 +87,8 @@ in-memory fakes; phase 7 deploys it.
 
 | Path | What changes |
 | --- | --- |
-| `pyproject.toml`, `uv.lock` | `uv add starlette python-multipart` and `uv add jinja2` if phase 2 hasn't already; `uv add --dev httpx` for `TestClient`. Never edit `uv.lock` by hand. |
-| `src/asmbly_ceramics/mail/templates/` | Phase 2's email templates use `web/brand.py`'s tokens and logo partial for the email header, so the emails and the pages match (one source) |
+| `pyproject.toml`, `uv.lock` | `uv add starlette python-multipart uvicorn` (jinja2 is already there; uvicorn runs `local.py` here and the Lambda's `run.sh` in phase 7); `uv add --dev httpx2` for `TestClient` (Starlette 1.x's test client deprecates `httpx` for `httpx2`). Never edit `uv.lock` by hand. |
+| `src/asmbly_ceramics/mail/compose.py`, `src/asmbly_ceramics/mail/templates/_layout.html`, `tests/mail/test_compose.py` | The email layout takes its colours from `brand.py`'s constants (passed into the template's context by the composer), so the emails and the pages share one source of values. Emails keep inline styles and the text wordmark: an email can't use CSS variables or include `web/templates/partials/`, and Gmail and Outlook don't show inline SVG. A test checks the layout's colours are `brand.py`'s |
 | `tests/repo/test_personal_data.py` | Nothing to change; the templates' example text uses no address or number (checked by this test) |
 
 ## Implementation details
@@ -120,12 +120,16 @@ def create_app(services: WebServices, settings: WebSettings) -> Starlette: ...
 ```
 
 `create_app` mounts `/static` (`StaticFiles`, `Cache-Control: public, max-age=3600`
-there only), registers the routes below, a middleware that adds the headers from
+there only; pages link static files with `?v=<version>`, so a deploy isn't hidden by an hour-old `upload.js`), registers the routes below, a middleware that adds the headers from
 `security.py` to every response (errors and 404s included), and handlers for
-`PageError`, `HTTPException` and any other exception (a 500 page "Something went wrong on our side. Please try again.", the 503's wording:
+`PageError`, `HTTPException`, any port's `Unavailable` (a 503 page, on every route,
+`GET /` included when the studio can't be read) and any other exception (a 500 page
+"Something went wrong on our side. Please try again.", the 503's wording:
 not "nothing was saved", since a drop-off can be stored when the use case raises, and
-sending again with the same token answers with it; and one log line `page_crashed` with the
-exception's class and the route, never its text). Phase 8 adds the console routes to
+sending again with the same token answers with it; and one log line `page_crashed` with
+`error_code` the exception's class name, never its text: `log_event` has no field for a
+route, and none is added). `StudioNotSeeded` is such an "other exception" (a setup
+error: the form's `CurrentStudio` seeds). Phase 8 adds the console routes to
 the same app factory; nothing here assumes there are none.
 
 `ViewStudioChoices` and `ReceivedSummary` are phase 2's (`use_cases/studio.py`,
@@ -157,21 +161,40 @@ Anything else under the public app is a 404 page. Methods not listed get 405.
 | --- | --- | --- | --- |
 | `name` | `type=text autocomplete=name maxlength=100` | 1 to 100 characters after trimming, no control characters | "Enter your name." |
 | `email` | `type=email inputmode=email autocomplete=email maxlength=254` | at most 254 characters, one `@`, a non-empty local part, a domain with a dot and no spaces, no control characters | "Enter an email address, like the one you check most." |
-| `phone` | `type=tel inputmode=tel autocomplete=tel maxlength=20` | 7 to 20 characters of digits, spaces and `+ ( ) - .`, with 10 to 15 digits | "Enter a phone number with its area code." |
+| `phone` | `type=tel inputmode=tel autocomplete=tel` (no `maxlength`: the domain bounds the digits, not the characters; changed in review) | digits, spaces and `+ ( ) - .`, with 10 to 15 digits | "Enter a phone number with its area code." |
 | `pieces` | `type=number inputmode=numeric min=1 max=50 value=1`, with − and + buttons of 44 px | a whole number from 1 to 50 | "Enter how many pieces, from 1 to 50." |
-| `firing_type` | radio buttons, one per active firing type | an active firing type's ID | "Choose bisque or glaze." (the names come from the list, not the code) |
-| `glaze_type` | radio buttons, one per active glaze type, in a fieldset shown only when the chosen firing type needs one | required and active when the firing type needs one; refused when it doesn't | "Choose the glaze you used." / not shown otherwise |
-| `photos` | `type=file accept="image/jpeg,image/png,image/webp" multiple` | 1 to 6 slot IDs from `POST /drop-off/uploads` (random, so only the browser that asked knows them), each holding an upload the inspector accepts (below) | "Add 1 to 6 photos." / "Photo 3 isn't a photo we can read. Use a JPEG or PNG photo." / "Photo 2 is over 10 MB." |
-| `submission` | hidden | a token from `GET /` (24 to 64 URL-safe characters) | the page is shown again with "Something went wrong. Please submit again." |
+| `firing_type` | radio buttons, one per active firing type | an active firing type's ID | "Choose a firing type." (the names come from the list, not the code, so the message names none) |
+| `glaze_type` | radio buttons, one per active glaze type, in a fieldset shown only when the chosen firing type needs one | required and active when the firing type needs one; refused when it doesn't | "Choose the glaze you used." / "This firing type doesn't take a glaze. Clear the glaze choice." |
+| `photos` | `type=file accept="image/jpeg,image/png,image/webp" multiple` | 1 to 6 slot IDs from `POST /drop-off/uploads` (random, so only the browser that asked knows them), each holding an upload the inspector accepts (below) | see "Message keys" below |
+| `submission` | hidden | a token from `GET /` (`is_form_token`: 22 to 64 of `[A-Za-z0-9_-]`) | the page is shown again, with a fresh token, and "Something went wrong. Please submit again." |
+
+  **Message keys** (`fields.py`): every key the domain and the use cases raise has its
+  message, and a test walks them so a new key without one fails. The keys are phase 1b's
+  and 2b's: `name.required`, `name.too_long` ("Enter a name of up to 100 characters."),
+  `email.required`, `email.invalid`, `phone.required`, `phone.invalid`, `pieces.invalid`,
+  `firing_type.required`, `firing_type.unknown` (a retired or unknown one: "Choose a
+  firing type."), `glaze_type.required`, `glaze_type.unknown`, `glaze_type.not_allowed`,
+  `photos.count` ("Add 1 to 6 photos."), `form.expired`, and `photo.<n>` with one of
+  `PhotoRefusal`'s kinds, `<n>` the photo's place among the distinct slots:
+
+  | Key | Message next to the photo field |
+  | --- | --- |
+  | `photo.missing` | "Photo 2 didn't arrive. Check it is under 10 MB and add it again." (S3 refuses an upload over 10 MB, so nothing is stored for its slot) |
+  | `photo.not_image` | "Photo 2 isn't a photo we can read. Use a JPEG, PNG or WebP photo." |
+  | `photo.unsupported_type` | "Photo 2 is in a format we can't take (such as HEIC). Use a JPEG, PNG or WebP photo." |
+  | `photo.too_large` | "Photo 2 is over 10 MB." |
+  | `photo.too_many_pixels` | "Photo 2 is too big to read. Use a smaller photo." |
 
   The messages above are the plan's wording; the email message must not contain an
   example address (the repository's personal-data test fails on one). The firing and
   glaze checks use the lists as they are when the drop-off is submitted.
-- No `capture` attribute, so a phone offers both the camera and the library.
+- No `capture` attribute, so a phone offers both the camera and the library. The file
+  input has no `name`, so it never posts a file name or a file: only the hidden `slot`
+  inputs reach the server.
 - The `accept` list is deliberately specific: under it, an iPhone converts HEIC photos
   to JPEG before upload (WebKit bug 292350); under `image/*` it may send HEIC, which
-  Pillow can't read. A HEIC file that still arrives is refused by the inspector with the
-  "isn't a photo we can read" message.
+  Pillow can't read. A HEIC file that still arrives is refused by the inspector as
+  `unsupported_type`, with that key's message.
 - Without JavaScript, a `<noscript>` banner says "This form needs JavaScript to upload
   photos." and the Submit button stays, so the server's "Add 1 to 6 photos." explains
   the refusal if someone submits anyway.
@@ -182,22 +205,33 @@ A plain script (no build step, no library), loaded with `<script src="/static/up
 defer>`; no inline script anywhere.
 
 1. Shows the glaze fieldset only for a firing type whose radio has
-   `data-needs-glaze="true"`; without the script the fieldset is always shown and the
-   server enforces the rule.
-2. On Submit: stops the default submit, checks the number of files (1 to 6) and each
-   size (≤ 10 MB) for the person's convenience, showing the same messages as the server
-   next to the photo field.
-3. Calls `POST /drop-off/uploads` with `{"count": n, "submission": token}` and
-   `Content-Type: application/json`, `credentials: "same-origin"`.
-4. Posts each file to its slot's `url` as `FormData`: every entry of `fields` first, then
-   `file` last (S3 requires the file to be the last field), two at a time, showing
-   "Uploading photo 2 of 4…". A non-2xx answer from S3 shows "Photo 2 couldn't be
-   uploaded. Check it is under 10 MB and try again." and stops.
-5. Puts the slot IDs in hidden `slot` inputs, in the person's order, one input per
-   distinct slot (the use case counts distinct slots, and its `photo.<n>` keys number
-   them in their first order, so a repeated slot would shift the numbers the page shows
-   next to the photos), and submits the form normally (a real form POST, so the
-   server's page is what the person sees).
+   `data-needs-glaze="true"`, and **disables** it while hidden, so a glaze chosen before
+   switching to a firing type without one isn't posted; without the script the fieldset
+   is always shown and the server enforces the rule (`glaze_type.not_allowed`).
+2. Keeps the chosen photos as a list across picks: a phone's camera returns one photo
+   per pick and a `multiple` input replaces its selection, so each pick adds to the list
+   (up to 6, counting photos already uploaded and kept by a refused submit, below), each
+   with a 96 px preview and a "Remove" button.
+3. On Submit: stops the default submit, disables the Submit button until the upload ends
+   or fails (a second tap would ask for a second set of slots), checks the number of
+   photos (1 to 6) and each new one's size (≤ 10 MB) for the person's convenience,
+   showing the same messages as the server next to the photo field.
+4. Calls `POST /drop-off/uploads` with `{"count": n, "submission": token}` (n the new
+   photos, not the kept ones) and `Content-Type: application/json`,
+   `credentials: "same-origin"`.
+5. Posts each new file to its slot's `url` as `FormData`: every entry of `fields` first,
+   then `Content-Type` (the file's own type when it starts `image/`, else `image/unknown`,
+   so the server's inspector, not S3, refuses a file that isn't a photo, with its
+   message; phase 4's policy requires the field to start `image/`), then `file` last (S3
+   requires the file to be the last field), two at a time, showing "Uploading photo 2 of
+   4…". A non-2xx answer from S3, or a network error (S3 may drop the connection on an
+   oversized upload), shows "Photo 2 couldn't be uploaded. Check it is under 10 MB and
+   try again." and stops.
+6. Puts the slot IDs in hidden `slot` inputs, kept ones first, then the new ones in the
+   person's order, one input per distinct slot (the use case counts distinct slots, and
+   its `photo.<n>` keys number them in their first order, so a repeated slot would shift
+   the numbers the page shows next to the photos), and submits the form normally (a real
+   form POST, so the server's page is what the person sees).
 
 #### `POST /drop-off/uploads`
 
@@ -235,10 +269,11 @@ defer>`; no inline script anywhere.
 
 | From `submit_drop_off` | The page |
 | --- | --- |
-| `Submitted(view, token_hash, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received`, setting `__Host-received` from `token_hash` |
-| `InvalidDetails(errors)` | 400, the form again with each message next to its field, the person's values kept (escaped), photos to choose again, a summary at the top linking to each field ("There are 2 problems with your drop-off.") |
+| `Submitted(view, token_hash, repeated)`, new or the same one as before for this submission token | 303 to `/drop-off/received` (with `?again=1` when `repeated`), setting `__Host-received` from `token_hash` |
+| `InvalidDetails(errors)` with `form.expired` | 400, the form again with a **fresh** token, the values and photos kept as below, and "Something went wrong. Please submit again. If this keeps happening, allow cookies for this site." (a browser that refuses the device cookie gets this every time; phase 2b's hand-off) |
+| `InvalidDetails(errors)` | 400, the form again with the same token, each message next to its field, the person's values kept (escaped), a summary at the top linking to each field ("There are 2 problems with your drop-off."). Photos already uploaded and not refused are kept as hidden `slot` inputs ("2 photos already added", each removable), so the person doesn't upload them again: the slots are well-formed, distinct, at most 6, and not named by a `photo.<n>` error; the slots last 15 minutes, after which the server's `photo.missing` says to add them again |
 | `TooManySubmissions` | 429, `error.html` showing `error.message` ("Too many drop-offs from here in the last few minutes. Try again later.": the domain's wording names neither the device nor the address limit, so the page writes no sentence of its own) |
-| `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable`, and `Conflict` or `PhotosAlreadyKept` after 3 tries | 503 page: "Something went wrong on our side. Please try again." (not "nothing was saved": after a commit whose outcome couldn't be read the drop-off may be stored, and sending again with the same token answers with it; phase 2b). The page logs one line `drop_off_unavailable` with `error_code` (the `Unavailable`'s code through `ports.errors.error_code`, or the exception's class name for `Conflict` and `PhotosAlreadyKept`), never the exception's text: a commit failure the use case cleaned up logs nothing of its own, so without this line a 503 on submit would leave no trace |
+| `RecordsUnavailable`, `PhotosUnavailable` or another port's `Unavailable`, and `Conflict` or `PhotosAlreadyKept` after 3 tries | 503: the form again with the **same** token, values and slots, and "Something went wrong on our side. Please try again." at the top, so sending again answers with the drop-off if it was stored (not "nothing was saved": after a commit whose outcome couldn't be read the drop-off may be stored, and sending again with the same token answers with it; phase 2b). The page logs one line `drop_off_unavailable` with `error_code` (the `Unavailable`'s code through `ports.errors.error_code`, or the exception's class name for `Conflict` and `PhotosAlreadyKept`), never the exception's text: a commit failure the use case cleaned up logs nothing of its own, so without this line a 503 on submit would leave no trace |
 | anything else | 500 page; the use case's records are one transaction, and kept photos without a record are deleted or left to the backstop (#19) |
 
 - `__Host-received`: `<submission token hash>.<expiry>.<hmac>`, HMAC-SHA256 with the
@@ -253,8 +288,12 @@ defer>`; no inline script anywhere.
   the ID, pieces, the firing type's and glaze type's names, when. No name, email, phone
   or photo, and the form function never reads a drop-off item.
 - Shows the ID in monospace bold in `--ceramics-shade` at 2.5 rem, "Write this ID and
-  your name on a slip for each piece.", the summary, "We've emailed you a copy with your
-  photos.", and a link "Drop off another piece" to `/`. No link to the kiln schedule
+  your name on a slip for each piece.", the summary, "We'll email you a copy with your
+  photos." (it is queued, not yet sent), and a link "Drop off another piece" to `/`.
+  With `?again=1` (a refresh, or a page restored with Back and sent again, phase 2b's
+  hand-off) it says first "This drop-off was already received as AC-12. To drop off
+  another piece, start a new form." The flag only changes wording, so a tampered one
+  harms nothing. No link to the kiln schedule
   (#9 is not in this plan).
 
 #### The client's address (`security.py`)
@@ -262,14 +301,19 @@ defer>`; no inline script anywhere.
 `client_address(request) -> str`: the **last** comma-separated value of the
 `X-Forwarded-For` header, trimmed. API Gateway's HTTP API appends the address it saw to
 whatever the caller sent, so only the last value can be trusted; anything earlier is the
-caller's own text. A missing or empty header answers 400. uvicorn runs without
+caller's own text. A missing header, or an empty last value, answers 400.
+AWS's documentation lists `X-Forwarded-For` among an HTTP API's reserved headers but
+doesn't say, in so many words, that the client's address is appended last (checked in
+`/prep`, 14 November 2026); decision 0002 relies on it, so phase 7 checks it on stage
+(hand-off below). uvicorn runs without
 `--proxy-headers` (phase 7), so Starlette's `request.client` is the Web Adapter's
 loopback and is never used.
 
 #### Same-origin check (`security.py`)
 
 `require_same_origin(request)`: the `Origin` header must equal `settings.site_url`'s
-origin exactly; if `Origin` is absent, `Sec-Fetch-Site` must be `same-origin`; otherwise
+origin exactly; if `Origin` is absent or `null`, `Sec-Fetch-Site` must be `same-origin`;
+otherwise
 403 page "This form can only be sent from the drop-off page." This, with SameSite
 cookies and the per-page submission token, is the form's protection against
 cross-site posts.
@@ -282,9 +326,15 @@ Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'
   form-action 'self'; base-uri 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Cache-Control: no-store            (static files: public, max-age=3600)
-Referrer-Policy: no-referrer
+Referrer-Policy: same-origin
 Strict-Transport-Security: max-age=31536000
 ```
+
+`Referrer-Policy` is `same-origin`, not `no-referrer` (decided in `/prep`): under
+`no-referrer` the Fetch standard sends `Origin: null` on every POST, the form's own
+included, which would leave the same-origin check to `Sec-Fetch-Site` alone (Safari has
+it only from 16.4). `same-origin` sends no referrer to any other site, S3 included, and
+the page's URLs hold nothing personal.
 
 `csp(settings)` builds the policy from a fixed frame (as the facilities repository's
 `csp.py` does): `default-src 'none'` first and `base-uri`, `form-action`,
@@ -307,6 +357,9 @@ From the facilities repository's `brand.py` and the kiln page, values copied:
   Sizes `1rem`, `1.75rem`, `1.25rem`, `0.875rem`; line height 1.5.
 - Space `--space-1` to `--space-6` (0.25 to 2 rem), `--tap-target 2.75rem` (44 px),
   `--focus-width 3px`.
+- One source: `brand.py` holds the colour values as constants; `app.css`'s `:root`
+  repeats them (a static file can't import), and `test_style.py` checks each `:root`
+  colour equals `brand.py`'s.
 - Roles: page `--asmbly-white` on `--midnight-black` text; IDs and primary buttons
   `--ceramics-shade`; hover `--ceramics-shade-60`; errors with an edge in
   `--lasers-shade` on `--lasers-20` and a "✕" glyph, so they don't rely on colour.
@@ -335,7 +388,8 @@ contrast at least 7:1 on the page background.
 
 ## Tests
 
-`tests/web/` uses `TestClient(create_app(services, settings))` with phase 1's fakes and
+`tests/web/` uses `TestClient(create_app(services, settings), base_url="https://testserver")`
+(over `http` the client never sends back a `Secure` or `__Host-` cookie) with phase 1's fakes and
 phase 2's use cases; made-up details are built in code (for example
 `"tester" + "@" + "example.org"`), never written whole in a file.
 
@@ -359,9 +413,12 @@ phase 2's use cases; made-up details are built in code (for example
     records unchanged.
   - `test_no_photos_and_seven_photos_are_refused`.
   - `test_a_file_that_isnt_an_image_is_refused_next_to_the_photo_field` (the fake
-    inspector refuses kind `not_an_image`).
-  - `test_a_photo_over_10_mb_is_refused` (the fake photo store holds 10 MB + 1 byte for
-    the slot).
+    inspector's `NOT-IMAGE` marker: `photo.not_image`; `UNSUPPORTED-TYPE`, as a HEIC
+    file: `photo.unsupported_type`).
+  - `test_a_photo_over_10_mb_is_refused`: posted to the fake store at 10 MB + 1 byte, it
+    is refused as S3 refuses it, so the page shows `photo.missing`'s message; the
+    inspector's `TOO-LARGE` marker shows `photo.too_large`'s.
+  - `test_every_message_key_has_a_message` (`fields.py` covers each key above).
   - `test_a_malformed_or_seventh_slot_is_refused_before_any_read`: a slot ID that fails
     `is_slot_id` (exactly 22 of `[A-Za-z0-9_-]`), or a seventh distinct slot, answers 400 next to the
     photos and the fake photo store records no read.
@@ -383,7 +440,8 @@ phase 2's use cases; made-up details are built in code (for example
     token get 400.
   - `test_upload_slots_need_the_device_cookie`: without it, 400 `{"error": "expired"}`
     (`form.expired`), and nothing counted.
-  - `test_upload_slots_are_rate_limited` (429 after the limit, showing
+  - `test_upload_slots_are_rate_limited` (429 after the slot limit, `SLOT_DEVICE_LIMIT`:
+    20 requests per device in 10 minutes, not the submit's 10; showing
     `TooManySubmissions().message`).
   - `test_spoofed_forwarded_for_does_not_change_the_rate_key`: a request with
     `X-Forwarded-For: 198.51.100.7, <real>` counts against `<real>`; a request without the
@@ -427,7 +485,7 @@ phase 2's use cases; made-up details are built in code (for example
    drop-offs from here in the last few minutes. Try again later." and stores nothing (#2).
 8. The received page shows no name, email, phone or photo, and without its signed cookie
    sends the browser back to the form.
-9. Every response carries the CSP, `nosniff`, `no-store`, `no-referrer` and HSTS
+9. Every response carries the CSP, `nosniff`, `no-store`, `Referrer-Policy: same-origin` and HSTS
    headers, and no page has inline script or style.
 10. A POST from another origin is refused with 403 and stores nothing.
 11. No log line from a whole drop-off holds a name, email, phone, cookie, token or IP.
@@ -447,9 +505,14 @@ To try the form on your machine, on the fakes (no AWS, nothing sent):
 uv run uvicorn asmbly_ceramics.web.local:app --reload
 ```
 
-`local.py` builds the app on the in-memory fakes with a fake photo store that accepts
-the browser's POSTs at `/local-uploads/<slot>` (served by the same app, local only) and
-prints nothing personal. Open it at `http://127.0.0.1:8000/` in a phone-sized window.
+`local.py` builds the app on the in-memory fakes (`site_url` `http://127.0.0.1:8000`)
+with a local photo store, built in `local.py` on `MemoryPhotoStore`, whose slots post to
+`/local-uploads/<slot>`, a route `local.py` adds to its own app only (it reads the
+multipart `file` and calls `put_upload`), and prints nothing personal. Plain uvicorn sends
+no `X-Forwarded-For`, so `local.py` sets a documentation address (`192.0.2.1`) on
+requests that have none, for the local app only. Chrome and Firefox keep `Secure` and
+`__Host-` cookies on `http://127.0.0.1`; a browser that doesn't gets `form.expired`. Phase 7's
+`create_from_environment` is not this phase's. Open it at `http://127.0.0.1:8000/` in a phone-sized window.
 
 After phase 7's deploy (it's that phase's check, written here so the form is tested
 where people use it): open `https://ceramics-stage.asmbly.org/` on an iPhone and on an
@@ -468,13 +531,83 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done. It will say: `create_app(services, settings)` and the
-`WebServices` and `WebSettings` fields as built; the public routes; the cookie names
-(`__Host-device`, `__Host-received`); `security.py`'s helpers (`security_headers`,
-`csp`, `require_same_origin`, `sign`, `verify`) for the console to reuse; the base
-template's blocks; the S3 CORS rule phase 7 must add (AllowedOrigins the site's
-address, AllowedMethods `POST`, AllowedHeaders `*`, MaxAgeSeconds 3000); and the
-results of the phone tests once phase 7 has run them. It also says where the submit
-route checks a bound for the request as a whole: phase 4's per-call timeouts don't bound
-a submit's many calls in sequence, and phase 7 (Composition) sets that bound under the
-function's 29 s.
+Built on branch `feat/drop-off-form-phase-6`. Phases 7 and 8 can rely on:
+
+- **The app:** `asmbly_ceramics.web.app.create_app(services: WebServices, settings: WebSettings) -> Starlette`.
+  `WebServices(view_studio_choices, request_upload_slots, submit_drop_off, received_summary, clock)`:
+  `clock` (the `Clock` port) was added in review, for the `__Host-received` cookie's
+  expiry, so phase 7's `build_form_services` passes the system clock.
+  `WebSettings(site_url, photo_upload_origin, version, cookie_key)` checks itself:
+  `site_url` needs a scheme and host, `photo_upload_origin` is one scheme and host (no
+  path, no wildcard, no separator), `cookie_key`
+  at least 32 bytes (the `form-key` secret), `version` a short printable string; phase
+  7 adds "must be https".
+- **Routes:** `GET /`, `POST /drop-off/uploads` (JSON), `POST /drop-off`,
+  `GET /drop-off/received` (`?again=1` for a repeat), `GET /health`, `/static/*`
+  (linked with `?v=<version>`, `public, max-age=3600` on 200s only). Anything else is
+  the 404 page; other methods 405.
+- **Cookies:** `__Host-device` (a year) and `__Host-received` (30 minutes, holding the
+  submission's keyed hash, `<hash>.<expiry>.<hmac>`), both `Path=/; Secure; HttpOnly;
+  SameSite=Lax`.
+- **`security.py` for the console:** `csp(photo_upload_origin)`, `security_headers(policy)`,
+  `origin_of(url)`, `require_same_origin(request, site_origin)` (an `Origin: null`
+  falls back to `Sec-Fetch-Site`), `client_address(request)` (the last
+  `X-Forwarded-For` value; 400 without it), `sign`/`verify`, `read_body(request, limit)`
+  (413 past it), `new_token`, `new_device`. `app.SecurityHeaders` is the middleware that
+  sets the headers on every response and renders the 500 page inside itself (an
+  exception after a response has started is re-raised; no route streams today).
+- **`errors.py`:** `PageError(status, message=None)` and the handlers; `/drop-off/uploads`
+  answers JSON (`bad_request`, `forbidden`, `method_not_allowed` (405), `expired`,
+  `rate_limited` with `message`, `unavailable`). Log lines: `drop_off_page` (`outcome`:
+  `shown`, `bad_request`, `expired`, `rate_limited`, `refused` with `fields`,
+  `submitted` or `repeated` with `drop_off_id`),
+  `page_refused` (`outcome`: `bad_request`, `other_origin`, `too_large`),
+  `page_unavailable` and `upload_slots_unavailable` and `drop_off_unavailable`
+  (`error_code`), `page_crashed` (`error_code`: the class name).
+- **Templates:** `base.html` blocks `title`, `heading`, `scripts`, `content`;
+  `partials/field.html` macros `input` and `choices`; `partials/logo.svg` and
+  `partials/ceramics-icon.svg`. `asmbly_ceramics/brand.py` (beside `web/` and `mail/`,
+  moved there in review so `mail` never imports `web`) holds the colours; `app.css`'s `:root`
+  repeats them (checked by `tests/web/test_style.py`), and the email layout takes
+  `EMAIL_COLOURS` through the composer.
+- **Domain:** `domain.photos.distinct_slots` is now the one rule for the photos'
+  numbering, used by `SubmitDropOff` and the page.
+- **The S3 CORS rule phase 7 must add** on the photo bucket: AllowedOrigins the site's
+  address, AllowedMethods `POST`, AllowedHeaders `*`, MaxAgeSeconds 3000. `upload.js`
+  locks the photo list (the picker and every Remove) while it uploads, and posts the presigned fields, then `Content-Type` (the file's `image/` type or
+  `image/unknown`), then `file`, with `credentials: "omit"`.
+- **For phase 7 to check on stage:** a request sent with its own `X-Forwarded-For`
+  reaches the function with the caller's real address as the last value (`/prep` found
+  AWS's documentation doesn't say so outright); the phone tests (iPhone and Android,
+  camera and library; record the iOS version and whether the photo arrived as JPEG).
+  No such test has run yet.
+- **For phase 7 (deferred from review):** `web/local.py` ships in the package (it builds
+  the fakes on import and adds an `X-Forwarded-For`); `run.sh` must start only
+  `web.app`'s factory, the entry point and packaging must never import `web.local`, and
+  the bundle may leave `local.py` out (added to phase 7's document). Trusting the last
+  `X-Forwarded-For` value holds only while API Gateway's HTTP API is the last hop; phase
+  7's document now says so and asks for AWS's documentation on the appended value to be
+  confirmed before it goes live. `python-multipart` is a
+  development dependency now (`uv add --dev`): only `local.py` uses it, under `uv run`.
+- **Settled in review:** `mail/compose.py` imported `web.brand` while `web` imports
+  `mail.compose.austin_time`. The brand moved to `asmbly_ceramics/brand.py`, so only
+  `web` imports `mail`; `tests/mail/test_compose.py` checks that importing the composer
+  loads no Starlette and no `asmbly_ceramics.web`. (The plan had put `brand.py` in
+  `web/`; this moves a file, not a design.)
+- **For phase 7 (review):** the endpoints run the synchronous use cases on the event
+  loop, so a web-layer `asyncio` timeout can't interrupt them: the request's bound must
+  be per-call client config or a deadline inside the use case. The `X-Forwarded-For`
+  stage check is a gate before prod (the address limit is void if it fails). `POST /drop-off/uploads` checks the
+  submission token's shape only; `SlotRequest` doesn't carry it.
+- **Still open from review (NOTEs, not fixed):** the body of this
+  document above shows the planned signatures, the Hand-off the built ones; the page
+  decides JSON or HTML by the path `/drop-off/uploads`, which phase 8 generalises; the
+  studio is read before the use case's own checks; `novalidate` means required fields
+  are checked only by the server, after the upload.
+- **Decided here:** `Referrer-Policy: same-origin` instead of `no-referrer` (the plan's
+  README, phase 8 and the coder's checklist now say so).
+  Phase 2b's hand-off asked for: repeats said as such (`?again=1`), cookies named on
+  `form.expired`, each slot sent once.
+- **The request's whole time:** the submit route sets no bound of its own; phase 4's
+  per-call timeouts don't bound a submit's calls in sequence, so phase 7 (composition)
+  sets one under the function's 29 s.
