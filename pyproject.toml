@@ -9,16 +9,20 @@ dependencies = [
     "jinja2>=3.1.6",
     "pillow>=13.0.0",
     "pyjwt[crypto]>=2.15.1",
+    "starlette>=1.10.0",
     "tzdata>=2026.6",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
     "boto3-stubs[dynamodb,s3,sesv2,ssm]>=1.44.3",
+    "httpx2>=2.16.0",
     "moto[dynamodb,s3]>=5.2.5",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "pytest-cov>=7.1.0",
+    "python-multipart>=0.0.33",
     "pyyaml>=6.0.3",
     "ruff>=0.17.5",
     "types-pyyaml>=6.0.12.20261113",

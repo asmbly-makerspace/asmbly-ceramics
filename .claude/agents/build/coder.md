@@ -97,7 +97,7 @@ request into a use case call and its result into a response. It decides no rule.
   `Markup(...)`, `autoescape=False` or string-built HTML on anything a person typed.
 - **Headers.** Every page sends the strict Content-Security-Policy the plan sets,
   `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and
-  `Referrer-Policy: no-referrer`. No inline `<script>` or `style=` that the CSP would
+  `Referrer-Policy: same-origin`. No inline `<script>` or `style=` that the CSP would
   have to allow; the form's upload script is a file the CSP names.
 - **Errors safe to show.** A refused field shows its message next to the field, keeps
   what the person typed (except photos the server refused), and stores nothing. A port

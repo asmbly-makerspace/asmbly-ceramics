@@ -1,8 +1,8 @@
 {% extends "_layout.html" %}
 {% block content %}
-<h1 style="margin:0 0 16px 0;font-size:22px;color:#171d1a;">We received your drop-off</h1>
+<h1 style="margin:0 0 16px 0;font-size:22px;color:{{ colours.text }};">We received your drop-off</h1>
 <p style="margin:0 0 12px 0;">Hi {{ name }}, thanks for dropping off. Here's your ID:</p>
-<p style="margin:0 0 12px 0;font-family:'Courier New',Courier,monospace;font-weight:bold;font-size:32px;color:#944180;">{{ id }}</p>
+<p style="margin:0 0 12px 0;font-family:'Courier New',Courier,monospace;font-weight:bold;font-size:32px;color:{{ colours.id }};">{{ id }}</p>
 <p style="margin:0 0 16px 0;">Make sure each piece has a slip with this ID and your name.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px 0;">
 <tr><td style="padding:2px 16px 2px 0;font-weight:bold;">Pieces</td><td style="padding:2px 0;">{{ pieces }}</td></tr>

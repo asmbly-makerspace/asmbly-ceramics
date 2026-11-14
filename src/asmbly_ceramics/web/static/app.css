@@ -1,0 +1,219 @@
+/* The drop-off form's styles. Every colour, font and size is a token in :root (the
+   colours are brand.py's, checked by tests/web/test_style.py); every rule below uses
+   them through var(). No page has inline style. */
+:root {
+  color-scheme: light;
+
+  /* Brand colours (Asmbly brand guide), as brand.py has them. */
+  --asmbly-purple: #292D6A;
+  --asmbly-white: #F2F4EF;
+  --midnight-black: #171d1a;
+  --ceramics: #b34a9a;
+  --lasers: #D33E43;
+
+  /* Derived: shade(p) = p x colour + (1 - p) x midnight-black; tint(p) = p x colour + (1 - p) x asmbly-white. */
+  --ceramics-shade: #944180;
+  --ceramics-shade-60: #753867;
+  --ceramics-40: #d9b0cd;
+  --ceramics-20: #e5d2de;
+  --ceramics-10: #ece3e6;
+  --lasers-shade: #ad373b;
+  --lasers-20: #ecd0cd;
+  --asmbly-purple-20: #caccd4;
+  --asmbly-purple-40: #a2a4ba;
+
+  /* What each colour is for. */
+  --page-bg: var(--asmbly-white);
+  --text: var(--midnight-black);
+  --band-bg: var(--asmbly-purple);
+  --on-band: var(--asmbly-white);
+  --accent: var(--ceramics);
+  --on-accent: var(--asmbly-white);
+  --accent-strong: var(--ceramics-shade);
+  --accent-hover: var(--ceramics-shade-60);
+  --line: var(--asmbly-purple); /* input edges: 3:1 or more (WCAG 1.4.11) */
+  --field-bg: var(--asmbly-white);
+  --focus: var(--ceramics-shade-60);
+  --error-bg: var(--lasers-20);
+  --error-edge: var(--lasers-shade);
+  --notice-bg: var(--ceramics-10);
+  --glyph-error: "✕";
+
+  /* Type: system stacks, no font file is fetched. */
+  --font-body: Roboto, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-heading: "Helvetica Neue", "Segoe UI", Roboto, Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-body: 1rem;
+  --font-size-h1: 1.75rem;
+  --font-size-h2: 1.25rem;
+  --font-size-small: 0.875rem;
+  --font-size-id: 2.5rem;
+  --line-height: 1.5;
+  --line-height-heading: 1.2;
+  --weight-heading: 700;
+  --weight-strong: 600;
+
+  /* Space and size. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --gutter: var(--space-4);
+  --radius: var(--space-2);
+  --border-width: 1px;
+  --border-width-accent: 4px;
+  --focus-width: 3px;
+  --focus-offset: 2px;
+  --tap-target: 2.75rem;
+  --content-max-width: 34rem;
+  --logo-height: 2.5rem;
+  --icon-height: 2.5rem;
+  --thumb-size: 6rem;
+  --none: 0;
+  --full: 100%;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: var(--none);
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height);
+}
+
+h1, h2 { font-family: var(--font-heading); font-weight: var(--weight-heading); line-height: var(--line-height-heading); }
+h2 { font-size: var(--font-size-h2); margin: var(--none) var(--none) var(--space-2); }
+
+.band-inner {
+  max-width: var(--content-max-width);
+  margin: var(--none) auto;
+  padding: var(--space-3) var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.asmbly-band { background: var(--band-bg); color: var(--on-band); }
+.logo { display: block; height: var(--logo-height); width: auto; max-width: var(--full); fill: currentColor; }
+
+/* White on the ceramics colour is 4.35:1: only the icon and the large h1 sit on it. */
+.ceramics-band { background: var(--accent); color: var(--on-accent); }
+.ceramics-icon { display: block; flex: none; height: var(--icon-height); width: auto; fill: currentColor; }
+.ceramics-band h1 { margin: var(--none); font-size: var(--font-size-h1); color: var(--on-accent); }
+
+.page { max-width: var(--content-max-width); margin: var(--none) auto; padding: var(--space-5) var(--gutter); }
+
+.field { margin: var(--none) var(--none) var(--space-5); padding: var(--none); border: var(--none); min-width: var(--none); }
+.field label, .field legend { display: block; font-weight: var(--weight-strong); margin-bottom: var(--space-2); padding: var(--none); }
+.hint { margin: var(--none) var(--none) var(--space-2); font-size: var(--font-size-small); }
+
+input[type="text"], input[type="email"], input[type="tel"], input[type="number"] {
+  display: block;
+  width: var(--full);
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-body); /* 16px or more, so iOS doesn't zoom */
+  color: var(--text);
+  background: var(--field-bg);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+}
+
+input[type="file"] { display: block; width: var(--full); min-height: var(--tap-target); font: inherit; font-size: var(--font-size-body); }
+
+.field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"] {
+  border: var(--border-width-accent) solid var(--error-edge);
+}
+
+.field-error {
+  margin: var(--none) var(--none) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--error-bg);
+  color: var(--text);
+  border-left: var(--border-width-accent) solid var(--error-edge);
+  font-weight: var(--weight-strong);
+}
+.field-error::before { content: var(--glyph-error); margin-right: var(--space-2); color: var(--error-edge); }
+
+.choice { display: flex; align-items: center; gap: var(--space-3); min-height: var(--tap-target); font-weight: normal; }
+.choice input { width: var(--space-5); height: var(--space-5); margin: var(--none); accent-color: var(--accent-strong); }
+.choice span { font-weight: normal; }
+
+.stepper { display: flex; align-items: stretch; gap: var(--space-2); }
+.stepper input[type="number"] { width: auto; flex: 1; text-align: center; }
+.step { display: none; }
+.js .step { display: inline-flex; }
+
+button, .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  min-width: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-family: var(--font-heading);
+  font-weight: var(--weight-heading);
+  color: var(--on-accent);
+  background: var(--accent-strong);
+  border: var(--none);
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+}
+button:disabled { background: var(--accent-hover); cursor: progress; }
+.submit { width: var(--full); margin-top: var(--space-4); }
+button:focus-visible, .button:focus-visible, input:focus-visible, a:focus-visible, .error-summary:focus {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: var(--focus-offset);
+}
+
+.photo-list { list-style: none; margin: var(--none) var(--none) var(--space-3); padding: var(--none); }
+.photo-item { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.photo-item img { width: var(--thumb-size); height: var(--thumb-size); object-fit: cover; border-radius: var(--radius); }
+.photo-label { flex: 1; overflow-wrap: anywhere; }
+
+.upload-status { min-height: var(--space-5); margin: var(--none); font-weight: var(--weight-strong); }
+
+.notice, .error-summary {
+  margin: var(--none) var(--none) var(--space-5);
+  padding: var(--space-4);
+  background: var(--notice-bg);
+  border-left: var(--border-width-accent) solid var(--accent-strong);
+  border-radius: var(--radius);
+}
+.notice p { margin: var(--none); }
+.notice-error, .error-summary { background: var(--error-bg); border-left-color: var(--error-edge); }
+.error-summary h2::before, .notice-error h2::before { content: var(--glyph-error); margin-right: var(--space-2); color: var(--error-edge); }
+.error-summary ul { margin: var(--none); padding-left: var(--space-5); }
+.error-summary a { color: var(--text); font-weight: var(--weight-strong); }
+
+.lead { margin: var(--none) var(--none) var(--space-2); }
+.drop-off-id {
+  margin: var(--none) var(--none) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-id);
+  font-weight: var(--weight-heading);
+  color: var(--accent-strong);
+  overflow-wrap: anywhere;
+}
+.summary { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); margin: var(--none) var(--none) var(--space-5); }
+.summary dt { font-weight: var(--weight-strong); }
+.summary dd { margin: var(--none); overflow-wrap: anywhere; }
+
+.site-footer { padding: var(--space-6) var(--gutter); text-align: center; font-size: var(--font-size-small); }
+
+a { color: var(--accent-strong); }
+.button { color: var(--on-accent); }
+
+@media (hover: hover) {
+  button:hover:not(:disabled), .button:hover { background: var(--accent-hover); }
+}
+
+[hidden] { display: none; }

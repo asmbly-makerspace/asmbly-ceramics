@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Drop off for firing{% endblock %} · Asmbly Ceramics</title>
+<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+{% block scripts %}{% endblock %}
+</head>
+<body>
+<header>
+  <div class="asmbly-band">
+    <div class="band-inner">
+      {% include "partials/logo.svg" %}
+    </div>
+  </div>
+  <div class="ceramics-band">
+    <div class="band-inner">
+      {% include "partials/ceramics-icon.svg" %}
+      <h1>{% block heading %}Drop off for firing{% endblock %}</h1>
+    </div>
+  </div>
+</header>
+<main class="page">
+{% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <p>Asmbly Makerspace · Ceramics studio</p>
+</footer>
+</body>
+</html>

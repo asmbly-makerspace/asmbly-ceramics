@@ -36,6 +36,16 @@ def is_slot_id(text: str) -> bool:
     return isinstance(text, str) and _SLOT_ID.fullmatch(text) is not None
 
 
+def distinct_slots(upload_slots: object) -> tuple[str, ...] | None:
+    """The distinct slot IDs in their first order: the photos' numbering (`photo.<n>`
+    counts from 1 in this order). `None` when one hasn't `is_slot_id`'s shape or there
+    are more than `PHOTOS_MAX`; too few is the photo-count check's."""
+    if not isinstance(upload_slots, tuple) or not all(is_slot_id(slot) for slot in upload_slots):
+        return None
+    slots = tuple(dict.fromkeys(upload_slots))
+    return slots if len(slots) <= PHOTOS_MAX else None
+
+
 class PhotoSize(StrEnum):
     FULL = "full"
     THUMB = "thumb"

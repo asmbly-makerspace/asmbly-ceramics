@@ -14,8 +14,8 @@ from asmbly_ceramics.domain.dropoff import DropOffDetails, new_drop_off
 from asmbly_ceramics.domain.email import EmailKind, new_email
 from asmbly_ceramics.domain.errors import FORM_EXPIRED_KEY, InvalidDetails
 from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, PHOTOS_MAX, SUBMISSION_LIFETIME
-from asmbly_ceramics.domain.photos import PHOTO_COUNT_KEY, CheckedPhoto, PhotoRefusal, is_slot_id
+from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, SUBMISSION_LIFETIME
+from asmbly_ceramics.domain.photos import PHOTO_COUNT_KEY, CheckedPhoto, PhotoRefusal, distinct_slots
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.errors import Unavailable, error_code
@@ -99,7 +99,7 @@ class SubmitDropOff:
         self._check_limits(request, now)
 
         # 3. The slots, before any photo read; then every field.
-        slots = _distinct_slots(request.upload_slots)
+        slots = distinct_slots(request.upload_slots)
         if slots is None:
             _refused("invalid_details", fields="photos")
             raise InvalidDetails({"photos": PHOTO_COUNT_KEY})
@@ -291,16 +291,6 @@ class SubmitDropOff:
                 drop_off_id=str(drop_off_id),
                 error_code=_code(error),
             )
-
-
-def _distinct_slots(upload_slots: object) -> tuple[str, ...] | None:
-    """The distinct slot IDs in their first order; `None` when one hasn't `is_slot_id`'s
-    shape or there are more than `PHOTOS_MAX`. Too few is `DropOffDetails.create`'s
-    photo-count check."""
-    if not isinstance(upload_slots, tuple) or not all(is_slot_id(slot) for slot in upload_slots):
-        return None
-    slots = tuple(dict.fromkeys(upload_slots))
-    return slots if len(slots) <= PHOTOS_MAX else None
 
 
 def _code(error: Exception) -> str:

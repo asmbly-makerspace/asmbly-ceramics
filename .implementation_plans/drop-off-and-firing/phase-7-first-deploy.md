@@ -556,6 +556,26 @@ would log paths and addresses); the app logs its own lines. It runs without
 `security.client_address`, from the last `X-Forwarded-For` value, so a caller can't
 choose the address the rate limit counts.
 
+That holds only while API Gateway's HTTP API is the last hop before the function: it
+appends the address it saw to whatever `X-Forwarded-For` the caller sent. A CDN, a
+CloudFront distribution or another proxy put in front of it would make the last value
+that hop's address (every person would share one rate-limit key) or, if it passes the
+caller's header through, change which value is trustworthy; adding one needs this rule
+re-decided first. Before this phase goes live, confirm in AWS's API Gateway
+documentation (HTTP API, payload format 2.0, and the Lambda Web Adapter's mapping of it)
+that the appended value is the caller's source address, and run phase 6's stage check
+(a request sent with its own `X-Forwarded-For` reaches the function with the caller's
+real address last). If either fails, the address limit is void and prod waits.
+
+**Never import `web.local`.** `asmbly_ceramics.web.local` (phase 6) builds the
+in-memory fakes on import and adds its own `X-Forwarded-For`; it is for `uv run` on a
+laptop only. `run.sh` starts `web.app`'s factory and nothing else; `composition.py`,
+`settings.py`, the entry points and anything they import never import `web.local`, and
+the bundle leaves it out (or a test asserts that importing every entry point's module
+leaves `asmbly_ceramics.web.local` out of `sys.modules`). The brand already moved to the
+neutral `asmbly_ceramics.brand` (phase 6's review), so `mail/` no longer imports `web/`
+and the mailer's bundle needs no Starlette (`tests/mail/test_compose.py` checks it).
+
 `entry/mailer.py`:
 
 ```python

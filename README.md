@@ -13,13 +13,15 @@ If you find a security problem, please report it privately ([SECURITY.md](SECURI
 
 ## Status
 
-**The domain, the use cases and the AWS adapters are built; the app isn't.**
-`src/asmbly_ceramics/` holds the domain model, the ports with in-memory fakes, the use
-cases (submit a drop-off, the email composer and outbox, the waiting list, search,
-rejection, kiln loads, settings, the daily close, counts) and AWS adapters (DynamoDB,
-S3, SES, Cognito tokens, Parameter Store). They are tested without AWS. There is no
-template, no page and no deploy yet, so no story is delivered and nothing is in AWS. The
-plan's next phases are in
+**The domain, the use cases, the AWS adapters and the drop-off form's pages are built;
+nothing is deployed.** `src/asmbly_ceramics/` holds the domain model, the ports with
+in-memory fakes, the use cases (submit a drop-off, the email composer and outbox, the
+waiting list, search, rejection, kiln loads, settings, the daily close, counts), AWS
+adapters (DynamoDB, S3, SES, Cognito tokens, Parameter Store) and the public drop-off
+form (`web/`: Starlette pages, the photo upload script and the security headers). They
+are tested without AWS. The staff console's pages, the AWS template and the deploy
+aren't built yet, so no story is delivered and nothing is in AWS. The plan's next
+phases are in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
 | Story | What changes for people |
@@ -47,8 +49,9 @@ docs/                   architecture, decisions, runbooks (docs/README.md is the
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
-src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/ and adapters/ (memory/, aws/, the
-                        system clock and the photo inspector); no page or template yet
+src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/, adapters/ (memory/, aws/, the
+                        system clock and the photo inspector) and web/ (the drop-off form's
+                        pages); no console page or AWS template yet
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 
@@ -69,6 +72,16 @@ uv run pytest --cov
 ```
 
 None of them needs AWS credentials.
+
+## Try the drop-off form
+
+```bash
+uv run uvicorn asmbly_ceramics.web.local:app --reload
+```
+
+Then open http://127.0.0.1:8000/ in a phone-sized window. It runs on the in-memory
+fakes: nothing reaches AWS and no email is sent. `web/local.py` is for this only; it is
+never a deployed entry point.
 
 ## How changes reach production
 

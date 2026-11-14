@@ -5,7 +5,8 @@ Everything a person typed (the name, the rejection message, the pickup hours, it
 names) reaches the HTML only through autoescape; line breaks become paragraphs in the
 templates, one escaped line each, so nothing here marks text as safe. The subject holds
 the drop-off's ID only, so nothing typed reaches a header. Times are Austin's
-(`STUDIO_TZ`), formatted by hand so the locale can't change them. Nothing here logs.
+(`STUDIO_TZ`), formatted by hand so the locale can't change them. The layout's colours
+are `brand.py`'s, the pages' one source. Nothing here logs.
 """
 
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from datetime import date, datetime
 
 from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
 
+from asmbly_ceramics.brand import EMAIL_COLOURS
 from asmbly_ceramics.domain.closing import pickup_day
 from asmbly_ceramics.domain.dropoff import Contact, DropOff
 from asmbly_ceramics.domain.errors import UnknownItem
@@ -131,6 +133,7 @@ class JinjaComposer:
             "sending_address": studio.sending_address,
             "hours_lines": lines(studio.pickup_hours_text),
             "footer": FOOTER,
+            "colours": EMAIL_COLOURS,
         }
 
     def _drop_off_context(
