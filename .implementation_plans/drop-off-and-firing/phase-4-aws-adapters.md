@@ -159,7 +159,7 @@ create, +1 on every update).
 | Item | `PK` | `SK` | `GSI1PK` / `GSI1SK` | `GSI2PK` / `GSI2SK` | `ttl` |
 | --- | --- | --- | --- | --- | --- |
 | Drop-off | `DROPOFF#AC-12` | `META` | `DROPOFF#<state>` / `<created_at ISO>#AC-12` | — | — |
-| Load | `LOAD#L-4` | `META` | `LOAD#<status>` / `<date>#L-4` | `LOADDATE` / `<date>#L-4` | — |
+| Load | `LOAD#L-4` | `META` | `LOAD#<status>` / `<date>#L-4` | — | — |
 | Studio settings and lists | `STUDIO` | `CURRENT` | — | — | — |
 | Settings history entry | `STUDIO` | `HISTORY#<at ISO>#<n>` (`n`: a fixed-width random suffix) | — | — | — |
 | Email (outbox) | `EMAIL#AC-12` | `<kind>` or `rejected#<occasion>` (`rejection_occasion`'s text, verbatim) | — | `EMAIL#<status>` / `<created_at ISO>#AC-12#<kind>` | — |
@@ -171,7 +171,10 @@ create, +1 on every update).
   `rejected`, `closed`; `loading`, `firing`, `fired`; `pending`, `sending`, `sent`,
   `failed`, `cancelled`), so the waiting list is a `Query` on `GSI1PK = DROPOFF#waiting` in
   `GSI1SK` order (oldest first), the drop-offs to close are `DROPOFF#fired` and
-  `DROPOFF#rejected`, and failed emails are `GSI2PK = EMAIL#failed`.
+  `DROPOFF#rejected`, and `emails_in(statuses)` is one `GSI2PK = EMAIL#<status>` query per
+  status, merged in `created_at` order (phase 3's `EmailsNeedingAttention` asks for
+  `pending`, `sending` and `failed`). Nothing queries loads by date: phase 3 dropped
+  `loads_between` from the port, so no item writes a `LOADDATE` key.
 - Timestamps are ISO 8601 in UTC with a `Z`, so they sort as strings. Dates (a load's
   date) are `YYYY-MM-DD` in Austin time, as the domain gives them.
 - A `Submission` item (`SUBMISSION#<hash>`) maps a form's one-time token's keyed hash to
@@ -204,19 +207,19 @@ class DynamoDbRecords:
 - **Reads by key** (`get_drop_off`, `get_load`, `get_studio`, `get_email`, and the
   submission token lookup) use `GetItem` with `ConsistentRead=True`, so a page read
   right after a change sees it.
-- **List queries** (`waiting_drop_offs`, `drop_offs_to_close`, `loads_by_status`,
-  `loads_between`, `failed_emails`, `emails_for(drop_off_id)`, `settings_history`,
-  `drop_offs_created_between` for weekly counts) use `Query`, paginated with
+- **List queries** (the port's `drop_offs_in`, `drop_offs_created_between`,
+  `drop_offs_rejected_between`, `loads_in`, `emails_for(drop_off_id)`, `emails_in` and
+  `history`) use `Query`, paginated with
   `LastEvaluatedKey` until done. Queries on `GSI1` and `GSI2` are eventually consistent.
   That is acceptable where it's used, and phase 2's and 3's use cases already re-check
   by key before they change anything:
-  - the waiting list, the failed emails and the weekly counts may lag a change by
+  - the waiting list, the emails needing attention and the weekly counts may lag a change by
     under a second; the next page load shows it;
   - `AddToLoad`, `RejectDropOff` and `CloseFinished` read each drop-off by key
     (consistent) and commit with a version check, so a stale list can never cause a
     wrong change; it can only cause a `Conflict` the page reports ("AC-12 changed;
     reload").
-  - `emails_for` and `settings_history` query the base table (`PK`), so they are
+  - `emails_for` and `history` query the base table (`PK`), so they are
     consistent.
 - **`history(limit, before)`** (phase 1d's contract, changed in phase 1's whole-branch
   review): `Query` on `PK = STUDIO`, `SK begins_with HISTORY#`, newest first
@@ -451,9 +454,7 @@ class SesMailer:
   `TooManyRequestsException`, `ThrottlingException`, `LimitExceededException`,
   `SendingPausedException`, `AccountSuspendedException`, `MessageRejected`,
   `MailFromDomainNotVerifiedException`, `NotFoundException`, `BadRequestException`,
-  and any other code → `SendFailed(code)`. `SendFailed.retryable` is true for the two
-  throttling codes and network errors, which the mailer (phase 3) leaves `pending` to
-  try again; the rest mark the email `failed`.
+  and any other code → `SendFailed(code)`. (Phase 3 note: `SendFailed` has no `retryable`, and the mailer marks every `SendFailed` `failed`; use `ports.mailer.REFUSED_CODES` for SES's error responses only, and only for a send with one attempt (turn the client's retries off, or report `unknown` when an earlier try got no answer, with a Stubber test); throttled sends are marked `failed`, not left `pending`; and store `Email.pickup_window_days` and `retried_at`. This `/prep` replans the rest of this bullet.)
 - Never logged: the recipient, the subject, the body, the attachments, the message
   text of AWS's error. Logged: the drop-off ID and email kind (the caller passes them
   for logging as `log_context`), the code.
@@ -492,7 +493,11 @@ class CognitoStaffTokens:
   `"ceramics" in claims.get("cognito:groups", [])`, with a missing or non-list claim
   treated as no groups → `NotAllowed(username)`. `username = claims["cognito:username"]`;
   `email = claims["email"]` only when `claims.get("email_verified") is True`, else
-  `None` (phase 3's test email then says the account has no verified address).
+  `None` (phase 3's test email then says the account has no verified address). This is
+  the `StaffTokens` port's contract (`ports/staff.py`): `SendTestEmail` sends to
+  `StaffMember.email` as given, so the adapter never fills it from an unverified claim,
+  and a test pins that `email_verified` false, missing or the string `"true"` gives
+  `None`.
   Returns `StaffMember(username, email)`.
 - **The group name** `ceramics` is the staff pool's group (asmbly-staff-login#4),
   a constant in `domain/staff.py` (phase 1), not a setting.

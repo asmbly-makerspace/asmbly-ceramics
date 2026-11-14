@@ -324,7 +324,7 @@ def close(drop_off: DropOff, at: datetime) -> DropOff: ...
   rejection at 23:30 Austin time undone at 00:10 is refused, though the same UTC day);
   `test_undo_only_from_rejected`.
 - `test_email_moves_pending_sending_sent` and `..._failed_with_its_code`;
-  `test_retry_only_failed_or_stale_sending`; `test_needs_attention_after_15_minutes_sending`;
+  `test_retry_only_failed_or_stuck` (renamed in phase 3); `test_needs_attention_after_15_minutes_sending`;
   `test_an_error_code_with_other_characters_is_refused`; `test_cancel_from_pending_or_sending_only`.
 - `test_fired_closes_after_the_window_from_the_ready_email`;
   `test_fired_without_a_sent_ready_email_never_closes`;

@@ -7,7 +7,7 @@ port's contract would let a use case pass here and fail against AWS.
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -306,9 +306,6 @@ def test_records_lists_filter_and_sort() -> None:
     assert records.drop_offs_rejected_between(NOW, NOW + 3 * day) == []
     assert ids(records.loads_in({LoadStatus.LOADING})) == ["L-1", "L-2"]
     assert ids(records.loads_in({LoadStatus.LOADING, LoadStatus.FIRED})) == ["L-1", "L-2", "L-3"]
-    today = NOW.date()
-    assert ids(records.loads_between(today, today + day)) == ["L-1", "L-2"]
-    assert ids(records.loads_between(today + day, date(2027, 1, 1))) == ["L-3"]
 
     ac1 = DropOffId(1)
     sent = replace(new_email(ac1, EmailKind.RECEIVED, NOW + day), status=EmailStatus.SENDING)
@@ -422,7 +419,6 @@ def test_records_logs_each_read_by_method_name() -> None:
     records.drop_offs_created_between(NOW, later)
     records.drop_offs_rejected_between(NOW, later)
     records.loads_in({LoadStatus.LOADING})
-    records.loads_between(NOW.date(), later.date())
     records.emails_for(DropOffId(1))
     records.emails_in({EmailStatus.PENDING})
     records.history(10)
@@ -437,7 +433,6 @@ def test_records_logs_each_read_by_method_name() -> None:
         "drop_offs_created_between",
         "drop_offs_rejected_between",
         "loads_in",
-        "loads_between",
         "emails_for",
         "emails_in",
         "history",

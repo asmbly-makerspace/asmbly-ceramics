@@ -42,6 +42,8 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.ItemInUse("Helios"), "Helios is used by a drop-off or a load: retire it instead."),
     (errors.DuplicateItem("kiln", "Helios"), "There is already a kiln called Helios."),
     (errors.EmailNotRetryable(), "That email isn't failed."),
+    (errors.NoStaffEmail(), "Your sign-in has no email address, so a test email can't be sent."),
+    (errors.TestEmailFailed("MessageRejected"), "The test email didn't send (MessageRejected)."),
     (errors.TooManySubmissions(), "Too many drop-offs from here in the last few minutes. Try again later."),
     (errors.SubmissionNotFound(), "That page has expired."),
 ]
@@ -88,3 +90,4 @@ def test_errors_keep_the_ids_they_name() -> None:
     )
     assert errors.FiringTypeLocked(L4).load_id == L4
     assert errors.InvalidSetting("name", "Enter a name.").field == "name"
+    assert errors.TestEmailFailed("Throttling").code == "Throttling"

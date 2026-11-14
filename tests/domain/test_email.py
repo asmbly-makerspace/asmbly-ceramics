@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
@@ -17,6 +18,7 @@ from asmbly_ceramics.domain.email import (
     mark_cancelled,
     mark_failed,
     mark_sent,
+    needs_acting_on,
     needs_attention,
     new_email,
     rejection_occasion,
@@ -196,14 +198,25 @@ def test_retry_a_failed_email() -> None:
     )
 
 
-def test_retry_only_failed_or_stale_sending() -> None:
+def test_retry_only_failed_or_stuck() -> None:
     stale_at = NOW + STALE_SENDING_AFTER + timedelta(seconds=1)
     assert retry(sending(), stale_at).status is EmailStatus.PENDING
-    for make in (pending, sent, cancelled):
+    for make in (sent, cancelled):
         with pytest.raises(errors.EmailNotRetryable):
             retry(make(), stale_at)
-    with pytest.raises(errors.EmailNotRetryable):
-        retry(sending(), NOW + STALE_SENDING_AFTER)
+    for make in (sending, pending):
+        with pytest.raises(errors.EmailNotRetryable):
+            retry(make(), NOW + STALE_SENDING_AFTER)
+
+
+def test_a_pending_email_the_stream_gave_up_on_needs_attention_and_can_be_retried() -> None:
+    stale_at = NOW + STALE_SENDING_AFTER + timedelta(seconds=1)
+    assert needs_attention(pending(), stale_at)
+    requeued = retry(pending(), stale_at)
+    assert (requeued.status, requeued.retried_at) == (EmailStatus.PENDING, stale_at)
+    # Queued again: it waits from the retry, not from when it was first queued.
+    assert not needs_attention(requeued, stale_at + STALE_SENDING_AFTER)
+    assert needs_attention(requeued, stale_at + STALE_SENDING_AFTER + timedelta(seconds=1))
 
 
 def test_needs_attention_after_15_minutes_sending() -> None:
@@ -211,7 +224,8 @@ def test_needs_attention_after_15_minutes_sending() -> None:
     assert not needs_attention(sending(), NOW + timedelta(minutes=15))
     assert needs_attention(sending(), NOW + timedelta(minutes=15, seconds=1))
     assert needs_attention(failed(), NOW)
-    for make in (pending, sent, cancelled):
+    assert not needs_attention(pending(), NOW + timedelta(minutes=15))
+    for make in (sent, cancelled):
         assert not needs_attention(make(), NOW + timedelta(days=1))
 
 
@@ -229,3 +243,31 @@ def test_is_history_for_a_closed_drop_off_or_an_undone_rejection() -> None:
     assert not is_history(rejected_drop_off, current)
     assert is_history(rejected_drop_off, stale)
     assert is_history(a_drop_off(1), current)  # waiting again: the rejection was undone
+
+
+def test_a_sent_ready_email_keeps_the_pickup_window_it_gave() -> None:
+    ready = claim(new_email(AC12, EmailKind.READY, NOW), NOW)
+    done = mark_sent(ready, NOW, pickup_window_days=14)
+    assert (done.status, done.sent_at, done.pickup_window_days) == (EmailStatus.SENT, NOW, 14)
+    for missing in (None, 0):
+        with pytest.raises(ValueError, match="pickup window"):
+            mark_sent(ready, NOW, pickup_window_days=missing)
+
+
+def test_only_a_ready_email_gives_a_pickup_window() -> None:
+    with pytest.raises(ValueError, match="only a ready email"):
+        mark_sent(sending(), NOW, pickup_window_days=14)
+    assert sent().pickup_window_days is None
+
+
+def test_needs_acting_on_leaves_out_history() -> None:
+    stale = NOW + STALE_SENDING_AFTER + timedelta(seconds=1)
+    failed_email = failed()
+    assert needs_acting_on(a_drop_off(12), failed_email, NOW)
+    assert not needs_acting_on(a_drop_off(12, DropOffState.CLOSED), failed_email, NOW)
+    assert needs_acting_on(a_drop_off(12), sending(), stale)
+    assert not needs_acting_on(a_drop_off(12), sending(), NOW)
+
+
+def test_a_sending_email_without_its_claim_time_shows_as_stuck() -> None:
+    assert needs_attention(replace(sending(), claimed_at=None), NOW)

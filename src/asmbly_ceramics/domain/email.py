@@ -86,6 +86,12 @@ class Email:
     claimed_at: datetime | None = None
     sent_at: datetime | None = None
     error_code: str | None = None
+    # The pickup window a sent ready email gave (`studio.pickup_window_days` when it was
+    # composed): the close counts from it, never from a later setting (#7).
+    pickup_window_days: int | None = None
+    # When staff last put it back in the queue ("Try sending again"): a pending email
+    # waits from then, or from `created_at`, to count as stuck.
+    retried_at: datetime | None = None
     version: int = 0
 
 
@@ -105,10 +111,19 @@ def claim(email: Email, at: datetime) -> Email:
     return replace(email, status=EmailStatus.SENDING, attempts=email.attempts + 1, claimed_at=at)
 
 
-def mark_sent(email: Email, at: datetime) -> Email:
+def mark_sent(email: Email, at: datetime, *, pickup_window_days: int | None = None) -> Email:
+    """SENDING to SENT. A ready email keeps the pickup window it gave (1 or more), which
+    the close counts from; the other kinds give none."""
     _check_aware(at)
     _require(email, EmailStatus.SENDING)
-    return replace(email, status=EmailStatus.SENT, sent_at=at, error_code=None)
+    if email.kind is EmailKind.READY:
+        if pickup_window_days is None or pickup_window_days < 1:
+            raise ValueError("a sent ready email keeps the pickup window it gave")
+    elif pickup_window_days is not None:
+        raise ValueError("only a ready email gives a pickup window")
+    return replace(
+        email, status=EmailStatus.SENT, sent_at=at, error_code=None, pickup_window_days=pickup_window_days
+    )
 
 
 def mark_failed(email: Email, code: str) -> Email:
@@ -125,15 +140,16 @@ def mark_cancelled(email: Email) -> Email:
 
 
 def retry(email: Email, at: datetime) -> Email:
-    """A failed email, or one stuck sending, back to PENDING."""
+    """A failed email, or one stuck sending or pending, back to PENDING, queued again."""
     _check_aware(at)
     if email.status is not EmailStatus.FAILED and not _is_stale(email, at):
         raise EmailNotRetryable()
-    return replace(email, status=EmailStatus.PENDING, error_code=None, claimed_at=None)
+    return replace(email, status=EmailStatus.PENDING, error_code=None, claimed_at=None, retried_at=at)
 
 
 def needs_attention(email: Email, now: datetime) -> bool:
-    """Failed, or sending for longer than `STALE_SENDING_AFTER`: staff see it in the console."""
+    """Failed, or stuck: sending, or pending (the stream gave up on it), for longer than
+    `STALE_SENDING_AFTER`. Staff see it in the console and can retry it."""
     _check_aware(now)
     return email.status is EmailStatus.FAILED or _is_stale(email, now)
 
@@ -147,12 +163,23 @@ def is_history(drop_off: DropOff, email: Email) -> bool:
     )
 
 
+def needs_acting_on(drop_off: DropOff, email: Email, now: datetime) -> bool:
+    """What the console lists as needing attention: `needs_attention`, unless the email
+    `is_history`."""
+    return needs_attention(email, now) and not is_history(drop_off, email)
+
+
 def _is_stale(email: Email, now: datetime) -> bool:
-    return (
-        email.status is EmailStatus.SENDING
-        and email.claimed_at is not None
-        and now - email.claimed_at > STALE_SENDING_AFTER
-    )
+    match email.status:
+        case EmailStatus.SENDING:
+            # A sending email always has its claim's time; one without is a broken record,
+            # shown as stuck rather than hidden.
+            return email.claimed_at is None or now - email.claimed_at > STALE_SENDING_AFTER
+        case EmailStatus.PENDING:
+            queued = email.retried_at or email.created_at
+            return now - queued > STALE_SENDING_AFTER
+        case _:
+            return False
 
 
 def _require(email: Email, *allowed: EmailStatus) -> None:

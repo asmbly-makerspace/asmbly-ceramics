@@ -17,7 +17,10 @@ from asmbly_ceramics.ports.errors import PortError
 @dataclass(frozen=True, slots=True)
 class StaffMember:
     username: str
-    email: str | None = field(repr=False)  # from the verified token, for the test email only; never logged
+    # The token's `email` claim only when its `email_verified` claim is the boolean true,
+    # else `None`: `SendTestEmail` sends to it as given. For the test email only; never
+    # logged.
+    email: str | None = field(repr=False)
 
 
 class NotSignedIn(PortError):
@@ -37,7 +40,9 @@ class NotAllowed(PortError):
 
 class StaffTokens(Protocol):
     def verify(self, id_token: str) -> StaffMember:
-        """`NotSignedIn`, `NotAllowed`, `SignInUnavailable`."""
+        """The signed-in staff member; `email` is set only from a verified email claim
+        (`email_verified` is `True`), never from an unverified one. `NotSignedIn`,
+        `NotAllowed`, `SignInUnavailable`."""
         ...
 
     def sign_in_url(self, *, state: str, code_challenge: str, redirect_uri: str) -> str:

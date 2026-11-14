@@ -111,7 +111,7 @@
       ],
       "status": "done",
       "base_sha": "83eeac464ea1fdb6fd23a862d8588004d78b9675",
-      "squashed_sha": null,
+      "squashed_sha": "6470012",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": "phase-2-drop-off-use-cases",
@@ -137,17 +137,23 @@
         "2c",
         "2d"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "647001285409b003aa147ec4c5ae5785928c4947",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 3,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
       "closes": [],
-      "refs": [],
-      "admin_actions": [],
-      "notes": "From 2c privacy review: the sender must re-read photos by the same drop-off key as the recipient (or outgoing checks all refs share one drop-off ID); to must be drop_off.contact.email re-read by key, and the test email goes only to the signed-in staff member; from 2d review: decide MAY_HAVE_GONE for a FAILED rejection email whose send may have left (code unexpected, or a lost SES response), so an undo never tells staff not to contact someone who may have the email"
+      "refs": [
+        4,
+        6,
+        7
+      ],
+      "admin_actions": [
+        "Maintainer: answer #20 (retention) before phase 9 merges"
+      ],
+      "notes": "1755 tests, 99.59% cov; follow-ups #21; needs-attention list added"
     },
     {
       "id": "phase-4-aws-adapters",
@@ -599,6 +605,62 @@
       "ts": "2026-11-14T01:39:57Z",
       "type": "phase_done",
       "phase": "2d"
+    },
+    {
+      "ts": "2026-11-14T01:39:59Z",
+      "type": "squash",
+      "unit": "phase-2d",
+      "sha": "6470012"
+    },
+    {
+      "ts": "2026-11-14T01:39:59Z",
+      "type": "phase_start",
+      "phase": "3"
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "phase_done",
+      "phase": "3",
+      "lines": 3524
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "undo",
+      "choice": "MAY_HAVE_GONE unless refused/pre-send code, 1 try",
+      "reason": "fail safe (#5)"
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "retention",
+      "choice": "keep plan rule, #20",
+      "reason": "maintainer call"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "cold_review",
+      "phase": "3",
+      "lead": "APPROVE 3 WARN",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "missing drop-off",
+      "choice": "show its email in needs-attention",
+      "reason": "broken record shown, not hidden"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "loads_between",
+      "choice": "dropped with phase 4 LOADDATE index",
+      "reason": "no caller"
     }
   ]
 }

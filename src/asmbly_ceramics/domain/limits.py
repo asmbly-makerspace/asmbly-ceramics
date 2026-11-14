@@ -36,6 +36,6 @@ UPLOAD_SLOT_LIFETIME = timedelta(minutes=15)
 SUBMISSION_LIFETIME = timedelta(days=1)
 OVERDUE_AFTER = timedelta(days=60)
 LOAD_CAPACITY = 48
-STALE_SENDING_AFTER = timedelta(minutes=15)
+STALE_SENDING_AFTER = timedelta(minutes=15)  # an email sending, or pending, this long is stuck
 STUDIO_TZ = ZoneInfo("America/Chicago")
 SENDING_DOMAIN = "asmbly.org"

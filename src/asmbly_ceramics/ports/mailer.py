@@ -48,6 +48,32 @@ def is_sending_address(address: str) -> bool:
         return False
 
 
+REFUSED_CODES = frozenset(
+    {
+        # SES v2's error responses (API_SendEmail.html, manage-sending-quotas-errors.html):
+        # SES answered that it did not take the message.
+        "AccountSuspendedException",
+        "BadRequestException",
+        "LimitExceededException",
+        "MailFromDomainNotVerifiedException",
+        "MessageRejected",
+        "NotFoundException",
+        "SendingPausedException",
+        "Throttling",
+        "ThrottlingException",
+        "TooManyRequestsException",
+        # The adapter's own refusal of a message too large to send, before any call.
+        "MessageTooLarge",
+    }
+)
+"""The codes a `Mailer` raises `SendFailed` with only when the message certainly wasn't
+sent. Any other code (a network error, a lost response, `unknown`) may have been sent:
+an adapter never uses one of these for a send whose outcome it doesn't know. So an
+adapter whose client retries on its own reports a refusal only if no earlier try timed
+out: phase 4's SES client either turns its own retries off or reports such a send as
+`unknown`."""
+
+
 class SendFailed(PortError):
     def __init__(self, code: str) -> None:
         self.code = error_code(code)  # the provider's error code, never its message

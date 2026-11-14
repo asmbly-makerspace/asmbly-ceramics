@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from asmbly_ceramics.domain.dropoff import DropOff, undo_rejection
-from asmbly_ceramics.domain.email import Email, is_history, needs_attention
+from asmbly_ceramics.domain.email import Email, needs_acting_on
 from asmbly_ceramics.domain.errors import NotFound, NotRejected, UndoTooLate
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.load import Load
@@ -60,7 +60,7 @@ class ViewDropOff:
             load=load,
             emails=emails,
             emails_needing_attention=tuple(
-                email for email in emails if needs_attention(email, now) and not is_history(drop_off, email)
+                email for email in emails if needs_acting_on(drop_off, email, now)
             ),
             can_undo_rejection=_can_undo(drop_off, now),
             reasons=active_items(studio.reasons),

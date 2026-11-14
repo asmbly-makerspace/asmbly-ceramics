@@ -7,7 +7,7 @@ nothing.
 import itertools
 from collections.abc import Collection, Hashable, Iterable, Sequence
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import datetime
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
@@ -97,10 +97,6 @@ class MemoryRecords:
     def loads_in(self, statuses: Collection[LoadStatus]) -> list[Load]:
         self._read("loads_in")
         return _by_date(load for load in self._all(Load) if load.status in statuses)
-
-    def loads_between(self, start: date, end: date) -> list[Load]:
-        self._read("loads_between")
-        return _by_date(load for load in self._all(Load) if start <= load.date < end)
 
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]:
         self._read("emails_for")

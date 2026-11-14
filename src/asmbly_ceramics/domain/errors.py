@@ -182,6 +182,21 @@ class EmailNotRetryable(DomainError):
         super().__init__("That email isn't failed.")
 
 
+class NoStaffEmail(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Your sign-in has no email address, so a test email can't be sent.")
+
+
+class TestEmailFailed(DomainError):
+    """The code is a provider's error code (`ports.errors.error_code`'s shape), never text."""
+
+    __test__ = False  # not a pytest test class, despite its name
+
+    def __init__(self, code: str) -> None:
+        super().__init__(f"The test email didn't send ({code}). Nothing was saved.")
+        self.code = code
+
+
 class TooManySubmissions(DomainError):
     def __init__(self) -> None:
         super().__init__("Too many drop-offs from here in the last few minutes. Try again later.")

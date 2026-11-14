@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from jinja2 import Environment, PackageLoader
 
-from asmbly_ceramics.domain.closing import is_closable
+from asmbly_ceramics.domain.closing import is_due_to_close
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.limits import STUDIO_TZ
@@ -26,6 +26,7 @@ from tests.domain.builders import (
     TEST_PHONE,
     a_drop_off,
     a_sending_address,
+    a_sent_ready_email,
     a_studio,
     an_address,
 )
@@ -260,8 +261,9 @@ def test_the_pickup_date_is_the_austin_day_the_close_waits_out(
         assert "You have 14 days" in part
     assert pickup_by(sent_at.astimezone(STUDIO_TZ), 14) == pickup_by(sent_at, 14)
     fired = a_drop_off(12, DropOffState.FIRED)
-    assert not is_closable(fired, sent_at, 14, window_ends - timedelta(seconds=1))
-    assert is_closable(fired, sent_at, 14, window_ends)
+    ready = a_sent_ready_email(fired.id, sent_at, 14)
+    assert not is_due_to_close(fired, ready, 1, window_ends - timedelta(seconds=1))
+    assert is_due_to_close(fired, ready, 1, window_ends)
 
 
 def test_ready_needs_an_aware_time() -> None:

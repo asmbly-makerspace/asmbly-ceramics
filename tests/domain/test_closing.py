@@ -3,11 +3,12 @@ from datetime import UTC, datetime, time, timedelta
 
 import pytest
 
-from asmbly_ceramics.domain.closing import close, is_closable, pickup_day, pickup_deadline
-from asmbly_ceramics.domain.dropoff import DropOffState, Rejection
-from asmbly_ceramics.domain.ids import ItemId, LoadId
+from asmbly_ceramics.domain.closing import close, is_due_to_close, pickup_day, pickup_deadline
+from asmbly_ceramics.domain.dropoff import DropOff, DropOffState, Rejection
+from asmbly_ceramics.domain.email import Email, EmailKind, claim, mark_sent, new_email
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import STUDIO_TZ
-from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off
+from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off, a_sent_ready_email
 
 WINDOW = 14
 DAYS = timedelta(days=WINDOW)
@@ -16,6 +17,16 @@ READY = NOW + timedelta(hours=2)  # the ready email went out after the firing
 READY_END = datetime(2026, 11, 28, 6, 0, tzinfo=UTC)  # 00:00 CST Sat 28 Nov
 REJECTED_END = READY_END  # the rejection (NOW) is the same Austin day
 SECOND = timedelta(seconds=1)
+
+
+def is_closable(drop_off: DropOff, ready_sent_at: datetime | None, window: int, now: datetime) -> bool:
+    """`is_due_to_close` for a ready email sent at `ready_sent_at` (unsent when `None`) that
+    gave `window`; a drop-off that isn't fired is given `window` as the studio's."""
+    if drop_off.state is not DropOffState.FIRED:
+        return is_due_to_close(drop_off, None, window, now)
+    unsent = claim(new_email(drop_off.id, EmailKind.READY, NOW), NOW)
+    ready = unsent if ready_sent_at is None else a_sent_ready_email(drop_off.id, ready_sent_at, window)
+    return is_due_to_close(drop_off, ready, window, now)
 
 
 def test_fired_closes_after_the_window_from_the_ready_email() -> None:
@@ -60,15 +71,16 @@ def test_is_closable_needs_a_window_and_an_aware_time() -> None:
         is_closable(fired, READY, WINDOW, NOW.replace(tzinfo=None))
 
 
-@pytest.mark.parametrize("state", [DropOffState.FIRED, DropOffState.REJECTED, DropOffState.WAITING])
-def test_is_closable_refuses_a_naive_ready_email_time(state: DropOffState) -> None:
+def test_is_closable_refuses_a_naive_ready_email_time() -> None:
+    # Only a fired drop-off's close reads a ready email's time.
     with pytest.raises(ValueError, match="aware"):
-        is_closable(a_drop_off(state=state), READY.replace(tzinfo=None), WINDOW, NOW + DAYS)
+        is_closable(a_drop_off(state=DropOffState.FIRED), READY.replace(tzinfo=None), WINDOW, NOW + DAYS)
 
 
-def test_rejected_without_its_rejection_never_closes() -> None:
+def test_rejected_without_its_rejection_is_reported_not_closed() -> None:
     rejected = replace(a_drop_off(state=DropOffState.REJECTED), rejection=None)
-    assert not is_closable(rejected, None, WINDOW, NOW + timedelta(days=365))
+    with pytest.raises(ValueError, match="no rejection"):
+        is_closable(rejected, None, WINDOW, NOW + timedelta(days=365))
 
 
 def test_close_deletes_contact_message_and_photos_and_keeps_the_rest() -> None:
@@ -172,3 +184,40 @@ def test_the_pickup_deadline_needs_a_window_and_an_aware_time() -> None:
         pickup_day(NOW, 0)
     with pytest.raises(ValueError, match="aware"):
         pickup_deadline(NOW.replace(tzinfo=None), 14)
+
+
+def _ready(sent_at: datetime | None, window: int | None, number: int = 1) -> Email:
+    email = claim(new_email(DropOffId(number), EmailKind.READY, NOW), NOW)
+    if sent_at is None:
+        return email
+    return replace(mark_sent(email, sent_at, pickup_window_days=WINDOW), pickup_window_days=window)
+
+
+def test_a_fired_drop_off_is_due_by_its_sent_ready_emails_kept_window() -> None:
+    fired = a_drop_off(1, DropOffState.FIRED)
+    sent = _ready(READY, WINDOW)
+    # The studio's window now (1 day) is ignored: the email gave 14.
+    assert not is_due_to_close(fired, sent, 1, READY_END - SECOND)
+    assert is_due_to_close(fired, sent, 1, READY_END)
+    # Not sent yet (or never queued): the window hasn't started.
+    assert not is_due_to_close(fired, _ready(None, None), 1, NOW + timedelta(days=365))
+
+
+def test_a_rejected_drop_off_is_due_by_the_studios_window() -> None:
+    rejected = a_drop_off(1, DropOffState.REJECTED)
+    assert not is_due_to_close(rejected, None, WINDOW, REJECTED_END - SECOND)
+    assert is_due_to_close(rejected, None, WINDOW, REJECTED_END)
+    assert not is_due_to_close(a_drop_off(1), None, WINDOW, NOW + timedelta(days=365))
+
+
+def test_a_broken_ready_email_is_reported_not_skipped() -> None:
+    fired = a_drop_off(1, DropOffState.FIRED)
+    with pytest.raises(ValueError, match="no pickup window"):
+        is_due_to_close(fired, _ready(READY, None), WINDOW, READY_END)
+    with pytest.raises(ValueError, match="no ready email"):
+        is_due_to_close(fired, None, WINDOW, READY_END)
+    rejected = replace(a_drop_off(1, DropOffState.REJECTED), rejection=None)
+    with pytest.raises(ValueError, match="no rejection"):
+        is_due_to_close(rejected, None, WINDOW, REJECTED_END)
+    with pytest.raises(ValueError, match="isn't AC-1's ready email"):
+        is_due_to_close(fired, _ready(READY, WINDOW, number=2), WINDOW, READY_END)

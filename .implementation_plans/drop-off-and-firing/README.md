@@ -101,7 +101,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   `rejected`, `status` `pending → sending → sent | failed`, or `cancelled` (from
   `pending` or `sending`, when the drop-off closed or its rejection was undone),
   `attempts`, `error_code`, `sent_at`. One per drop-off and kind (a `rejected` one per
-  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window.
+  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window, and it keeps `pickup_window_days`, the window it gave, which the close counts with (phase 3). An email failed, or stuck `sending` or `pending` for longer than `STALE_SENDING_AFTER` (a pending one counted from `retried_at` or `created_at`), needs attention and can be retried; a retry sets `retried_at`.
 
 ### The rules, each in one place
 
@@ -117,8 +117,9 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
-| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py` |
+| Close once the pickup window has passed since the ready email (fired, with the window that email gave) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py`, `is_due_to_close` and `close` |
 | Weekly counts Monday to Sunday, Austin time (#7) | `domain/counts.py` |
+| Undoing a rejection says to contact the person when its email went or may have: a failure is "not sent" only for a refused or pre-send code on a single attempt (#5) | `use_cases/emails.py`, `may_have_gone` and `NOT_SENT_CODES`; `ports/mailer.py`, `REFUSED_CODES` |
 
 The fixed numbers above (pieces, photos, sizes, rate limits, 60 days, 1,000 characters,
 48, the time zone `America/Chicago`) are rules the stories state, not settings, and live
@@ -208,7 +209,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [x] Complete |
 | [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [x] Complete |
 | [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [x] Complete |
-| [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
+| [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [x] Complete |
 | [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [ ] Pending |
 | [6](phase-6-drop-off-form.md) | The drop-off form | web | L | [ ] Pending |
@@ -283,6 +284,7 @@ or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a ti
 | Before phase 7 merges | The maintainer | His word, recorded in a new decision record amending decision 0002, that the form function's role may delete and list photos under `dropoffs/` (the submit's cleanup; 0002 gives that to the close only), and that the backstop for photos left under `dropoffs/` with no record (#19) is decided and built before prod takes real drop-offs (phase 7, Admin actions) |
 | Before phase 7 merges | AsmblyMCPs | Agree the sending right (Dependencies); no change to `mcp-bootstrap` is needed for a same-account sender, but the identity's owner decides |
 | After phase 7's first deploy | The maintainer | Confirm the alarm topic's email subscription |
+| Before phase 9 merges | The maintainer | Answer #20: the retention of a fired drop-off whose ready email never sends, and whether a rejected drop-off waits for its email before it closes |
 | Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
 | Before phase 8 is checked | asmbly-staff-login, Manage users | Put ceramics staff in the `ceramics` group |
 | Phase 10 | The maintainer and ceramics staff | Tell staff the switch date beforehand; replace the QR sign; close the ClickUp form; open the facilities issue and see it merged |

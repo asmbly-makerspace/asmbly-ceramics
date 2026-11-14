@@ -21,6 +21,7 @@ from asmbly_ceramics.ports.composer import ComposedEmail, Composer
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import Change, Conflict, Put, Records, Update
 from asmbly_ceramics.ports.staff import StaffMember
+from asmbly_ceramics.use_cases.emails import may_have_gone
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.studio import CurrentStudio
 
@@ -44,14 +45,13 @@ class UndoRequest:
 class RejectionEmail(StrEnum):
     """What became of the rejection email when the rejection was undone."""
 
-    CANCELLED = "cancelled"  # it was pending: it never went
+    CANCELLED = "cancelled"  # it was pending and never tried: it never went
     # It was sending: cancelled, but a mailer already past its `is_still_rejected` check
     # may be sending it now.
     MAY_HAVE_GONE = "may_have_gone"
     SENT = "sent"
-    # None was stored, or its send failed. A failed send is taken as not gone: whether a
-    # FAILED email may still have left (a send that failed after SES took it) is phase 3's
-    # call, with its mailer and its `mark_failed` reasons.
+    # None was stored, or its one attempt failed in a way that certainly kept it from
+    # going (`use_cases.emails.may_have_gone` is false). Any other failure is MAY_HAVE_GONE.
     NOT_SENT = "not_sent"
 
 
@@ -159,19 +159,24 @@ class UndoRejection:
         changes: list[Change] = [Update(undone)]
         if email is None:
             outcome = RejectionEmail.NOT_SENT
-        elif email.status in (EmailStatus.PENDING, EmailStatus.SENDING):
-            changes.append(Update(mark_cancelled(email)))
-            outcome = (
-                RejectionEmail.CANCELLED
-                if email.status is EmailStatus.PENDING
-                else RejectionEmail.MAY_HAVE_GONE
-            )
         elif email.status is EmailStatus.SENT:
             outcome = RejectionEmail.SENT
         else:
-            # FAILED stays FAILED (the domain cancels only pending and sending) and is taken
-            # as not gone (see `NOT_SENT`); a CANCELLED one can't belong to a live rejection.
-            outcome = RejectionEmail.NOT_SENT
+            if email.status in (EmailStatus.PENDING, EmailStatus.SENDING):
+                changes.append(Update(mark_cancelled(email)))
+            # FAILED stays FAILED (the domain cancels only pending and sending). Pending,
+            # failed or sending, it may have gone if any attempt may have reached the
+            # person (`may_have_gone`: sending now, a failure after the provider may have
+            # taken it, or an earlier attempt before a retry).
+            outcome = (
+                RejectionEmail.MAY_HAVE_GONE
+                if may_have_gone(email)
+                else (
+                    RejectionEmail.CANCELLED
+                    if email.status is EmailStatus.PENDING
+                    else RejectionEmail.NOT_SENT
+                )
+            )
         self._records.commit(changes)
         log_event(
             "rejection_undone",

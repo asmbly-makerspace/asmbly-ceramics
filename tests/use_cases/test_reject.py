@@ -22,6 +22,7 @@ from asmbly_ceramics.domain.email import (
     mark_sent,
     new_email,
     rejection_occasion,
+    retry,
 )
 from asmbly_ceramics.domain.errors import (
     ItemRetired,
@@ -370,6 +371,58 @@ def test_undo_after_the_email_failed_says_it_never_went(world: World) -> None:
     assert not undone.contact_the_person
     assert the_rejected_email(world).status is EmailStatus.FAILED
     assert world.view(AC_1).emails_needing_attention == ()
+
+
+def failed_rejected_email(world: World, code: str) -> None:
+    waiting(world)
+    world.reject(a_reject())
+    set_email(world, mark_failed(claim(the_rejected_email(world), NOW), code))
+
+
+def test_undo_after_an_unexpected_failure_says_it_may_have_gone(world: World) -> None:
+    """An exception during the send (`unexpected`): it may have left (#5)."""
+    failed_rejected_email(world, "unexpected")
+    undone = world.undo(an_undo())
+    assert undone.email is RejectionEmail.MAY_HAVE_GONE
+    assert undone.contact_the_person
+
+
+def test_undo_after_a_retried_may_have_gone_failure_still_says_it_may_have_gone(world: World) -> None:
+    """A retry clears the code: an earlier attempt that may have gone still counts, whether
+    the retry failed with a refused code or is still pending."""
+    failed_rejected_email(world, "unexpected")
+    set_email(world, retry(the_rejected_email(world), NOW))
+    assert world.undo(an_undo()).email is RejectionEmail.MAY_HAVE_GONE
+
+
+def test_undo_after_a_retry_refused_by_the_provider_still_says_it_may_have_gone(world: World) -> None:
+    failed_rejected_email(world, "unexpected")
+    set_email(world, mark_failed(claim(retry(the_rejected_email(world), NOW), NOW), "MessageRejected"))
+    assert world.undo(an_undo()).email is RejectionEmail.MAY_HAVE_GONE
+
+
+@pytest.mark.parametrize("code", ["unknown", "ReadTimeoutError"])
+def test_undo_after_an_unlisted_failure_code_says_it_may_have_gone(world: World, code: str) -> None:
+    """`unknown`, or any code not known to mean "not sent" (a lost response): staff contact
+    the person (#5)."""
+    waiting(world)
+    world.reject(a_reject())
+    set_email(world, mark_failed(claim(the_rejected_email(world), NOW), code))
+
+    undone = world.undo(an_undo())
+
+    assert undone.email is RejectionEmail.MAY_HAVE_GONE
+    assert undone.contact_the_person
+    assert the_rejected_email(world).status is EmailStatus.FAILED
+
+
+@pytest.mark.parametrize("code", ["photo_missing", "compose_failed", "MessageRejected"])
+def test_undo_after_a_failure_before_the_send_says_it_never_went(world: World, code: str) -> None:
+    waiting(world)
+    world.reject(a_reject())
+    set_email(world, mark_failed(claim(the_rejected_email(world), NOW), code))
+
+    assert world.undo(an_undo()).email is RejectionEmail.NOT_SENT
 
 
 def test_undo_without_a_stored_email_says_it_never_went(world: World) -> None:
