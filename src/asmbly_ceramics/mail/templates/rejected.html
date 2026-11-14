@@ -1,0 +1,19 @@
+{% extends "_layout.html" %}
+{% block content %}
+<h1 style="margin:0 0 16px 0;font-size:22px;color:#171d1a;">Your drop-off needs attention</h1>
+<p style="margin:0 0 12px 0;">Hi {{ name }},</p>
+<p style="margin:0 0 12px 0;">One or more of your pieces from drop-off <span style="font-family:'Courier New',Courier,monospace;font-weight:bold;color:#944180;">{{ id }}</span> has been rejected from kiln firing due to:</p>
+<p style="margin:0 0 16px 0;padding:8px 12px;border-left:4px solid #b34a9a;font-weight:bold;">{{ reason }}</p>
+{% if message_lines %}
+<h2 style="margin:0 0 8px 0;font-size:18px;color:#171d1a;">From Kiln Ops</h2>
+{% for line in message_lines %}
+<p style="margin:0 0 8px 0;">{{ line }}</p>
+{% endfor %}
+{% endif %}
+<p style="margin:16px 0 16px 0;">Please make adjustments and resubmit for firing with the drop-off form; you'll get a new ID. If you have questions, please reach out to the kiln lead at {{ sending_address }}.</p>
+<h2 style="margin:0 0 8px 0;font-size:18px;color:#171d1a;">Pickup hours</h2>
+{% for line in hours_lines %}
+<p style="margin:0 0 8px 0;">{{ line }}</p>
+{% endfor %}
+<p style="margin:16px 0 0 0;">~ Kiln Ops</p>
+{% endblock %}

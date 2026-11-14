@@ -1,0 +1,17 @@
+We received your drop-off
+
+Hi {{ name }}, thanks for dropping off. Here's your ID:
+
+{{ id }}
+
+Make sure each piece has a slip with this ID and your name.
+
+Pieces: {{ pieces }}
+Firing: {{ firing_type }}{% if glaze_type %} ({{ glaze_type }}){% endif %}
+
+Dropped off: {{ dropped_off }}
+
+We'll email you again when it's fired and ready for pickup.
+
+--
+{{ footer }}

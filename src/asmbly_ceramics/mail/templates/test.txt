@@ -1,0 +1,11 @@
+Test email
+
+This is a test email from the ceramics studio's console. Emails to people who drop off are sent from {{ sending_address }}.
+
+Pickup hours
+{% for line in hours_lines %}
+{{ line }}
+{% endfor %}
+
+--
+{{ footer }}

@@ -63,8 +63,11 @@ class PhotoStore(Protocol):
         `PhotosAlreadyKept` and stores nothing. Leaves the uploads alone
         (`discard_uploads` removes them).
 
-        All or nothing: when it raises, for any reason, nothing is left under
-        `drop_off_id` (the S3 adapter deletes the copies it wrote before raising). Once it
+        All or nothing: when it raises, nothing is left under `drop_off_id` (the S3
+        adapter deletes the copies it wrote before raising), except a copy whose own write
+        has an unknown outcome (a timeout, an answer after a retry): the S3 adapter can't
+        tell it from one kept before, so it logs `photos_not_deleted` and leaves it to the
+        backstop. Once it
         has returned, the photos have no record until the caller's commit lands, so a
         caller whose commit then fails, in any way (`Conflict`, `RecordsUnavailable`, or
         anything else), calls `delete_drop_off(drop_off_id)` before it returns or raises:

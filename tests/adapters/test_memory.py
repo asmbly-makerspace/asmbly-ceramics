@@ -7,7 +7,7 @@ port's contract would let a use case pass here and fail against AWS.
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -18,6 +18,7 @@ from asmbly_ceramics.adapters.memory.images import (
     NOT_IMAGE,
     TOO_LARGE,
     TOO_MANY_PIXELS,
+    UNSUPPORTED_TYPE,
     MemoryPhotoInspector,
 )
 from asmbly_ceramics.adapters.memory.mailer import MemoryMailer
@@ -306,9 +307,6 @@ def test_records_lists_filter_and_sort() -> None:
     assert records.drop_offs_rejected_between(NOW, NOW + 3 * day) == []
     assert ids(records.loads_in({LoadStatus.LOADING})) == ["L-1", "L-2"]
     assert ids(records.loads_in({LoadStatus.LOADING, LoadStatus.FIRED})) == ["L-1", "L-2", "L-3"]
-    today = NOW.date()
-    assert ids(records.loads_between(today, today + day)) == ["L-1", "L-2"]
-    assert ids(records.loads_between(today + day, date(2027, 1, 1))) == ["L-3"]
 
     ac1 = DropOffId(1)
     sent = replace(new_email(ac1, EmailKind.RECEIVED, NOW + day), status=EmailStatus.SENDING)
@@ -406,6 +404,45 @@ def test_records_keep_the_studio_and_submissions() -> None:
     assert records.submission("another-hash") is None
     with pytest.raises(Conflict):
         records.commit([Put(a_submission(2))])  # one drop-off per submission token
+
+
+def test_records_logs_each_read_by_method_name() -> None:
+    records = MemoryRecords()
+    records.commit([Put(a_submission())])
+    assert records.reads == []  # a commit is not a read
+    later = NOW + timedelta(days=1)
+    records.drop_off(DropOffId(1))
+    records.load(LoadId(1))
+    records.studio()
+    records.email(DropOffId(1), EmailKind.RECEIVED)
+    records.submission(TOKEN_HASH)
+    records.drop_offs_in({DropOffState.WAITING})
+    records.drop_offs_created_between(NOW, later)
+    records.drop_offs_rejected_between(NOW, later)
+    records.loads_in({LoadStatus.LOADING})
+    records.emails_for(DropOffId(1))
+    records.emails_in({EmailStatus.PENDING})
+    records.history(10)
+    records.is_item_used(CatalogList.FIRING_TYPES, ItemId("bisque"))
+    assert records.reads == [
+        "drop_off",
+        "load",
+        "studio",
+        "email",
+        "submission",
+        "drop_offs_in",
+        "drop_offs_created_between",
+        "drop_offs_rejected_between",
+        "loads_in",
+        "emails_for",
+        "emails_in",
+        "history",
+        "is_item_used",  # once, though it reads drop-offs and loads
+    ]
+    records.fail_reads_with = RecordsUnavailable("InternalServerError")
+    with pytest.raises(RecordsUnavailable):
+        records.submission(TOKEN_HASH)
+    assert records.reads[-1] == "submission"  # a failed read is logged too
 
 
 def test_fakes_refuse_a_naive_time() -> None:
@@ -630,6 +667,7 @@ def test_photo_store_failure_switch() -> None:
         (NOT_IMAGE, PhotoRefusal.NOT_IMAGE),
         (TOO_LARGE, PhotoRefusal.TOO_LARGE),
         (TOO_MANY_PIXELS, PhotoRefusal.TOO_MANY_PIXELS),
+        (UNSUPPORTED_TYPE, PhotoRefusal.UNSUPPORTED_TYPE),
     ],
 )
 def test_inspector_refuses_each_marker(marker: bytes, kind: PhotoRefusal) -> None:
@@ -885,6 +923,8 @@ def test_secrets_get_and_missing() -> None:
     values = {name: secrets.get(name) for name in SecretName}
     assert all(len(value) == 32 for value in values.values())
     assert len(set(values.values())) == len(SecretName)
+    secrets.set(SecretName.SESSION_KEY, b"s" * 32)
+    assert secrets.get(SecretName.SESSION_KEY) == b"s" * 32
     secrets.remove(SecretName.FORM_KEY)
     with pytest.raises(SecretMissing) as missing:
         secrets.get(SecretName.FORM_KEY)

@@ -1,0 +1,801 @@
+{
+  "plan_name": "drop-off-and-firing",
+  "run": "drop-off-and-firing-phases-2-4",
+  "issue": 1,
+  "feature_branch": "feat/drop-off-and-firing-phases-2-4",
+  "worktree": null,
+  "status": "in-progress",
+  "stage": "pr",
+  "selected_phases": [
+    "2a",
+    "2b",
+    "2c",
+    "2d",
+    "3",
+    "4"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "gh",
+    "sam": true,
+    "aws_read": true
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-2a-logging-studio-and-form-reads",
+      "number": "2a",
+      "title": "Use cases: logging, keyed hashes, the studio and the form's reads",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1d"
+      ],
+      "status": "done",
+      "base_sha": "ea9dfe15a93bf5c732e31a5bc40ef779ff9093a2",
+      "squashed_sha": "99341c6",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-2-drop-off-use-cases",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [],
+      "notes": "pytest 1246 passed, 99.53%; prep NEEDS REVISION fixed; review APPROVED round 1; privacy NOTEs for phase 5/6: form role seeding the studio needs a conditional create (decision 0002 says read only); phase 6 must pass the last X-Forwarded-For; phase 5 runbook must say hash-key rotation orphans live submissions; review-lead NOTEs deferred: phase 7 doc mislabels STUDIO writes as phase 3 seeding; CLAUDE.md shape section stale until the docs step; staff username shape unstated (phase 4); rate-limit fake has no one-shot failure; reviewers of 2b, 2d, 3 must check log_event user/error_code call sites pass only usernames or ports.errors codes; WARNs carried into 2b: one expiry function, SubmissionNotFound into domain/errors.py, phase 8/9 docs log fields; docs step must update README, architecture.md and CLAUDE.md built-so-far"
+    },
+    {
+      "id": "phase-2b-submit-drop-off",
+      "number": "2b",
+      "title": "Use cases: submit a drop-off",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "2a"
+      ],
+      "status": "done",
+      "base_sha": "99341c628c57f182d25b01b74dc1c2a2c6ca3356",
+      "squashed_sha": "12b711d",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-2-drop-off-use-cases",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [
+        "Maintainer, before phase 7 merges: approve the form role deleting/listing under dropoffs/ (decision 0002 gives it to the close) and the backstop in #19"
+      ],
+      "notes": "pytest 1486 passed, 99.54%; opened #18 (per-recipient limit) and #19; privacy NOTEs: #19 backstop must exist before prod takes real drop-offs (orphaned photos otherwise outlive the close); phase 4 adapter must wrap botocore ClientError (its message can quote item values) and phase 6 must never log str(error)"
+    },
+    {
+      "id": "phase-2c-email-composer",
+      "number": "2c",
+      "title": "The email composer and its templates",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1d"
+      ],
+      "status": "done",
+      "base_sha": "12b711d7aa16e76cc89734415f6dbf8842884d50",
+      "squashed_sha": "83eeac4",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-2-drop-off-use-cases",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        5
+      ],
+      "admin_actions": [],
+      "notes": "pytest 1537 passed, 99.57% before fixes; pickup-date question settled (end of the Austin day); rejected email has hours but no pick-up-by date, per the plan: maintainer call"
+    },
+    {
+      "id": "phase-2d-waiting-list-and-rejection",
+      "number": "2d",
+      "title": "Use cases: the waiting list, search, one drop-off and rejection",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "2a",
+        "2c"
+      ],
+      "status": "done",
+      "base_sha": "83eeac464ea1fdb6fd23a862d8588004d78b9675",
+      "squashed_sha": "6470012",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": "phase-2-drop-off-use-cases",
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        3,
+        5
+      ],
+      "admin_actions": [],
+      "notes": "pytest 1626 passed, 99.56%; privacy: staff use cases take no verified caller by design (decision 0002 checks token and ceramics group at the console route); phase 8 review must block any console route, including the preview photo route, without that check and tests for no token and a token outside the group; search text must stay out of URLs (POST)"
+    },
+    {
+      "id": "phase-3-load-and-studio-use-cases",
+      "number": "3",
+      "title": "Use cases: loads, settings, close, counts",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "2a",
+        "2b",
+        "2c",
+        "2d"
+      ],
+      "status": "done",
+      "base_sha": "647001285409b003aa147ec4c5ae5785928c4947",
+      "squashed_sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30",
+      "review_rounds": 3,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        4,
+        6,
+        7
+      ],
+      "admin_actions": [
+        "Maintainer: answer #20 (retention) before phase 9 merges"
+      ],
+      "notes": "1755 tests, 99.59% cov; follow-ups #21; needs-attention list added"
+    },
+    {
+      "id": "phase-4-aws-adapters",
+      "number": "4",
+      "title": "The AWS adapters",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [
+        "1d"
+      ],
+      "status": "done",
+      "base_sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30",
+      "squashed_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
+      "review_rounds": 2,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        3
+      ],
+      "admin_actions": [],
+      "notes": "2034 tests, 99.47% cov; opened #22; inspector memory unmeasured (1GB)"
+    }
+  ],
+  "gate": {
+    "base_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
+    "result": "clean",
+    "squashed_sha": null,
+    "test_count": 2034,
+    "coverage": "99.47%",
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a",
+    "result": "fixed",
+    "squashed_sha": null
+  },
+  "docs": {
+    "base_sha": null,
+    "squashed_sha": null
+  },
+  "qa": {
+    "base_sha": null,
+    "squashed_sha": null,
+    "closes": [],
+    "refs": []
+  },
+  "pr": {
+    "number": null,
+    "result": null,
+    "rounds": []
+  },
+  "merge_deploys": false,
+  "events": [
+    {
+      "ts": "2026-11-13T19:13:04Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-13T19:13:11Z",
+      "type": "phase_start",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-13T19:23:09Z",
+      "type": "phase_split",
+      "phase": "2",
+      "into": [
+        "2a",
+        "2b",
+        "2c",
+        "2d"
+      ],
+      "reason": "prep estimate ~2,500 lines, over 800"
+    },
+    {
+      "ts": "2026-11-13T19:23:09Z",
+      "type": "decision",
+      "topic": "KeyHasher NewTypes",
+      "choice": "keep str",
+      "reason": "ports take str; prefixes and a test guard it"
+    },
+    {
+      "ts": "2026-11-13T19:23:09Z",
+      "type": "decision",
+      "topic": "missing device cookie",
+      "choice": "form.expired",
+      "reason": "no shared device# bucket"
+    },
+    {
+      "ts": "2026-11-13T19:23:09Z",
+      "type": "decision",
+      "topic": "undo of failed email",
+      "choice": "leave FAILED, hide it, phase 3 refuses retry",
+      "reason": "domain cancels only pending/sending"
+    },
+    {
+      "ts": "2026-11-13T19:23:09Z",
+      "type": "phase_start",
+      "phase": "2a"
+    },
+    {
+      "ts": "2026-11-13T19:31:10Z",
+      "type": "decision",
+      "topic": "phase size limit",
+      "choice": "about 5,000 lines per phase for this run; keep the 2a-2d split already made",
+      "reason": "maintainer said phases may push about 5k lines; the split was committed and 2a was running, so redoing it would waste reviewed work"
+    },
+    {
+      "ts": "2026-11-13T19:55:43Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "slot limits",
+      "choice": "address counted only if device allowed; 2b doc too",
+      "reason": "one retrying phone cannot fill a shared wifi bucket"
+    },
+    {
+      "ts": "2026-11-13T19:55:43Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "IPv6",
+      "choice": "hash by /64",
+      "reason": "stops address rotation"
+    },
+    {
+      "ts": "2026-11-13T19:55:43Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "log values",
+      "choice": "bad strings logged as invalid",
+      "reason": "no PII, no crash"
+    },
+    {
+      "ts": "2026-11-13T19:57:17Z",
+      "type": "cold_review",
+      "phase": "2a",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 1
+    },
+    {
+      "ts": "2026-11-13T20:02:40Z",
+      "type": "cold_review",
+      "phase": "2a",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 3
+    },
+    {
+      "ts": "2026-11-13T20:11:25Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "Composer location",
+      "choice": "Composer Protocol, ComposedEmail in ports/composer.py; JinjaComposer in mail/",
+      "reason": "use cases import only domain, ports and use cases"
+    },
+    {
+      "ts": "2026-11-13T20:11:25Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "429 wording",
+      "choice": "Too many drop-offs from here in the last few minutes",
+      "reason": "TooManySubmissions does not say which limit refused"
+    },
+    {
+      "ts": "2026-11-13T20:11:25Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "log user and error_code shape",
+      "choice": "user: handle of at most 40 chars with a letter; error_code: letters and dots only",
+      "reason": "tokens cannot be fully told apart; tested and documented"
+    },
+    {
+      "ts": "2026-11-13T20:12:51Z",
+      "type": "cold_review",
+      "phase": "2a",
+      "round": 2,
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-13T20:19:29Z",
+      "type": "cold_review",
+      "phase": "2a",
+      "round": 2,
+      "reviewer": "review-lead",
+      "verdict": "CHANGES REQUESTED",
+      "block": 1,
+      "warn": 3
+    },
+    {
+      "ts": "2026-11-13T20:19:29Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "second cold-review fix round",
+      "choice": "one more fix round and one review-lead re-review; park if a BLOCK remains",
+      "reason": "the BLOCK was introduced by the first fix round, not left open by it; parking 2a would skip 2b, 2d and 3"
+    },
+    {
+      "ts": "2026-11-13T20:34:06Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "slug letter",
+      "choice": "slugs always hold a letter; new_item_id prefixes item- (06 becomes item-06)",
+      "reason": "keeps phone-shaped values out of item and reason logs"
+    },
+    {
+      "ts": "2026-11-13T20:34:06Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "error_code log shape",
+      "choice": "is_error_code plus 1-3 digits or lettered, no hyphen, under 64",
+      "reason": "takes planned codes, refuses phone, IP and digest shapes"
+    },
+    {
+      "ts": "2026-11-13T20:34:06Z",
+      "type": "decision",
+      "phase": "2a",
+      "topic": "phase 3 unexpected errors",
+      "choice": "class name in error_code, reason=unexpected",
+      "reason": "keeps reason narrow"
+    },
+    {
+      "ts": "2026-11-13T20:53:43Z",
+      "type": "cold_review",
+      "phase": "2a",
+      "round": 3,
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 4
+    },
+    {
+      "ts": "2026-11-13T20:53:43Z",
+      "type": "phase_done",
+      "phase": "2a"
+    },
+    {
+      "ts": "2026-11-13T20:54:10Z",
+      "type": "squash",
+      "unit": "phase-2a",
+      "sha": "99341c6"
+    },
+    {
+      "ts": "2026-11-13T20:54:10Z",
+      "type": "phase_start",
+      "phase": "2b"
+    },
+    {
+      "ts": "2026-11-13T21:24:52Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "timed-out commit",
+      "choice": "delete photos only if a re-read finds nothing",
+      "reason": "phase 4 confirms"
+    },
+    {
+      "ts": "2026-11-13T21:26:21Z",
+      "type": "cold_review",
+      "phase": "2b",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-13T23:21:22Z",
+      "type": "cold_review",
+      "phase": "2b",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 8
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "Conflict then the read fails",
+      "choice": "trust Conflict: delete kept photos, raise the read error",
+      "reason": "the Conflict contract says nothing was written"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "phase": "2b",
+      "topic": "submit 503 log",
+      "choice": "phase 6 logs drop_off_unavailable with error_code",
+      "reason": "a cleaned-up commit failure logs nothing from the use case"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "decision",
+      "topic": "re-review after a WARN-only fix round",
+      "choice": "no re-review; the final whole-branch cold review covers it",
+      "reason": "skill re-spawns only reviewers that raised a BLOCK"
+    },
+    {
+      "ts": "2026-11-13T23:24:29Z",
+      "type": "phase_done",
+      "phase": "2b"
+    },
+    {
+      "ts": "2026-11-13T23:24:31Z",
+      "type": "squash",
+      "unit": "phase-2b",
+      "sha": "12b711d"
+    },
+    {
+      "ts": "2026-11-13T23:24:31Z",
+      "type": "phase_start",
+      "phase": "2c"
+    },
+    {
+      "ts": "2026-11-13T23:25:01Z",
+      "type": "decision",
+      "topic": "maintainer said merge when green",
+      "choice": "run still ends at a green, ready pull request; after the claim is released, merge only on the maintainer confirming the pull request number",
+      "reason": "offshore never merges and the hook blocks it; CLAUDE.md needs his word for that pull request, which does not exist yet, and the merge needs --admin"
+    },
+    {
+      "ts": "2026-11-13T23:41:47Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "pickup deadline",
+      "choice": "domain.closing.pickup_deadline, UTC",
+      "reason": "build review BLOCK: one rule, one place"
+    },
+    {
+      "ts": "2026-11-13T23:42:45Z",
+      "type": "cold_review",
+      "phase": "2c",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-13T23:47:56Z",
+      "type": "cold_review",
+      "phase": "2c",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 5
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "pickup deadline",
+      "choice": "Austin date of start plus N days, ending at the next Austin midnight; is_closable uses it",
+      "reason": "date matches N days; no close on the emailed day"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "photo refs",
+      "choice": "ComposedEmail carries drop_off_id; outgoing refuses other or repeated refs",
+      "reason": "outgoing can check its own drop-off"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "decision",
+      "phase": "2c",
+      "topic": "phase 7 template check",
+      "choice": "compose_check.py on .aws-sam/build after sam build",
+      "reason": "smoke test sends no email"
+    },
+    {
+      "ts": "2026-11-13T23:52:54Z",
+      "type": "phase_done",
+      "phase": "2c"
+    },
+    {
+      "ts": "2026-11-13T23:52:56Z",
+      "type": "squash",
+      "unit": "phase-2c",
+      "sha": "83eeac4"
+    },
+    {
+      "ts": "2026-11-13T23:52:56Z",
+      "type": "phase_start",
+      "phase": "2d"
+    },
+    {
+      "ts": "2026-11-14T01:27:18Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "undo email outcome",
+      "choice": "RejectionEmail enum; SENDING reported as may_have_gone",
+      "reason": "prep found a race"
+    },
+    {
+      "ts": "2026-11-14T01:27:18Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "FAILED email on undo",
+      "choice": "stays FAILED; domain is_history",
+      "reason": "plan rule"
+    },
+    {
+      "ts": "2026-11-14T01:28:47Z",
+      "type": "cold_review",
+      "phase": "2d",
+      "reviewer": "privacy-guardian",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-14T01:30:05Z",
+      "type": "decision",
+      "topic": "maintainer: keep going, merge at any point, deploy if no risk",
+      "choice": "run continues through phase 4 and ends at a green pull request; after the claim is released, merge it on his standing word; nothing to deploy",
+      "reason": "offshore never merges mid-run and the hook blocks it; phases 2-4 have no page and no deploy (deploys start with phases 5 and 7)"
+    },
+    {
+      "ts": "2026-11-14T01:34:00Z",
+      "type": "cold_review",
+      "phase": "2d",
+      "reviewer": "review-lead",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 2
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "_occasion guard",
+      "choice": "dropped; reject uses rejection_occasion(now), undo raises NotRejected first",
+      "reason": "unreachable; src bans assert"
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "decision",
+      "phase": "2d",
+      "topic": "_read_back",
+      "choice": "returns DropOff or None and catches RecordsUnavailable; callers fall back",
+      "reason": "makes the missing-item path testable"
+    },
+    {
+      "ts": "2026-11-14T01:39:57Z",
+      "type": "phase_done",
+      "phase": "2d"
+    },
+    {
+      "ts": "2026-11-14T01:39:59Z",
+      "type": "squash",
+      "unit": "phase-2d",
+      "sha": "6470012"
+    },
+    {
+      "ts": "2026-11-14T01:39:59Z",
+      "type": "phase_start",
+      "phase": "3"
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "phase_done",
+      "phase": "3",
+      "lines": 3524
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "undo",
+      "choice": "MAY_HAVE_GONE unless refused/pre-send code, 1 try",
+      "reason": "fail safe (#5)"
+    },
+    {
+      "ts": "2026-11-14T02:52:12Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "retention",
+      "choice": "keep plan rule, #20",
+      "reason": "maintainer call"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "cold_review",
+      "phase": "3",
+      "lead": "APPROVE 3 WARN",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "missing drop-off",
+      "choice": "show its email in needs-attention",
+      "reason": "broken record shown, not hidden"
+    },
+    {
+      "ts": "2026-11-14T03:05:03Z",
+      "type": "decision",
+      "phase": "3",
+      "topic": "loads_between",
+      "choice": "dropped with phase 4 LOADDATE index",
+      "reason": "no caller"
+    },
+    {
+      "ts": "2026-11-14T03:05:05Z",
+      "type": "squash",
+      "phase": "3",
+      "sha": "12ef7c3de5b43c3271878e941414cb2c6dde9e30"
+    },
+    {
+      "ts": "2026-11-14T03:05:10Z",
+      "type": "phase_start",
+      "phase": "4"
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "phase_done",
+      "phase": "4",
+      "lines": 4781
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "commit outcome",
+      "choice": "CommitOutcomeUnknown; submit leaves photos to backstop",
+      "reason": "AC9"
+    },
+    {
+      "ts": "2026-11-14T17:06:36Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "read_upload",
+      "choice": "list prefix, no HEAD",
+      "reason": "403 without ListBucket"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "cold_review",
+      "phase": "4",
+      "lead": "REQUEST_CHANGES 1 BLOCK 3 WARN",
+      "privacy": "FLAG 1 WARN"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "timeouts",
+      "choice": "CLIENT_CONFIG 2s/4s/3 tries; SES 2s/10s/1",
+      "reason": "under API Gateway 30s"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "key names",
+      "choice": "drop *_KEY_PARAMETER from plans",
+      "reason": "SsmSecrets names from env"
+    },
+    {
+      "ts": "2026-11-14T17:25:01Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "bucket name",
+      "choice": "phase 7: random suffix, else Risk",
+      "reason": "presigned POST url shows it"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "cold_review",
+      "phase": "4",
+      "rereview": "APPROVE 1 WARN (plan IAM), fixed + 6 more role mismatches"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "mailer SES read",
+      "choice": "phase 7 doc: 30s read for stream mailer",
+      "reason": "timeout is client config"
+    },
+    {
+      "ts": "2026-11-14T17:35:20Z",
+      "type": "decision",
+      "phase": "4",
+      "topic": "request deadline",
+      "choice": "phase 7 prep picks it",
+      "reason": "design"
+    },
+    {
+      "ts": "2026-11-14T17:35:22Z",
+      "type": "squash",
+      "phase": "4",
+      "sha": "5a1941eab8d697e8e2536d0f96c707faeffbcd8a"
+    },
+    {
+      "ts": "2026-11-14T17:38:13Z",
+      "type": "gate_result",
+      "result": "clean",
+      "tests": 2034
+    },
+    {
+      "ts": "2026-11-14T17:38:13Z",
+      "type": "decision",
+      "topic": "sam validate",
+      "choice": "not run",
+      "reason": "no SAM template on branch"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "final_review",
+      "lead": "REQUEST_CHANGES 1 BLOCK -> fixed, re-review APPROVE 5 WARN (plan docs, carried to docs PR)",
+      "privacy": "FLAG 2 WARN fixed"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "form STUDIO PutItem",
+      "choice": "added to 0002 amending record list",
+      "reason": "nothing else can seed before phase 8"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "emails needing attention route",
+      "choice": "phase 8 GET /console/emails",
+      "reason": "phase 8 owns retry"
+    },
+    {
+      "ts": "2026-11-14T17:58:34Z",
+      "type": "decision",
+      "topic": "merge order",
+      "choice": "merge code PR before docs/QA/briefing; those go in a follow-up PR",
+      "reason": "maintainer asked to merge soon"
+    }
+  ]
+}

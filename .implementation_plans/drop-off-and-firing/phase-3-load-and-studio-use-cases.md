@@ -3,14 +3,14 @@ phase_id: 3
 title: "Use cases: loads, settings, close, counts"
 epic: 1
 implements: [4, 6, 7]
-depends_on: [2]
+depends_on: [2b, 2d]
 domain: [app]
 estimated_size: L
 ---
 
 # Phase 3: Use cases: loads, settings, close, counts
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-13 on branch feat/drop-off-and-firing-phases-2-4
 
 ## Required reading
 
@@ -22,8 +22,10 @@ estimated_size: L
 - This plan's [README](README.md#domain-model), phase 1 ([1b](phase-1b-drop-offs-photos-outbox.md), [1c](phase-1c-loads-waiting-search.md),
   [1d](phase-1d-ports-and-fakes.md)) (the
   load, email, studio and closing rules, the ports and fakes) and
-  [phase 2](phase-2-drop-off-use-cases.md) (`log_event`, `CurrentStudio`, `Composer`,
-  `outgoing`, the test `world` fixture). A name that differs from those is a mistake
+  phase 2 ([2a](phase-2a-logging-studio-and-form-reads.md): `log_event`, `CurrentStudio`,
+  the test `world` fixture; [2c](phase-2c-email-composer.md): `Composer`, `outgoing` (from `ports/composer.py`);
+  [2d](phase-2d-waiting-list-and-rejection.md): `FindDropOffs`, and the undone-rejection
+  rule `RetryEmail` and `SendPendingEmail` keep). A name that differs from those is a mistake
   here.
 - Story #4 (loads, the ready email, retry, the alarm), #6 (settings, test email,
   history), #7 (closing, counts), and epic #1's **Decided** list (the 14-day window
@@ -67,7 +69,30 @@ Under `tests/`:
 - `src/asmbly_ceramics/domain/errors.py`: add `NoStaffEmail` ("Your sign-in has no
   email address, so a test email can't be sent.") and `TestEmailFailed` ("The test email
   didn't send ({code}). Nothing was saved.", with `.code`).
+- `src/asmbly_ceramics/domain/email.py`: `Email` gains `pickup_window_days: int | None =
+  None`, the window a sent ready email gave; `mark_sent(email, at, *, pickup_window_days:
+  int | None = None)` requires it (1 or more) for a ready email and refuses it for the
+  other kinds (`ValueError`, a bug), so every sent ready email keeps the window the close
+  counts from. `tests/domain/test_email.py`: both rules. Phase 4's DynamoDB conversion
+  stores the field (its `/prep` adds it).
+- `src/asmbly_ceramics/ports/mailer.py`: `REFUSED_CODES`, the codes a `Mailer` raises
+  `SendFailed` with only when the provider answered that it did not take the message
+  (SES's error responses: `MessageRejected`, `ThrottlingException`, `Throttling`,
+  `TooManyRequestsException`, `LimitExceededException`, `SendingPausedException`,
+  `AccountSuspendedException`, `MailFromDomainNotVerifiedException`,
+  `NotFoundException`, `BadRequestException`, and the adapter's own
+  `MessageTooLarge`). Any other code (a network error, a lost response, `unknown`) may
+  have been sent.
+- `src/asmbly_ceramics/use_cases/reject.py` and `tests/use_cases/test_reject.py`:
+  `UndoRejection` reports a `FAILED` rejected email as `MAY_HAVE_GONE` when
+  `emails.may_have_gone(email)` (below: a code not in `NOT_SENT_CODES`, or more than one
+  attempt); the existing "failed means never
+  went" test keeps a refused code, and new tests cover `unexpected` and an unlisted code.
+- `tests/adapters/test_memory.py`: only if a `mark_sent` call there needs the new
+  keyword.
 - `tests/use_cases/conftest.py`: build this phase's use cases in the `world` fixture.
+- `use_cases/emails.py` and `use_cases/settings.py` import `Composer`, `ComposedEmail`
+  and `outgoing` from `asmbly_ceramics.ports.composer`, never from `mail/`: The use cases import only the domain, the ports and each other (`tests/domain/test_imports.py`, phase 2a), so they never import `mail/` or Jinja2. `ComposedEmail`, the `Composer` Protocol, `outgoing` and `cid` live in `ports/composer.py` (decided in phase 2a's review, like "AWS behind ports": the use cases depend on an interface, the templates are its one implementation); `mail/compose.py` holds `JinjaComposer`, which satisfies `Composer`.
 
 No dependency changes: Jinja2 came with phase 2.
 
@@ -123,7 +148,7 @@ class ChangeLoad:  # "Change kiln, firing or date", only while loading; firing t
 
 
 class AddToLoad:
-    def __init__(self, records: Records, clock: Clock) -> None: ...
+    def __init__(self, records: Records) -> None: ...
     def __call__(
         self, load_id: LoadId, drop_off_id: DropOffId, *, confirmed: bool, staff: StaffMember
     ) -> Load: ...
@@ -251,12 +276,38 @@ whose new image has `status = pending`. In order:
    drop-off's own email: no other address is possible here.
 6. `mailer.send(...)`. On success commit `mark_sent(email, now)` and log
    `event=email_sent`, `kind`, `drop_off_id`. For a ready email, `sent_at` is when the
-   pickup window starts (#7).
+   pickup window starts (#7). The ready email's record keeps the pickup window it was
+   composed with (`studio.pickup_window_days` at send, committed with `mark_sent`), so
+   the close counts from the same window the email's date came from (phase 2c's
+   review). Read the photos (step 4) by the same drop-off key as the recipient;
+   `outgoing` refuses a ref naming another drop-off or a repeated index.
 7. On `SendFailed(code)` commit `mark_failed(email, code)` and log, at ERROR:
    `event=email_failed`, `kind`, `drop_off_id`, `error_code`. On any other exception,
-   the same with `error_code=unexpected` (the exception's class name in `reason`, never
-   its text), and return instead of raising, so the stream doesn't retry a send that
-   may have half-happened.
+   the same with `reason=unexpected` and the exception's class name as `error_code`
+   (`KeyError`: `error_code`'s log shape takes it; never the exception's text; the
+   email stores `mark_failed(email, "unexpected")`), and return instead of raising, so
+   the stream doesn't retry a send that may have half-happened.
+
+   Because such a send may have reached the person, phase 2d's `UndoRejection` must not
+   keep telling staff it never went. **Decided (prep):** a failure is known not to
+   have gone only when its code is in `NOT_SENT_CODES` = `ports.mailer.REFUSED_CODES`
+   plus this module's pre-send codes, which are stored when the failure happened before
+   `mailer.send` was called: `photo_missing` (`UploadMissing` reading a photo),
+   `photos_unavailable` (`PhotosUnavailable`), `compose_failed` (the `Composer` or
+   `outgoing` raised `ValueError`), `drop_off_missing`, `records_unavailable` (the
+   drop-off or the studio couldn't be read after the claim), and `studio_missing` (the
+   mailer's read-only `CurrentStudio` raised `StudioNotSeeded`). `was_not_sent(code)` is
+   that check, and `may_have_gone(email)` adds that an email tried more than once may
+   have gone on an earlier attempt. `UndoRejection` gives `NOT_SENT` for a `FAILED`
+   email only when `may_have_gone` is false, and `MAY_HAVE_GONE` otherwise (`unexpected`, `unknown`, a timeout,
+   any code not listed): an allowlist, so a new code fails safe toward "contact the
+   person" (phase 2d's review, #5).
+   An unexpected exception raised before `mailer.send` is still stored as
+   `unexpected`. That is cautious, because it may come from inside the send.
+
+   A successful send whose `mark_sent` commit then fails is never marked failed. The
+   use case logs `event=email_unrecorded` at ERROR with `kind`, `drop_off_id` and
+   `error_code`, and returns `SENDING` (see below).
 
 **The log line phase 7's alarm counts** is exactly:
 `{"level": "ERROR", "event": "email_failed", "kind": "<received|ready|rejected>", "drop_off_id": "AC-12", "error_code": "<code>"}`
@@ -347,10 +398,13 @@ class DeleteCatalogItem: ...  # same signature; asks records.is_item_used first
   `outcome` (`sent` or `failed`), `error_code`.
 - `DeleteCatalogItem`: the domain refuses an active item (`InvalidSetting("status",
   "Retire Kiln Four before deleting it.")`): only a retired item can be deleted, so it
-  asks `records.is_item_used(...)` only once retiring has stopped new use, and a
-  `SubmitDropOff` or `StartLoad` naming the item can't commit between that read and the
-  delete (decided in phase 1's whole-branch review; no `Check` in the commit). Then
+  asks `records.is_item_used(...)` only once retiring has stopped new use. Then
   `ItemInUse` when used (#6: anything a drop-off or load has used stays retired).
+  **Accepted race (review round 1):** a `SubmitDropOff`, `RejectDropOff`, `StartLoad` or
+  `ChangeLoad` that read the studio before the retire, and commits after the delete, can
+  still name the deleted item, because no commit checks the studio's version. Closing it
+  needs a condition on the studio's version in those commits, which is a change to the
+  `Records` port, its fake and phase 4's adapter. It is left as a follow-up (#21).
 - `ViewStudio(before)`: `before` is the opaque cursor from the previous page's
   `older`; `BadCursor` (a hand-edited address) passes up to the page, which shows the
   first page. Changes saved at one instant are never split or skipped across pages.
@@ -371,7 +425,12 @@ class CloseFinished:
 
 1. `records.drop_offs_in({FIRED, REJECTED})`; the studio's current pickup window.
 2. For each: the ready email's `sent_at` when fired (`records.email(id, READY)`);
-   `is_closable(...)`. A fired drop-off whose ready email never sent is skipped; the
+   `is_due_to_close(...)` (its private `_is_closable` since the third review), which compares now with `pickup_deadline` (phase 2c's review):
+   the start of the Austin day after the pickup-by day the email named, so the close
+   never deletes on that day. For a fired drop-off the window passed is the one kept
+   with its sent ready email (below), never the studio's current window: staff
+   shortening it afterwards must not delete details before an emailed date. A fired
+   drop-off whose ready email never sent is skipped; the
    console's load and drop-off pages show its failed email (phase 9), and it closes
    once the email is sent and the window has passed.
 3. For each closable one: first `photos.delete_drop_off(id)` (idempotent), then commit
@@ -393,7 +452,9 @@ items hold only keyed hashes and an ID, and expire on their own (TTL, phase 4).
 @dataclass(frozen=True, slots=True)
 class CountsView:
     counts: WeekCounts
-    names: Mapping[ItemId, str]  # item names for the page, retired ones included
+    names: Mapping[
+        tuple[CatalogList, ItemId], str
+    ]  # item names, retired ones included (IDs are unique per list)
     overdue: tuple[WaitingRow, ...]  # waiting 60 days or more, oldest first (listed first on the page)
 
 
@@ -404,9 +465,45 @@ class WeeklyCounts:
     ) -> CountsView: ...  # the week containing day; this week by default
 ```
 
-Uses `records.drop_offs_created_between`, `records.loads_between` (filtered to loads
-fired that week), `records.drop_offs_rejected_between`, and the waiting list's overdue
-rows.
+Uses `records.drop_offs_created_between`, `records.loads_in({FIRED})` filtered to
+loads whose `fired_at` falls in the week, `records.drop_offs_rejected_between`, and the
+waiting list's overdue rows (`WaitingList`'s rows with `overdue`). **Decided (prep):**
+the week is not read with `loads_between`, which goes by the load's `date`. A load dated
+Sunday and fired overnight into Monday counts in the week it was fired.
+
+### Prep notes for the build (from this phase's audit)
+
+- `RetryEmail` reads the drop-off too. An email that `is_history` (the drop-off is
+  closed, or the rejection was undone) is refused with `EmailNotRetryable`. A retry of
+  an email that is already `PENDING` and not stuck (a double click) returns it unchanged
+  and commits nothing; one stuck pending is written again (review round 1). Tests: `test_retry_refuses_a_closed_drop_offs_email`,
+  `test_retry_of_a_pending_email_changes_nothing`.
+- In `SendPendingEmail` the catch-all starts only after a successful claim. Before
+  that, `RecordsUnavailable` and any other error are raised, so the stream retries and
+  nothing has been sent. `email_failed` is logged before the `mark_failed` commit, so
+  the alarm counts it even if that commit fails.
+- `MarkFired`, `StartFiring` and `ChangeLoad` let the domain's status refusal
+  (`AlreadyFired`, `LoadNotLoading`, `WrongLoadStatus`) win over a stale version. A
+  second click on "Fired" gets `AlreadyFired`, not `Conflict`.
+- `CloseFinished`: on a `Conflict` it reads the drop-off again. One already `CLOSED`
+  (by an overlapping run) isn't a failure. `close_failed` is logged at ERROR.
+- `SendTestEmail` passes `check_sending_address`'s normalized result to `outgoing`. A
+  `ValueError` from `outgoing` (the token's address isn't an address) becomes
+  `TestEmailFailed("bad_recipient")`.
+- `ChangeEmailSettings` with nothing changed commits and logs nothing, and returns the
+  studio as stored.
+- `test_flow_logs` also asserts that no record carries `exc_info`.
+- `WeekCounts.pieces` counts the pieces of drop-offs created that week, beside
+  `drop_offs`. `ListLoads` lists fired loads by `fired_at` within the last 8 weeks
+  (`loads_in({FIRED})`), not by `date`.
+- **Decided (prep):** a rejected drop-off closes by the rejection's time whatever its
+  rejected email's status. #7's retention rule bounds how long the details are kept,
+  and staff see the failed email on the drop-off's page throughout the window. This
+  differs from a fired drop-off, which waits for its ready email because the window
+  counts from that email. It is an open question for the maintainer (#20).
+- Phase 7 keeps the mailer function's timeout well under `STALE_SENDING_AFTER` (15
+  minutes), so a retry of a stuck email can't overlap a live send. Phase 9's close
+  handler calls `CloseFinished()` with no arguments: the use case reads the clock.
 
 ## Tests
 
@@ -478,7 +575,9 @@ rows.
 `tests/use_cases/test_close.py` (#7):
 
 - `test_a_fired_drop_off_closes_once_the_window_has_passed_since_the_ready_email`
-  (not one minute before).
+  (not one second before the end of the Austin pick-up-by day, at the next run).
+- `test_a_shorter_window_set_after_the_ready_email_doesnt_close_early` (the close uses
+  the window kept with the sent email).
 - `test_a_rejected_drop_off_closes_once_the_window_has_passed_since_the_rejection`.
 - `test_closing_deletes_name_email_phone_message_and_photos_and_keeps_the_rest`
   (asserts on the stored item and on `MemoryPhotoStore`).
@@ -494,7 +593,14 @@ rows.
 - `test_this_weeks_counts_by_firing_type_kiln_and_reason`;
   `test_overdue_drop_offs_are_listed_oldest_first`.
 
-`tests/use_cases/test_flow_logs.py`:
+`tests/use_cases/test_reject.py` (#5, added):
+
+- `test_undo_after_an_unexpected_failure_says_it_may_have_gone`;
+  `test_undo_after_an_unlisted_failure_code_says_it_may_have_gone`; the existing
+  refused-code test keeps `NOT_SENT`.
+
+`tests/use_cases/test_flow_logs.py` (next to phase 2's
+`test_no_personal_details_logged.py`, which covers the form and rejection alone):
 
 - `test_a_whole_flow_logs_no_personal_details`: with made-up details built in code
   (a name like "Test Person", an address built from parts on `example.org`, a phone
@@ -525,8 +631,8 @@ rows.
    from the unsaved address to the signed-in staff member only, and saves nothing (#6).
 8. Every settings change commits a `SettingChange` with the staff username and time
    (#6); a used item can be retired, not deleted (#6).
-9. `CloseFinished` closes a fired drop-off once the pickup window has passed since its
-   ready email went out, and a rejected one once it has passed since the rejection;
+9. `CloseFinished` closes a fired drop-off once the Austin day its ready email named
+   as "Pick up by" has ended, counted with the window kept with that email, and a rejected one once it has passed since the rejection;
    the closed record has no name, email, phone, message or photos, and its photos are
    gone from the store (#7).
 10. `WeeklyCounts` counts Monday to Sunday, Austin time (#7).
@@ -553,31 +659,92 @@ None.
 
 ## Hand-off
 
-Filled in when the phase is done.
+Built on `feat/drop-off-and-firing-phases-2-4` (2026-11-13). What the next phases can rely
+on, as built:
 
-For this phase's `/prep` (from phase 1's whole-branch review, not decided there):
+- **Constructors** (what phase 7's composition root builds): `StartLoad(records, ids,
+  clock, studio)`, `ChangeLoad(records, studio)`, `AddToLoad(records)`,
+  `RemoveFromLoad(records)`, `StartFiring(records)`, `MarkFired(records, clock)`,
+  `ViewLoad(records, clock, studio)`, `ListLoads(records, clock)`,
+  `SendPendingEmail(records, photos, mailer, clock, studio, composer)`,
+  `RetryEmail(records, clock)`, `ViewStudio(records, studio)`,
+  `ChangeEmailSettings` / `AddCatalogItem` / `RetireCatalogItem` / `RestoreCatalogItem` /
+  `DeleteCatalogItem(records, clock, studio)`, `SendTestEmail(mailer, studio, composer)`,
+  `CloseFinished(records, photos, clock, studio)`, `WeeklyCounts(records, clock,
+  studio)`. Where the plan listed a clock that the use case never reads (`AddToLoad`),
+  the use case doesn't take one.
+- From the phase's last cold review: `EmailsNeedingAttention(records, clock)` in
+  `use_cases/emails.py` is the console-wide list of emails needing attention
+  (`needs_acting_on`, oldest first, from `Records.emails_in` over pending, sending and
+  failed), as rows of key, status, error code and time only. It keeps a fired drop-off
+  whose ready email never went out in sight after its load leaves `ListLoads`; the
+  retention rule for such a drop-off stays with #20, before phase 9. `Records.loads_between`
+  had no caller and is gone from the port and the fake (phase 4 no longer indexes loads by
+  date). `domain.closing.is_closable` is now private (`_is_closable`): callers use
+  `is_due_to_close`. `StaffTokens.verify` sets `StaffMember.email` only from a verified
+  email claim, which `SendTestEmail` relies on.
+- From the cold review: the close's whole rule is `domain.closing.is_due_to_close(drop_off,
+  ready_email, studio_window_days, now)`. A sent ready email without its window raises,
+  and the close reports it as `close_failed` instead of keeping the details silently.
+  The console's "needs attention" check is `domain.email.needs_acting_on`, and phase 9
+  calls it too. `use_cases.emails.may_have_gone(email)` is what `UndoRejection` asks: an
+  email tried more than once may have gone, because `retry` clears the code.
+  `CountsView.names` is keyed by `(CatalogList, ItemId)`.
+- From review round 1 (privacy): a `pending` email the stream gave up on (phase 7's
+  dead-letter queue) counts as needing attention after `STALE_SENDING_AFTER`, counted
+  from `Email.retried_at` or `created_at`. "Try sending again" writes it again so the
+  stream redelivers it. Without this, a fired drop-off whose ready email was stuck there
+  would keep its details out of every console page's sight. Phase 4 stores `retried_at`
+  as well as `pickup_window_days`.
+- Follow-ups for the maintainer (review round 1, not done here): closing the
+  retire-then-delete race above (a studio-version condition in `Records.commit`), and a
+  claim commit whose response is lost, which leaves the email `sending` with no
+  `email_failed` line until the console shows it after 15 minutes (phase 4: an
+  idempotent commit, or phase 7: an alarm on stuck emails).
+- `use_cases/emails.py`: `SendPendingEmail(drop_off_id, kind, occasion) -> EmailStatus
+  | None` (`None`: nothing to do). It raises only before the claim, so the stream retries
+  only when nothing was sent. `RetryEmail(drop_off_id, kind, occasion, staff)`.
+  `was_not_sent(code)`, `NOT_SENT_CODES` and the pre-send codes `photo_missing`,
+  `photos_unavailable`, `compose_failed`, `drop_off_missing`, `records_unavailable`,
+  `studio_missing`, plus `unexpected`; `may_have_gone(email)`.
+  Log events: `email_sent`, `email_failed` (ERROR: the alarm's line), `email_cancelled`,
+  `email_unrecorded` (ERROR: sent, or failed, but the record couldn't be saved), and
+  `email_retried`.
+- `ports/mailer.py`: `REFUSED_CODES`. Phase 4's `SesMailer` raises `SendFailed` with one
+  of these only for SES's error responses, and uses any other code (`unknown`, a
+  network error's) when it can't know whether SES took the message.
+- `domain/email.py`: `Email.pickup_window_days`, set by `mark_sent` for a ready email.
+  Phase 4's item conversion must store it.
+- `use_cases/loads.py`: `LoadView`, `RECENT_LOADS` (8 weeks, by `fired_at`).
+  `use_cases/settings.py`: `StudioView`, `HISTORY_PAGE` (20), `BAD_RECIPIENT`.
+  `use_cases/close.py`: `CloseReport(closed, failed)`. `use_cases/counts.py`:
+  `CountsView`. `domain/counts.py`: `Week`, `week_containing`, `WeekCounts`,
+  `count_week`.
+- Log events for phase 7's metric filters: `load_started`, `load_changed`,
+  `added_to_load`, `removed_from_load`, `load_firing`, `load_fired`,
+  `settings_changed`, `test_email` (a failure at WARNING), `drop_off_closed`,
+  `close_failed` (ERROR), `close_run`.
 
-- **Retention of a fired drop-off whose ready email never sends** (review finding 8:
-  the maintainer's call). `is_closable` starts a fired drop-off's pickup window from the
-  ready email's `sent_at`, so a drop-off whose ready email stays `FAILED` (or is never
-  retried) is never closed and its name, email, phone and photos are kept with no end,
-  longer than #7 says. Prep asks the maintainer whether to close such a drop-off a fixed
-  time after `fired_at` (and what the window is), or to keep it until staff act and show
-  it on the console as needing attention; nothing in phase 1 changes until then.
-- **The use-count port shape** (review finding 5; phase 1d's hand-off): whether
-  `ViewStudio.used` stays a bool per item or becomes a count (phase 9's "Used by 212
-  loads"), and what read gives it.
+Decided at this phase's `/prep` and reviews (an unattended run, 2026-11-13), with the
+questions left for the maintainer:
 
-What the next phase can rely on, as planned:
-
-- `StartLoad`, `ChangeLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
-  `ViewLoad` (`LoadView`), `ListLoads`: what phase 9's load pages call.
-- `SendPendingEmail(drop_off_id, kind, occasion)`: what phase 7's mailer handler calls
-  for each stream record; `RetryEmail`: what phases 8 and 9's "Try sending again" call.
-- The alarm's log line: `event=email_failed` with `kind`, `drop_off_id`, `error_code`,
-  at ERROR.
-- `ViewStudio`, `ChangeEmailSettings`, `SendTestEmail`, `AddCatalogItem`,
-  `RetireCatalogItem`, `RestoreCatalogItem`, `DeleteCatalogItem`: phase 9's settings
-  page; `NoStaffEmail`, `TestEmailFailed`.
-- `CloseFinished` (`CloseReport`): phase 9's close handler; `WeeklyCounts`
-  (`CountsView`): phase 9's counts page.
+- Retention: a fired drop-off whose ready email never sends stays open, and its email
+  shows as needing attention (failed, or stuck sending or pending). A rejected
+  drop-off closes by the rejection's time whatever its email's status. Both are open
+  questions for the maintainer in #20, to settle before phase 9 merges. A limit for
+  fired drop-offs touches `domain/closing.py` alone. Making a rejected drop-off wait for
+  its email also changes `is_due_to_close`'s signature and `CloseFinished`, which today
+  reads no email for a rejected drop-off.
+- `ViewStudio.used` stays a bool from `Records.is_item_used`. Phase 9 shows "Used" or
+  "Not used yet", its own fallback; no story asks for a count.
+- Follow-ups in #21: the retire-then-delete race (a studio-version condition in
+  `Records.commit`), a lost claim response, and a repeated "Start load".
+- For phase 4's `/prep`: `SendFailed` has no `retryable`, and the mailer marks every
+  `SendFailed` `failed` (staff retry it). `SesMailer` uses `REFUSED_CODES` only for SES's
+  error responses, and only when it made one attempt: SES's client retries are turned
+  off, or a send whose earlier try got no answer is reported as `unknown`, with a
+  Stubber test (else a timed-out send that SES took, then a throttled retry, would tell
+  an undo `NOT_SENT`). The item conversion stores every `Email` field, including
+  `pickup_window_days` and `retried_at`, with a round-trip test asserting each one.
+- For phase 7's `/prep`: alarm on `email_unrecorded` as well as `email_failed`, since a
+  ready email left `sending` never starts its window.

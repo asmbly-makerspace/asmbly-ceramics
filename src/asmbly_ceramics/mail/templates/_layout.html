@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ subject }}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F2F4EF;color:#171d1a;font-family:Roboto,Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F4EF;">
+<tr><td align="center" style="padding:0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background-color:#ffffff;">
+<tr><td style="background-color:#292D6A;color:#F2F4EF;padding:16px 24px;font-size:22px;font-weight:bold;letter-spacing:1px;">ASMBLY</td></tr>
+<tr><td style="background-color:#b34a9a;color:#ffffff;padding:10px 24px;font-size:18px;font-weight:bold;">Ceramics</td></tr>
+<tr><td style="padding:24px;">
+{% block content %}{% endblock %}
+{% if photos is defined and photos %}
+<div style="margin-top:24px;">
+{% for src, n in photos %}
+<p style="margin:0 0 12px 0;"><img src="{{ src }}" alt="Photo {{ n }} of {{ id }}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border:0;"></p>
+{% endfor %}
+</div>
+{% endif %}
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #caccd4;color:#171d1a;font-size:13px;">{{ footer }}</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

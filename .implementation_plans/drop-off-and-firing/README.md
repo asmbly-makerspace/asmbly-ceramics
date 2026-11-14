@@ -40,7 +40,10 @@ What was found on 13 November 2026, before planning:
   app registry that would create this app's client (its #5, `apps/ceramics-staff.yaml`,
   publishing `/config/cognito/staff/ceramics-staff-app-client-id`) are planned, not
   built. Web clients are public, use the code flow with PKCE and `openid` only, and get
-  60-minute tokens. There is one pool for stage and prod. Usernames are handles, not
+  60-minute tokens. This app's client needs `openid email` instead (the test email,
+  phase 9, goes to the signed-in staff member's verified `email` claim, and the app
+  asks for both scopes: a client allowing `openid` only refuses the sign-in with
+  `invalid_scope`); the admin action for asmbly-staff-login below asks for it. There is one pool for stage and prod. Usernames are handles, not
   addresses.
 - **The facilities repository** serves the kiln drop-off viewer, a public page listing
   the last day's ClickUp drop-offs by name, which the ClickUp form redirects to. Its
@@ -101,7 +104,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   `rejected`, `status` `pending → sending → sent | failed`, or `cancelled` (from
   `pending` or `sending`, when the drop-off closed or its rejection was undone),
   `attempts`, `error_code`, `sent_at`. One per drop-off and kind (a `rejected` one per
-  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window.
+  rejection: its key adds the rejection's time as `rejection_occasion` gives it). The ready email's `sent_at` starts the pickup window, and it keeps `pickup_window_days`, the window it gave, which the close counts with (phase 3). An email failed, or stuck `sending` or `pending` for longer than `STALE_SENDING_AFTER` (a pending one counted from `retried_at` or `created_at`), needs attention and can be retried; a retry sets `retried_at`.
 
 ### The rules, each in one place
 
@@ -117,8 +120,9 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
-| Close once the pickup window has passed since the ready email (fired) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py` |
+| Close once the pickup window has passed since the ready email (fired, with the window that email gave) or since the rejection (rejected); delete the details, keep the rest (#7) | `domain/closing.py`, `is_due_to_close` and `close` |
 | Weekly counts Monday to Sunday, Austin time (#7) | `domain/counts.py` |
+| Undoing a rejection says to contact the person when its email went or may have: a failure is "not sent" only for a refused or pre-send code on a single attempt (#5) | `use_cases/emails.py`, `may_have_gone` and `NOT_SENT_CODES`; `ports/mailer.py`, `REFUSED_CODES` |
 
 The fixed numbers above (pieces, photos, sizes, rate limits, 60 days, 1,000 characters,
 48, the time zone `America/Chicago`) are rules the stories state, not settings, and live
@@ -126,9 +130,10 @@ as named constants in the domain. Everything #6 calls a setting is in `Studio`.
 
 ### Ports
 
-Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
-`adapters/memory/` (phase 1d) that the use case tests use, and an adapter the app uses
-(phase 4). Besides the errors below, a port that can't reach AWS raises its
+Each is a `Protocol` in `src/asmbly_ceramics/ports/`. Every port but `Composer` has an
+in-memory fake in `adapters/memory/` (phase 1d) that the use case tests use, and an
+adapter the app uses (phase 4); `Composer` touches no AWS, so its one implementation,
+`JinjaComposer` (phase 2c), serves both the tests and the app. Besides the errors below, a port that can't reach AWS raises its
 `Unavailable(code)` subclass (`RecordsUnavailable`, `IdsUnavailable`,
 `PhotosUnavailable`, `SignInUnavailable`, `SecretsUnavailable`), which pages show as
 "try again".
@@ -144,6 +149,7 @@ Each is a `Protocol` in `src/asmbly_ceramics/ports/`, with an in-memory fake in
 | `RateLimiter` | `hit(key, limit, now) -> bool` | `adapters/aws/rate_limit.py` (DynamoDB, TTL) | `adapters/memory/rate_limit.py` |
 | `Clock` | `now() -> datetime` (aware) | `adapters/clock.py` | `adapters/memory/clock.py` |
 | `Secrets` | `get(name) -> bytes` | `adapters/aws/secrets.py` (SSM SecureString) | `adapters/memory/secrets.py` |
+| `Composer` (`ports/composer.py`, phase 2c) | `received`, `ready`, `rejected`, `test`: each returns a `ComposedEmail` | `mail/compose.py` (`JinjaComposer`, Jinja2 with autoescape) | none: the use case tests build `JinjaComposer` |
 
 ### Use cases
 
@@ -151,12 +157,16 @@ One module per thing a person does, in `src/asmbly_ceramics/use_cases/`, each a 
 whose constructor takes the ports and whose `__call__` takes a typed request. They log
 by ID and username only.
 
-- Phase 2: `ViewStudioChoices`, `ReceivedSummary`, `RequestUploadSlots`, `SubmitDropOff`,
-  `WaitingList`, `FindDropOffs`,
-  `ViewDropOff`, `PreviewRejection`, `RejectDropOff`, `UndoRejection`, and the email
-  composer `mail/compose.py` (the three emails, Jinja2 with autoescape).
+- Phase 2a: `CurrentStudio`, `ViewStudioChoices`, `ReceivedSummary`,
+  `RequestUploadSlots` (with `log_event` and `KeyHasher`); 2b: `SubmitDropOff`; 2c: the
+  email composer, the `Composer` port in `ports/composer.py` that the use cases import and
+  `JinjaComposer` in `mail/compose.py` (the three emails and the test email, Jinja2 with
+  autoescape); 2d: `WaitingList`, `FindDropOffs`, `ViewDropOff`, `PreviewRejection`,
+  `RejectDropOff`, `UndoRejection`.
 - Phase 3: `StartLoad`, `ChangeLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
-  `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `ViewStudio`,
+  `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `EmailsNeedingAttention`
+  (the console's studio-wide list of failed or stuck emails, phase 8's
+  `/console/emails`), `ViewStudio`,
   `ChangeEmailSettings`, `SendTestEmail`, `AddCatalogItem`, `RetireCatalogItem`,
   `RestoreCatalogItem`, `DeleteCatalogItem`, `CloseFinished`, `WeeklyCounts`.
 
@@ -181,10 +191,10 @@ use case call and its result into a response. `src/asmbly_ceramics/composition.p
 
 | Story | Title | Phases |
 | --- | --- | --- |
-| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2, 4, 6, 7 |
-| #3 | Ceramics staff sign in and see what's waiting | 1c, 2, 8 |
+| #2 | Drop off a piece and get an ID on screen | 1b, 1d, 2a, 2b, 2c, 4, 6, 7 |
+| #3 | Ceramics staff sign in and see what's waiting | 1c, 2d, 8 |
 | #4 | Build a kiln load and fire it | 1c, 1d, 3, 7, 9 |
-| #5 | Reject a drop-off with a reason and a message | 1b, 2, 8 |
+| #5 | Reject a drop-off with a reason and a message | 1b, 2c, 2d, 8 |
 | #6 | Staff manage the studio's settings in the console | 1a, 3, 9 |
 | #7 | Finished drop-offs close and personal details are deleted | 1b, 1c, 3, 9 |
 | #8 | The studio switches from ClickUp | 10 |
@@ -200,9 +210,12 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [1b](phase-1b-drop-offs-photos-outbox.md) | The domain: drop-offs, photos, the outbox and closing | app | L | [x] Complete |
 | [1c](phase-1c-loads-waiting-search.md) | The domain: loads, the waiting list and search | app | M | [x] Complete |
 | [1d](phase-1d-ports-and-fakes.md) | The ports and their in-memory fakes | app | L | [x] Complete |
-| [2](phase-2-drop-off-use-cases.md) | Use cases: drop off, waiting list, reject | app | L | [ ] Pending |
-| [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [ ] Pending |
-| [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [ ] Pending |
+| [2a](phase-2a-logging-studio-and-form-reads.md) | Use cases: logging, keyed hashes, the studio and the form's reads | app | L | [x] Complete |
+| [2b](phase-2b-submit-drop-off.md) | Use cases: submit a drop-off | app | L | [x] Complete |
+| [2c](phase-2c-email-composer.md) | The email composer and its templates | app | L | [x] Complete |
+| [2d](phase-2d-waiting-list-and-rejection.md) | Use cases: the waiting list, search, one drop-off and rejection | app | L | [x] Complete |
+| [3](phase-3-load-and-studio-use-cases.md) | Use cases: loads, settings, close, counts | app | L | [x] Complete |
+| [4](phase-4-aws-adapters.md) | The AWS adapters | app | L | [x] Complete |
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [ ] Pending |
 | [6](phase-6-drop-off-form.md) | The drop-off form | web | L | [ ] Pending |
 | [7](phase-7-first-deploy.md) | First deploy: stage and prod | infra, ci | L | [ ] Pending |
@@ -215,17 +228,24 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 Between phases (`depends_on`, direct only):
 
 ```
-1a ──▶ 1b ──▶ 1c ──▶ 1d ──▶ 2 ──▶ 3 ─────────────┐
-                      │     └───▶ 6 ──┐           ▼
-                      └───▶ 4 ───────▶ 7 ──▶ 8 ──▶ 9 ──▶ 10
-                            5 ────────┘
+1a ──▶ 1b ──▶ 1c ──▶ 1d ──┬──▶ 2a ──┬──▶ 2b
+                          │         └──▶ 2d        (2d also needs 2c)
+                          ├──▶ 2c
+                          └──▶ 4
+
+2b + 2d ──▶ 3          2b + 2c ──▶ 6          4 + 5 + 6 ──▶ 7
+3 + 7 ──▶ 8 ──▶ 9 ──▶ 10                      5 needs nothing
 ```
 
-- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2 needs 1d; 3 needs 2; 4 needs 1d; 5 needs
-  nothing; 6 needs 2; 7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
+- 1b needs 1a; 1c needs 1b; 1d needs 1c; 2a needs 1d; 2b needs 2a; 2c needs 1d; 2d
+  needs 2a and 2c; 3 needs 2b and 2d; 4 needs 1d; 5 needs nothing; 6 needs 2b and 2c;
+  7 needs 4, 5 and 6; 8 needs 3 and 7; 9 needs 8; 10 needs 9.
 - Phase 1 (the domain model, ports and fakes) was split into 1a to 1d by `/prep` on
   2026-11-13, because its estimate was near 2,000 changed lines. "Phase 1" elsewhere in
   this plan means all four.
+- Phase 2 (the use cases behind the form and the first half of the console) was split
+  into 2a to 2d by `/prep` on 2026-11-13, because its estimate was about 2,500 changed
+  lines. "Phase 2" elsewhere in this plan means all four.
 
 Outside this repository:
 
@@ -234,7 +254,7 @@ Outside this repository:
 | Phase 5 runs | Rights to add records to the `asmbly.org` zone (the maintainer deploys the bootstrap) | By hand; the zone belongs to another project |
 | Phase 7 merges | Agreement that asmbly-ceramics' roles may send from the `asmbly.org` identity, From limited to `asmbly.org` | AsmblyMCPs: an issue and a decision record there (the identity is in `mcp-bootstrap`) |
 | Phase 8 merges | The `ceramics` group | asmbly-staff-login#4 (plan `access-groups`, phase 1) |
-| Phase 8 merges | This app's client and `/config/cognito/staff/ceramics-staff-app-client-id` | asmbly-staff-login#5 (plan `add-an-app`), then the `apps/ceramics-staff.yaml` pull request there |
+| Phase 8 merges | This app's client (scopes `openid` and `email`) and `/config/cognito/staff/ceramics-staff-app-client-id` | asmbly-staff-login#5 (plan `add-an-app`), then the `apps/ceramics-staff.yaml` pull request there |
 | Phase 8 is checked | Ceramics staff in the `ceramics` group | asmbly-staff-login#3, Manage users |
 | Phase 10 | The kiln drop-off viewer retired and pointed at the new form | The facilities repository (an issue there) |
 | Phase 10 | The ClickUp form closed to new drop-offs, its redirect changed | ClickUp, by hand |
@@ -245,13 +265,18 @@ Pairs with no `depends_on` path between them:
 
 | Pair | Verdict | Why |
 | --- | --- | --- |
-| 5 and 1a to 1d, 2, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
+| 5 and 1a to 1d, 2a to 2d, 3, 4 or 6 | parallel-safe | 5 touches `infra/bootstrap.yaml`, `docs/runbooks/`, `tests/repo/test_bootstrap.py`, `CLAUDE.md`'s checks and `pr-checks.yml`, which none of them touch |
 | 3 and 4 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 | 3 and 6 | sequential-only | both change `pyproject.toml`, `uv.lock` and `src/asmbly_ceramics/mail/templates/` (6 adds the shared brand partials) |
-| 4 and 2 | sequential-only | both change `pyproject.toml` and `uv.lock` |
+| 2c and 2a or 2b | parallel-safe | 2c touches only `mail/`, `ports/composer.py`, `tests/mail/`, its port's test, `pyproject.toml` and `uv.lock`, which 2a and 2b don't |
+| 4 and 2c | sequential-only | both change `pyproject.toml` and `uv.lock` |
+| 4 and 2a | sequential-only | 2a changed `tests/domain/test_imports.py` (it walks `use_cases/`), which phase 4 extends to `mail/`, `web/` and the AWS libraries; 2a is built first |
+| 4 and 2b or 2d | parallel-safe | 2b and 2d touch only `use_cases/` and `tests/use_cases/` (2d also `domain/email.py` and `tests/domain/test_email.py`), which phase 4 doesn't; 2d's use cases import the `Composer` port from 2c's `ports/composer.py`, never `mail/`, so neither changes the import check (decided in 2a's review) |
+| 6 and 2d | parallel-safe | 6 touches `web/` and `mail/templates/`; 2d touches only `use_cases/`, `tests/use_cases/`, `domain/email.py` and `tests/domain/test_email.py` (its test fixture builds 2c's `JinjaComposer` but changes nothing in `mail/`) |
 | 4 and 6 | sequential-only | both change `pyproject.toml` and `uv.lock` |
 
-In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time.
+In practice: 5 can be built while 1a to 4 and 6 are; 2c beside 2a or 2b, 4 beside 2b
+or 2d, and 6 beside 2d, as the rows above say; every other pair goes one at a time.
 
 ## Admin actions
 
@@ -261,9 +286,11 @@ In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time
 | After phase 5 merges | The maintainer, with rights to the `asmbly.org` zone | Deploy `asmbly-ceramics-bootstrap` by hand, following `docs/runbooks/aws-bootstrap.md` (phase 5); check the certificates are issued |
 | After phase 5 merges | The maintainer | Create the GitHub environments `stage` and `prod` (deployments from `main` only) and their variables: `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`. No address is a GitHub variable: the repository's Actions logs are public |
 | Before phase 7 merges | The maintainer, by hand | For stage and prod, set the SecureStrings `/asmbly-ceramics/<env>/hash-key`, `form-key` and `session-key` (32 random bytes each) and the Strings `/asmbly-ceramics/<env>/alert-email` (the maintainers' address) and `initial-sending-address` (the studio's address at `asmbly.org`), by phase 5's runbook |
+| Before phase 7 merges | The maintainer | His word, recorded in a new decision record amending decision 0002, on each of: (1) the form function's role may delete photos under `dropoffs/` (the submit's cleanup; 0002 gives that to the close only; it lists only `uploads/`, never `dropoffs/`), and the backstop for photos left under `dropoffs/` with no record (#19) is decided and built before prod takes real drop-offs (phase 7, Admin actions); (2) the form function's role may `PutItem` on `STUDIO` (phase 2a's first-use seeding of the studio from `INITIAL_SENDING_ADDRESS`; 0002 lets the form only read settings), so a form function whose code was taken over (it decodes hostile images) could rewrite the studio's settings and lists, the sending address still limited to `asmbly.org` by the domain's check and the mailer's `ses:FromAddress` condition; no other function exists before phase 8 to seed it, and seeding from the deploy would give the deploy role data rights; (3) restating what 0002 already accepts: the form's role can `PutItem` on `DROPOFF#*` and `EMAIL#*`, and IAM can't require `attribute_not_exists`, so a taken-over form function could rewrite an existing drop-off's email address and queue an email that sends that drop-off's photos there |
 | Before phase 7 merges | AsmblyMCPs | Agree the sending right (Dependencies); no change to `mcp-bootstrap` is needed for a same-account sender, but the identity's owner decides |
 | After phase 7's first deploy | The maintainer | Confirm the alarm topic's email subscription |
-| Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
+| Before phase 9 merges | The maintainer | Answer #20: the retention of a fired drop-off whose ready email never sends, and whether a rejected drop-off waits for its email before it closes |
+| Before phase 8 merges | asmbly-staff-login | The `ceramics` group and the `ceramics-staff` client (Dependencies), allowing the OAuth scopes `openid` and `email` (the app asks for both; `openid` alone refuses the sign-in), with return URLs `https://ceramics.asmbly.org/console/auth/callback` and `https://ceramics-stage.asmbly.org/console/auth/callback`, sign-out URLs the two addresses' `/console/signed-out`; and the console's address added to the staff invitation |
 | Before phase 8 is checked | asmbly-staff-login, Manage users | Put ceramics staff in the `ceramics` group |
 | Phase 10 | The maintainer and ceramics staff | Tell staff the switch date beforehand; replace the QR sign; close the ClickUp form; open the facilities issue and see it merged |
 
@@ -368,7 +395,10 @@ In practice: 5 can be built while 1a to 4 and 6 are; the others go one at a time
   person who made the drop-off, or to the signed-in staff member for a test.
 - **AWS**: every name starts with `asmbly-ceramics-`; every resource carries the five
   tags; the deploy roles are scoped by name and tag and denied every other project's
-  resources; the form's role can't read photos or read or list drop-offs, holds only its
+  resources; the form's role can't read or list kept photos or read or list drop-off
+  records (it may delete objects under `dropoffs/`, only to remove the photos of a submit
+  whose commit failed, once a new decision record amending 0002 allows it; phase 7; its
+  only listing is of `uploads/<slot id>/`), holds only its
   own two keys (`hash-key`, `form-key`; the console's `session-key` is the console's
   alone), and its ID page reads only the submission's summary; a taken-over form
   function could still overwrite a drop-off with a `Put`, which IAM can't prevent

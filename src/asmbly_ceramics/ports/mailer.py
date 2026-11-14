@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from asmbly_ceramics.domain.errors import SendingAddressOutsideAsmbly
-from asmbly_ceramics.domain.studio import check_sending_address
+from asmbly_ceramics.domain.studio import check_sending_address, is_valid_email
 from asmbly_ceramics.ports.errors import PortError, error_code
 
 
@@ -48,6 +48,42 @@ def is_sending_address(address: str) -> bool:
         return False
 
 
+REFUSED_CODES = frozenset(
+    {
+        # SES v2's error responses (API_SendEmail.html, manage-sending-quotas-errors.html):
+        # SES answered that it did not take the message.
+        "AccountSuspendedException",
+        "BadRequestException",
+        "LimitExceededException",
+        "MailFromDomainNotVerifiedException",
+        "MessageRejected",
+        "NotFoundException",
+        "SendingPausedException",
+        "Throttling",
+        "ThrottlingException",
+        "TooManyRequestsException",
+        # The adapter's own refusal of a message too large to send, before any call.
+        "MessageTooLarge",
+    }
+)
+"""The codes a `Mailer` raises `SendFailed` with only when the message certainly wasn't
+sent. Any other code (a network error, a lost response, `unknown`) may have been sent:
+an adapter never uses one of these for a send whose outcome it doesn't know. So an
+adapter whose client retries on its own reports a refusal only if no earlier try timed
+out: phase 4's SES client either turns its own retries off or reports such a send as
+`unknown`."""
+
+
+def check_outgoing(message: OutgoingEmail) -> None:
+    """What every `Mailer` refuses before sending, with `ValueError` naming no address: a
+    `from_address` or `reply_to` outside `SENDING_DOMAIN`, or a `to` that isn't one
+    address."""
+    if not is_sending_address(message.from_address) or not is_sending_address(message.reply_to):
+        raise ValueError("mail is sent only from an address at asmbly.org")
+    if not is_valid_email(message.to):
+        raise ValueError("the recipient is not one email address")
+
+
 class SendFailed(PortError):
     def __init__(self, code: str) -> None:
         self.code = error_code(code)  # the provider's error code, never its message
@@ -56,5 +92,5 @@ class SendFailed(PortError):
 
 class Mailer(Protocol):
     def send(self, message: OutgoingEmail) -> None:
-        """`SendFailed`; `ValueError` for a `from_address` outside `SENDING_DOMAIN`."""
+        """`SendFailed`; `ValueError` for what `check_outgoing` refuses."""
         ...

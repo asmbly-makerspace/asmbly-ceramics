@@ -317,8 +317,7 @@ Statement:
       - dynamodb:GetItem
       - dynamodb:Query
       - dynamodb:PutItem
-      - dynamodb:UpdateItem
-      - dynamodb:ConditionCheckItem
+      - dynamodb:UpdateItem   # the ID counter only (phase 4); a commit sends Puts
       - dynamodb:DescribeStream
       - dynamodb:GetRecords
       - dynamodb:GetShardIterator
@@ -475,7 +474,11 @@ it, by hand, only when they asked for it in the conversation.
    `--tags` for the five tags. The value is made by `openssl` in the command, never
    typed, pasted into a file or a chat, or printed. Changing `session-key` later signs
    everyone out of the console; changing `form-key` only expires open ID pages; changing
-   `hash-key` resets the rate-limit counts. All are safe.
+   `hash-key` resets the rate-limit counts and orphans every live submission: its ID
+   page expires, and a form re-posted with the same submission token is not seen as a
+   repeat, so it makes a second drop-off and sends a second received email (phase 2a's
+   review). The first two are safe at any time; rotate `hash-key` only when the studio
+   is closed and no one is mid-drop-off.
 7. **The two addresses**, for each environment, as String parameters (not in GitHub):
    `aws ssm put-parameter --name /asmbly-ceramics/<env>/alert-email --type String
    --value '<the maintainers' address>'` and `/asmbly-ceramics/<env>/initial-sending-address`
@@ -618,7 +621,7 @@ Phase 7 can rely on:
   - every resource tagged with all five tags at creation, `Project=asmbly-ceramics`
     (stack tags plus explicit `Tags` on alarms, which `PutMetricAlarm` checks);
   - names: table `asmbly-ceramics-<env>-records`, bucket
-    `asmbly-ceramics-<env>-photos-<account>`, functions `asmbly-ceramics-<env>-<job>`, log groups
+    `asmbly-ceramics-<env>-photos-<suffix>`, functions `asmbly-ceramics-<env>-<job>`, log groups
     `/aws/lambda/asmbly-ceramics-<env>-<job>` and
     `/aws/apigateway/asmbly-ceramics-<env>`, topic `asmbly-ceramics-<env>-alarms`,
     alarms `asmbly-ceramics-<env>-*`, queue `asmbly-ceramics-<env>-close-dlq`, schedule

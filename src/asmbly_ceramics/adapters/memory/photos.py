@@ -73,6 +73,10 @@ class MemoryPhotoStore:
             if slot_id in self._slots:
                 self._discarded.add(slot_id)
 
+    def slot_count(self) -> int:
+        """How many upload slots were issued, for tests that a refusal issued none."""
+        return len(self._slots)
+
     def upload_count(self) -> int:
         """How many uploads are held, for tests that raw uploads don't linger."""
         return sum(1 for slot_id in self._uploads if slot_id not in self._discarded)

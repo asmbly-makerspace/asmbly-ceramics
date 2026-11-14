@@ -11,6 +11,7 @@ from typing import TypedDict, Unpack
 
 from asmbly_ceramics.domain.closing import close
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffDetails, DropOffState, Rejection, new_drop_off
+from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
@@ -132,3 +133,10 @@ def a_load(
         started_at=at,
         fired_at=at if status is LoadStatus.FIRED else None,
     )
+
+
+def a_sent_ready_email(drop_off_id: DropOffId, sent_at: datetime, pickup_window_days: int) -> Email:
+    """A ready email sent at `sent_at` that gave this window. Built without `mark_sent`'s
+    checks, so a test can hand the close a naive time or a window of 0 to see it refuse."""
+    claimed = claim(new_email(drop_off_id, EmailKind.READY, NOW), NOW)
+    return replace(claimed, status=EmailStatus.SENT, sent_at=sent_at, pickup_window_days=pickup_window_days)

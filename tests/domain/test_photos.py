@@ -10,6 +10,7 @@ from asmbly_ceramics.domain.photos import (
     PhotoRefusal,
     PresignedPost,
     UploadSlot,
+    is_photo_count,
     is_slot_id,
 )
 from tests.domain.builders import NOW
@@ -53,6 +54,7 @@ def test_an_upload_slots_repr_holds_neither_its_handle_nor_its_post() -> None:
 def test_a_refusals_message_key_is_its_value() -> None:
     assert {f"photo.{refusal}" for refusal in PhotoRefusal} == {
         "photo.not_image",
+        "photo.unsupported_type",
         "photo.too_large",
         "photo.too_many_pixels",
         "photo.missing",
@@ -81,3 +83,11 @@ def test_a_slot_id_is_exactly_22_url_safe_characters() -> None:
     for text in ("", "a" * 21, "a" * 23, "a" * 21 + "/", "a" * 21 + "=", "a" * 21 + "\n", "é" * 22):
         assert not is_slot_id(text)
     assert not is_slot_id(cast(str, None))
+
+
+@pytest.mark.parametrize(
+    ("count", "allowed"),
+    [(1, True), (6, True), (0, False), (7, False), (-1, False), (True, False), (2.0, False), ("2", False)],
+)
+def test_is_photo_count_takes_an_int_from_1_to_6(count: object, allowed: bool) -> None:
+    assert is_photo_count(cast(int, count)) is allowed

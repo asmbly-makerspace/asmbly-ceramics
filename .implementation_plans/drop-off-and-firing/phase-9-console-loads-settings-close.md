@@ -275,8 +275,10 @@ def handler(event: Mapping[str, object], context: object) -> dict[str, int]:
 ```
 
 It builds `CloseFinished` once per container (`composition.build_closer()`), calls it
-with the clock's now, and returns and logs `event=close_run`, `closed=<n>`,
-`skipped=<n>`, `outcome=ok`, plus one `event=closed` line per drop-off with only its ID.
+with the clock's now, and returns `{"closed": <n>}`. It logs nothing of its own: the
+lines are `CloseFinished`'s (phase 3), one `event=drop_off_closed` with only the
+`drop_off_id` per drop-off and one `event=close_run` with `count` (how many closed), the
+fields `log_event` allows (phase 2a's `LOG_FIELDS`; `closed=` or `skipped=` would raise).
 `CloseFinished` (phase 3) is idempotent: a drop-off already closed is skipped, and a
 photo already deleted is not an error, so a retried or duplicated run does no harm. A
 failure on one drop-off is logged with its ID and the AWS error code and the run goes on;
@@ -284,22 +286,34 @@ if any failed, the handler raises at the end so that the schedule's retry runs i
 and, after the retries, the event lands in the dead-letter queue (alarmed). The event's
 content is ignored.
 
-`build_closer()` builds `Records`, `PhotoStore` and `Clock` only: the close sends no
-email and needs no secret.
+`build_closer()` builds `Records`, `PhotoStore`, `Clock` and a `CurrentStudio` that
+doesn't seed (as the mailer's, phase 7): the close sends no email and needs no secret.
 
 ### infra: `infra/app.yaml`
 
-The console's role gains the right to send the test email:
+The console's role gains the right to send the test email, and the right to count load
+IDs (`StartLoad` calls `IdNumbers.next_load_id`, phase 4's `DynamoDbIdNumbers`: one
+`UpdateItem` with `ADD` on `COUNTER#load`, the only `UpdateItem` the adapters send):
 
 ```yaml
             - Sid: SendTestEmail
               Effect: Allow
               Action: ses:SendEmail
-              Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/asmbly.org'
+              Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}'
               Condition:
                 StringLike:
-                  ses:FromAddress: '*@asmbly.org'
+                  ses:FromAddress: !Sub '*@${EmailDomain}'
+            - Sid: CountLoadIds
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*"]}
 ```
+
+The load, settings and retry writes are commits, which phase 8's `Records` statement
+already covers with `dynamodb:PutItem` (phase 4 sends an `Update` as a conditional
+`Put`).
 
 It is the same statement as the mailer's (phase 7), on the same identity, agreed in
 AsmblyMCPs before phase 7. Recipients can't be limited in IAM (each staff member's own
@@ -327,18 +341,16 @@ The close function and its schedule:
       Policies:
         - Version: '2012-10-17'
           Statement:
-            - Sid: Records
-              Effect: Allow
-              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:UpdateItem, dynamodb:ConditionCheckItem]
+            - Sid: Records                 # list (GSI1), re-read each drop-off and its ready
+              Effect: Allow                 # email by key, close it: a commit's Update is a
+              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]  # conditional Put (phase 4)
               Resource: [!GetAtt RecordsTable.Arn, !Sub '${RecordsTable.Arn}/index/*']
-            - Sid: ListKeptPhotos
+            - Sid: Transactions
               Effect: Allow
-              Action: s3:ListBucket
-              Resource: !GetAtt PhotoBucket.Arn
-              Condition:
-                StringLike: {s3:prefix: 'dropoffs/*'}
-            - Sid: DeleteKeptPhotos
-              Effect: Allow
+              Action: dynamodb:TransactWriteItems   # authorised per item action above (PutItem); listed for clarity
+              Resource: !GetAtt RecordsTable.Arn
+            - Sid: DeleteKeptPhotos          # delete_drop_off: one DeleteObjects of the 12 known
+              Effect: Allow                   # keys, without listing (phase 4), so no s3:ListBucket
               Action: s3:DeleteObject
               Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
 
@@ -532,7 +544,13 @@ first night's run is checked under Rollout.
 - `test_the_close_schedule_runs_daily_in_austin_time_with_a_dead_letter_queue`
 - `test_the_scheduler_role_invokes_only_the_close_function`
 - `test_the_close_role_deletes_only_kept_photos_and_cannot_read_them`
-- `test_ses_send_is_limited_to_the_asmbly_org_identity_and_from_address` (both roles)
+- `test_ses_send_is_limited_to_the_asmbly_org_identity_and_from_address` (both roles;
+  phase 7's "the only `ses:SendEmail` is the mailer's" becomes the mailer's and the
+  console's)
+- `test_the_close_role_writes_with_put_item_only` (no `UpdateItem`, `ConditionCheckItem`
+  or `DeleteItem`: closing is a commit, a conditional `Put`)
+- `test_the_console_updates_only_the_id_counter` (`UpdateItem` only with
+  `dynamodb:LeadingKeys` `COUNTER#*`)
 - `test_every_new_name_starts_with_the_prefix_and_every_alarm_has_actions`
 
 ## Acceptance criteria
@@ -559,7 +577,9 @@ first night's run is checked under Rollout.
 12. Every change records the username and time, and staff can see the history (#6).
 13. Every email after a change uses the new settings (#6).
 14. Once a day, at 03:17 Austin time, drop-offs whose pickup window has passed are
-    closed: their name, email, phone, rejection message and photos are deleted; ID,
+    closed (the window ends at the start of the Austin day after the ready email's
+    "Pick up by" date, `domain.closing.pickup_deadline`, so the 03:17 run on that date
+    keeps them; a fired one's window is the one kept with its sent ready email): their name, email, phone, rejection message and photos are deleted; ID,
     dates, firing type, pieces, load and reason are kept (#7).
 15. A drop-off waiting 60 days or more shows as overdue in the console and is not
     deleted (#7).
@@ -590,7 +610,7 @@ the maintainer owns:
    new `asmbly.org` address to yourself; save; check the history shows your username.
    Retire Helios; it isn't offered for a new load and still shows on a past load.
 4. Set stage's pickup window to 1 day. The next morning, the close's log group has a
-   `close_run` line with `closed` of at least the fired test drop-offs, and their pages
+   `close_run` line with `count` of at least the fired test drop-offs, and their pages
    say "Closed" with no contact details or photos. Set the window back to 14.
 5. Open Weekly counts for this week: the test drop-offs, the load and the rejection are
    counted.
@@ -601,7 +621,7 @@ the maintainer owns:
   test email right, the close function, its schedule (enabled), its dead-letter queue
   and alarms.
 - **Check:** the smoke test on each environment; the stage checks above; on prod, the
-  next morning's `close_run` line (with `closed=0` until anything is due) in
+  next morning's `close_run` line (with `count=0` until anything is due) in
   `/aws/lambda/asmbly-ceramics-prod-close`, read with a read-only
   `aws logs filter-log-events` for `close_run`, and no alarm.
 - **Who confirms:** the maintainer, and one ceramics staff member who runs the load

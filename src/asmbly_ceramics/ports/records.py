@@ -34,7 +34,7 @@ One table, one transaction per change with a version check on each item (decisio
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 from typing import Protocol
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
@@ -42,7 +42,7 @@ from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
-from asmbly_ceramics.ports.errors import PortError
+from asmbly_ceramics.ports.errors import PortError, RecordsUnavailable
 
 MAX_CHANGES = 100  # DynamoDB's transaction limit; the 48-drop-off load keeps a fire at 97
 
@@ -94,6 +94,15 @@ class Conflict(PortError):
         super().__init__("changed by someone else first: " + (", ".join(self.ids) or "unknown"))
 
 
+class CommitOutcomeUnknown(RecordsUnavailable):
+    """`commit` sent the transaction and got no answer it can trust (a timeout, a lost
+    connection, the transaction still in progress, a server error): it may have landed,
+    now or later, even after a strongly consistent read that found nothing. A caller that
+    would undo something outside the table when nothing was written (the submit deleting
+    the photos it kept) leaves it to the backstop instead. Every other failure of
+    `commit`, `Conflict` included, means nothing was written."""
+
+
 @dataclass(frozen=True, slots=True)
 class HistoryPage:
     """At most `limit` changes, newest first, and where the next (older) page starts."""
@@ -115,7 +124,8 @@ class BadCursor(PortError):
 class Records(Protocol):
     def commit(self, changes: Sequence[Change]) -> None:
         """All or nothing; `Conflict`; at most `MAX_CHANGES` changes; empty is a no-op;
-        `RecordsUnavailable`. Returns nothing: re-read what you need afterwards."""
+        `RecordsUnavailable`, or `CommitOutcomeUnknown` (a `RecordsUnavailable`) when it
+        may still land. Returns nothing: re-read what you need afterwards."""
         ...
 
     # Strongly consistent reads, used right before a commit. `None` when nothing is
@@ -132,7 +142,6 @@ class Records(Protocol):
     def drop_offs_created_between(self, start: datetime, end: datetime) -> list[DropOff]: ...
     def drop_offs_rejected_between(self, start: datetime, end: datetime) -> list[DropOff]: ...
     def loads_in(self, statuses: Collection[LoadStatus]) -> list[Load]: ...
-    def loads_between(self, start: date, end: date) -> list[Load]: ...
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]: ...
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]: ...
     def history(self, limit: int, before: str | None = None) -> HistoryPage:
