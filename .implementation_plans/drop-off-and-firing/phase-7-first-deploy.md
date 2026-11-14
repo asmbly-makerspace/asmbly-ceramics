@@ -609,7 +609,7 @@ Steps of each job:
 3. `aws-actions/configure-aws-credentials@v6` with `role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}`,
    `aws-region: ${{ vars.AWS_REGION }}`, `mask-aws-account-id: true`; then, before any
    step that prints, `echo "::add-mask::$(aws sts get-caller-identity --query Account
-   --output text)"`, so the account ID (in role ARNs and the bucket's name) is masked in
+   --output text)"`, so the account ID (in role ARNs) is masked in
    the public Actions log.
 4. `sam build --config-env "$CONFIG_ENV"`, then **compose check**: `python3
    scripts/compose_check.py .aws-sam/build/MailerFunction`. Phase 2c checked the
@@ -629,7 +629,8 @@ Steps of each job:
    no credentials needed (the step runs after the deploy; the job's credentials expire
    in an hour and the script doesn't use them).
 7. Write only the site URL, the version and the smoke result to `GITHUB_STEP_SUMMARY`:
-   no stack output, role ARN or bucket name (they hold the account ID), and no address.
+   no stack output or role ARN (a role ARN holds the account ID), no bucket name, and no
+   address.
 
 `id-token: write` is the only right beyond `contents: read`, on these two jobs only.
 
@@ -818,13 +819,20 @@ that), and no QR code points to it. Nobody is told yet.
 
 ## Admin actions
 
-- Before merging (phase 2b's reviews): the maintainer's word on two points, recorded in
-  a new decision record that amends decision 0002 (CLAUDE.md: a past decision is
-  changed only by a new record that says why; a Risk section is not enough). The form function's
-  role may delete photos under `dropoffs/` (for the submit's cleanup; it never lists
-  them, phase 4), which decision 0002's role table gives the close only; and the backstop for photos left
+- Before merging (phase 2b's reviews): the maintainer's word on the four points the
+  plan README's Admin actions lists, recorded in a new decision record that amends
+  decision 0002 (CLAUDE.md: a past decision is changed only by a new record that says
+  why; a Risk section is not enough): (1) the form function's role may delete photos
+  under `dropoffs/` (for the submit's cleanup; it never lists them, phase 4), which
+  decision 0002's role table gives the close only, and the backstop for photos left
   under `dropoffs/` with no record (#19) is decided and built before prod takes real
-  drop-offs, so no photo outlives #7.
+  drop-offs, so no photo outlives #7; (2) the form function's role may `PutItem` on
+  `STUDIO` (phase 2a's first-use seeding), which 0002 does not allow the form; (3) the
+  form's `PutItem` on `DROPOFF#*` and `EMAIL#*` can't require `attribute_not_exists`
+  (restating what 0002 accepts); (4) the photo bucket is named
+  `asmbly-ceramics-<env>-photos-<suffix>`, a random suffix, not 0002's
+  `asmbly-ceramics-<env>-photos-<account>`, so the public form never shows the account
+  ID (above).
 - Before merging: the sending right agreed in AsmblyMCPs (README, Dependencies). The
   same-account IAM statement above is enough for SES to accept the sends; the agreement
   is that the identity's owner knows and accepts another sender and its bounces.
