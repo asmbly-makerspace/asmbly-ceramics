@@ -4,7 +4,7 @@
 
 - Prep split phase 2 into 2a to 2d. Phases 2a, 2b, 2c, 2d, 3 and 4 were each built,
   reviewed, cold-reviewed by `review-lead` and `privacy-guardian`, and fixed.
-- The integration gate was clean: 2034 tests. After the follow-up fixes there are 2059
+- The integration gate was clean: 2034 tests. After the follow-up fixes there are 2063
   tests at 99.48% coverage.
 - The whole-branch cold review raised a BLOCK. The presigned S3 POST went to the global
   host, but the planned CSP allows only the regional one. It was fixed and re-reviewed.
@@ -29,11 +29,19 @@ Details: `CHECKPOINT.json` (phases, decisions, gate and review results) and
 
 **The 0002 amendment must cover:**
 
-- The form role's rights from the plan README: S3 on `uploads/` including `ListBucket`,
-  studio seeding `PutItem` on `STUDIO`, and `PutItem` on `DROPOFF#*` and `EMAIL#*`.
-- The risk that a compromised form function could rewrite an address and queue an email
-  with that drop-off's photos.
-- The bucket's random suffix, which replaces 0002's `-photos-<account>`.
+The four points in the plan README's Admin actions ("Before phase 7 merges"):
+
+1. The form function's role may delete photos under `dropoffs/` (the submit's cleanup;
+   0002 gives that to the close only), and the #19 backstop for photos left under
+   `dropoffs/` with no record is decided and built before prod takes real drop-offs.
+2. The form function's role may `PutItem` on `STUDIO` (first-use seeding of the studio),
+   so a taken-over form function could rewrite the studio's settings and lists; the
+   sending address stays limited to `asmbly.org`.
+3. Restating what 0002 accepts: the form's role can `PutItem` on `DROPOFF#*` and
+   `EMAIL#*`, so a taken-over form function could rewrite a drop-off's email address and
+   queue an email that sends that drop-off's photos there.
+4. The photo bucket is named `asmbly-ceramics-<env>-photos-<suffix>` (a random suffix),
+   not 0002's `asmbly-ceramics-<env>-photos-<account>`, since the bucket's name is public.
 
 **The 800-line phase limit** is still in `.implementation_plans/readme.md` and in the
 `prep`, `build` and `plan-tech` skills.

@@ -47,7 +47,8 @@ docs/                   architecture, decisions, runbooks (docs/README.md is the
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
-src/asmbly_ceramics/    the app: domain/, ports/ and adapters/memory/ so far (no AWS adapter or page yet)
+src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/ and adapters/ (memory/, aws/, the
+                        system clock and the photo inspector); no page or template yet
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 

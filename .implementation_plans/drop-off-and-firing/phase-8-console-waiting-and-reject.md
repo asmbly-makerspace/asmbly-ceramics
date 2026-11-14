@@ -341,9 +341,10 @@ keeps its contact details and photos until the email is sent (the close waits fo
   status, about a few items).
 - A table, oldest first: the drop-off's ID (a link to `/console/drop-offs/{id}`), the
   email ("Received", "Ready for pickup", "Rejected"), its state ("Sending failed (code)",
-  "Stuck sending since <Austin time>" from the row's `claimed_at`, or "Stuck sending"
-  when it has none, "Waiting to send since <Austin time>" from `retried_at`, or
-  `created_at` when never retried), and "Try
+  "Stuck sending since <Austin time>" from the row's `since`, or "Stuck sending"
+  when it has none, "Waiting to send since <Austin time>" from `since`; the row's
+  `since` is the domain's `stuck_since`, so the template never picks between
+  `claimed_at`, `retried_at` and `created_at` itself), and "Try
   sending again" (the same POST form as the drop-off page's, to
   `/console/drop-offs/{id}/emails/{kind}/retry` with the hidden `occasion` exactly as
   the row holds it). A row whose drop-off record is missing still shows, without the

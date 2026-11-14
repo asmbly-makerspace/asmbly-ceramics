@@ -64,8 +64,9 @@ has the reasons.
 
 ## The shape of the code
 
-Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `adapters/memory/`, `use_cases/`,
-`mail/` and `adapters/aws/`. Nothing is in AWS yet: no template, no page and no deploy. This section says what the plan for
+Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `use_cases/`, `mail/` and
+`adapters/` (`memory/`, `aws/`, `clock.py` for the system clock and `images.py`, the
+photo inspector with Pillow). Nothing is in AWS yet: no template, no page and no deploy. This section says what the plan for
 epic #1 must respect; the framework, the hosting, the data store and the deploy are
 recorded in [decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md),
 not here ([the choices](docs/architecture.md#still-to-be-decided)).

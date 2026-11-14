@@ -11,9 +11,10 @@ Built, and tested without AWS: the domain model (`src/asmbly_ceramics/domain/`),
 ports (`ports/`), in-memory fakes of them (`adapters/memory/`), the use cases
 (`use_cases/`: submit a drop-off, the waiting list, search, one drop-off, rejection,
 loads, settings, the daily close, counts, emails needing attention), the email composer
-and its templates (`mail/`), and the AWS adapters (`adapters/aws/`: DynamoDB records,
+and its templates (`mail/`), the AWS adapters (`adapters/aws/`: DynamoDB records,
 counters and rate limiter, the S3 photo store, the SES mailer, Cognito staff tokens,
-Parameter Store secrets). Not built: any page, any SAM template and the deploy. Nothing
+Parameter Store secrets), the system clock (`adapters/clock.py`) and the photo
+inspector, which checks and re-encodes photos with Pillow (`adapters/images.py`). Not built: any page, any SAM template and the deploy. Nothing
 is in AWS. The rest is planned in
 [.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
