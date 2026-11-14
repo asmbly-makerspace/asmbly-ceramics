@@ -7,7 +7,7 @@ prompt disagrees with these documents, the documents win and you say so.
 | --- | --- | --- |
 | What this repository is for, and where it stands | `README.md`, epic #1 | [docs/architecture.md](docs/architecture.md) |
 | Why it is set up this way | `docs/decisions/` | [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md) |
-| The app (domain, ports and in-memory fakes so far; AWS adapters, pages and deploy come with the plan for epic #1) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
+| The app (domain, ports, in-memory fakes, use cases and AWS adapters so far; pages, templates and deploy come with the plan for epic #1) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
 | Plans for a story | `.implementation_plans/` | [.implementation_plans/readme.md](.implementation_plans/readme.md) |
 | CI | `.github/workflows/` | [README.md](README.md#how-changes-reach-production) |
 | Production tasks (none yet) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/README.md](docs/README.md#runbooks) |
@@ -64,8 +64,8 @@ has the reasons.
 
 ## The shape of the code
 
-Built so far: `src/asmbly_ceramics/domain/`, `ports/` and `adapters/memory/`. Nothing is
-in AWS yet: no AWS adapter, no page and no deploy. This section says what the plan for
+Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `adapters/memory/`, `use_cases/`,
+`mail/` and `adapters/aws/`. Nothing is in AWS yet: no template, no page and no deploy. This section says what the plan for
 epic #1 must respect; the framework, the hosting, the data store and the deploy are
 recorded in [decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md),
 not here ([the choices](docs/architecture.md#still-to-be-decided)).
