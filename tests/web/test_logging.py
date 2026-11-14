@@ -11,8 +11,29 @@ from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_
 from tests.web.conftest import ADDRESS, SAME_ORIGIN, Site
 
 
-def record_text(record: logging.LogRecord) -> str:
-    return " ".join([record.getMessage(), *(str(value) for value in record.__dict__.values())])
+def record_values(record: logging.LogRecord) -> list[str]:
+    """A record's message and each attribute's value (extras included), one text each.
+
+    Checked one by one, never joined: joining puts `created` next to `msecs`, and a
+    timestamp ending in `12` before `34.0` reads as the refused phone `12 34` (#26).
+    """
+    return [record.getMessage(), *(str(value) for value in vars(record).values())]
+
+
+def holds(record: logging.LogRecord, secret: str) -> bool:
+    return any(secret in value for value in record_values(record))
+
+
+def test_a_detail_in_one_field_is_found() -> None:
+    record = logging.LogRecord("asmbly_ceramics", logging.INFO, __file__, 1, "drop_off_page", (), None)
+    record.outcome = "refused 12 34"
+    assert holds(record, "12 34")
+
+
+def test_neighboring_fields_never_make_a_detail() -> None:
+    record = logging.LogRecord("asmbly_ceramics", logging.INFO, __file__, 1, "drop_off_page", (), None)
+    record.created, record.msecs = 1794699025.034212, 34.0  # " ".join would read "12 34"
+    assert not holds(record, "12 34")
 
 
 def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCaptureFixture) -> None:
@@ -69,7 +90,6 @@ def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCa
     assert received_cookie is not None
     secrets.add(received_cookie.split(".")[0])
     secrets.add(received_cookie.split(".")[0].removeprefix("submission#"))
-    texts = [record_text(record) for record in caplog.records]
     page_lines = [r for r in caplog.records if r.getMessage() == "drop_off_page"]
     assert {r.__dict__["outcome"] for r in page_lines} >= {
         "shown",
@@ -83,4 +103,5 @@ def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCa
     assert any(r.__dict__.get("fields") == "email,phone" for r in page_lines)
     assert any(r.__dict__.get("drop_off_id") == "AC-1" for r in page_lines)
     for secret in secrets:
-        assert not any(secret in text for text in texts), "a log line holds a personal detail or token"
+        leaked = any(holds(record, secret) for record in caplog.records)
+        assert not leaked, "a log line holds a personal detail or token"
