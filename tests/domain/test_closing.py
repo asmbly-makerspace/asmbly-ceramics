@@ -5,10 +5,17 @@ import pytest
 
 from asmbly_ceramics.domain.closing import close, is_due_to_close, pickup_day, pickup_deadline
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState, Rejection
-from asmbly_ceramics.domain.email import Email, EmailKind, claim, mark_sent, new_email
+from asmbly_ceramics.domain.email import Email, EmailKind, claim, mark_sent, new_email, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_READY_CLOSE_AFTER
-from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off, a_sent_ready_email
+from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_EMAIL_CLOSE_AFTER
+from tests.domain.builders import (
+    NOW,
+    STAFF,
+    TEST_MESSAGE,
+    a_drop_off,
+    a_sent_ready_email,
+    a_sent_rejected_email,
+)
 
 WINDOW = 14
 DAYS = timedelta(days=WINDOW)
@@ -21,7 +28,10 @@ SECOND = timedelta(seconds=1)
 
 def is_closable(drop_off: DropOff, ready_sent_at: datetime | None, window: int, now: datetime) -> bool:
     """`is_due_to_close` for a ready email sent at `ready_sent_at` (unsent when `None`) that
-    gave `window`; a drop-off that isn't fired is given `window` as the studio's."""
+    gave `window`; a drop-off that isn't fired is given `window` as the studio's, and a
+    rejected one a rejected email sent at the moment of its rejection."""
+    if drop_off.state is DropOffState.REJECTED and drop_off.rejection is not None:
+        return is_due_to_close(drop_off, a_sent_rejected_email(drop_off, drop_off.rejection.at), window, now)
     if drop_off.state is not DropOffState.FIRED:
         return is_due_to_close(drop_off, None, window, now)
     unsent = claim(new_email(drop_off.id, EmailKind.READY, NOW), NOW)
@@ -42,15 +52,15 @@ def test_fired_closes_after_the_window_from_the_ready_email() -> None:
 
 def test_fired_without_a_sent_ready_email_closes_a_month_after_the_firing() -> None:
     fired = a_drop_off(state=DropOffState.FIRED)  # fired at NOW
-    assert timedelta(days=30) == UNSENT_READY_CLOSE_AFTER
-    assert not is_closable(fired, None, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER - SECOND)
-    assert is_closable(fired, None, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER)
+    assert timedelta(days=30) == UNSENT_EMAIL_CLOSE_AFTER
+    assert not is_closable(fired, None, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER - SECOND)
+    assert is_closable(fired, None, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER)
 
 
 def test_a_sent_ready_email_counts_by_its_window_not_the_month() -> None:
     fired = a_drop_off(state=DropOffState.FIRED)
     late = NOW + timedelta(days=29)  # sent just before the month ran out
-    assert not is_closable(fired, late, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER)
+    assert not is_closable(fired, late, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER)
     assert is_closable(fired, late, WINDOW, pickup_deadline(late, WINDOW))
 
 
@@ -223,9 +233,59 @@ def test_a_fired_drop_off_is_due_by_its_sent_ready_emails_kept_window() -> None:
 
 def test_a_rejected_drop_off_is_due_by_the_studios_window() -> None:
     rejected = a_drop_off(1, DropOffState.REJECTED)
-    assert not is_due_to_close(rejected, None, WINDOW, REJECTED_END - SECOND)
-    assert is_due_to_close(rejected, None, WINDOW, REJECTED_END)
+    sent = a_sent_rejected_email(rejected, NOW)
+    assert not is_due_to_close(rejected, sent, WINDOW, REJECTED_END - SECOND)
+    assert is_due_to_close(rejected, sent, WINDOW, REJECTED_END)
     assert not is_due_to_close(a_drop_off(1), None, WINDOW, NOW + timedelta(days=365))
+
+
+def test_a_rejected_drop_off_waits_for_its_rejected_email() -> None:
+    """#20 question 2: the person is told before their details are deleted."""
+    rejected = a_drop_off(1, DropOffState.REJECTED)  # rejected at NOW
+    late = NOW + timedelta(days=3)
+    sent_late = a_sent_rejected_email(rejected, late)
+    assert not is_due_to_close(rejected, sent_late, WINDOW, REJECTED_END)
+    assert not is_due_to_close(rejected, sent_late, WINDOW, pickup_deadline(late, WINDOW) - SECOND)
+    assert is_due_to_close(rejected, sent_late, WINDOW, pickup_deadline(late, WINDOW))
+
+
+def _rejected_email(drop_off: DropOff, *, sent_at: datetime | None = None) -> Email:
+    assert drop_off.rejection is not None
+    occasion = rejection_occasion(drop_off.rejection.at)
+    email = claim(new_email(drop_off.id, EmailKind.REJECTED, NOW, occasion), NOW)
+    return email if sent_at is None else mark_sent(email, sent_at)
+
+
+def test_a_rejected_drop_off_whose_email_never_sends_closes_a_month_after_the_rejection() -> None:
+    rejected = a_drop_off(1, DropOffState.REJECTED)  # rejected at NOW
+    unsent = _rejected_email(rejected)
+    assert not is_due_to_close(rejected, unsent, WINDOW, REJECTED_END)
+    assert not is_due_to_close(rejected, unsent, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER - SECOND)
+    assert is_due_to_close(rejected, unsent, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER)
+    # Sent just before the month ran out: the window from the email decides.
+    late = NOW + timedelta(days=29)
+    sent = _rejected_email(rejected, sent_at=late)
+    assert not is_due_to_close(rejected, sent, WINDOW, NOW + UNSENT_EMAIL_CLOSE_AFTER)
+    assert is_due_to_close(rejected, sent, WINDOW, pickup_deadline(late, WINDOW))
+
+
+def test_a_broken_rejected_email_is_reported_not_skipped() -> None:
+    rejected = a_drop_off(1, DropOffState.REJECTED)
+    assert rejected.rejection is not None
+    with pytest.raises(ValueError, match="no rejected email"):
+        is_due_to_close(rejected, None, WINDOW, REJECTED_END)
+    earlier = replace(rejected, rejection=replace(rejected.rejection, at=NOW - timedelta(days=1)))
+    with pytest.raises(ValueError, match="isn't the rejected email of AC-1's rejection"):
+        is_due_to_close(rejected, a_sent_rejected_email(earlier, NOW), WINDOW, REJECTED_END)  # an undone one
+    with pytest.raises(ValueError, match="isn't the rejected email"):
+        is_due_to_close(
+            rejected, a_sent_rejected_email(a_drop_off(2, DropOffState.REJECTED), NOW), WINDOW, NOW
+        )
+    with pytest.raises(ValueError, match="isn't the rejected email"):
+        is_due_to_close(rejected, _ready(READY, WINDOW), WINDOW, REJECTED_END)
+    no_time = replace(a_sent_rejected_email(rejected, NOW), sent_at=None)
+    with pytest.raises(ValueError, match="sent rejected email has no time"):
+        is_due_to_close(rejected, no_time, WINDOW, REJECTED_END)
 
 
 def test_a_broken_ready_email_is_reported_not_skipped() -> None:

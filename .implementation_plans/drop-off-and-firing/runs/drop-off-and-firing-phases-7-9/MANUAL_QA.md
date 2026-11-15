@@ -21,7 +21,8 @@ stage (`ceramics-stage.asmbly.org`) or prod (`ceramics.asmbly.org`).
     addresses (7), the boundary check (8).
   - In asmbly-staff-login: the `ceramics-staff` client (scope `openid`) and
     its client-id parameter.
-  - The answer to question 2 in issue #20.
+  - The answer to question 2 in issue #20 (answered and built: a rejected drop-off
+    waits for its rejected email).
 - **Admin actions after the first deploy:** confirm the alarm topic's email subscription
   (the email AWS sends to the maintainers' alert address; see
   [operations](../../../../docs/runbooks/operations.md#things-that-dont-change-with-a-deploy)).

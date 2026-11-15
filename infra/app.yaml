@@ -619,7 +619,7 @@ Resources:
       Policies:
         - Version: '2012-10-17'
           Statement:
-            # Each listed drop-off read again by key, its ready email, and the studio.
+            # Each listed drop-off read again by key, its ready or rejected email, and the studio.
             - Sid: ReadWhatTheCloseNeeds
               Effect: Allow
               Action: dynamodb:GetItem

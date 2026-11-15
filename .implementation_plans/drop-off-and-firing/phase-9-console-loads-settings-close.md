@@ -605,9 +605,10 @@ the maintainer owns:
 
 For this phase's `/prep` (from phase 1's whole-branch review): the retention of a fired
 drop-off whose ready email never sends was settled by the maintainer on 15 November 2026
-(#20): it closes 30 days after its firing (`UNSENT_READY_CLOSE_AFTER`, in the domain).
-A rejected drop-off still closes by the rejection whatever its email's status (#20's
-second question, still open); this phase's close and its "needs attention" lists follow whatever phase
+(#20): it closes 30 days after its firing (`UNSENT_EMAIL_CLOSE_AFTER`, in the domain).
+#20's second question was settled the same day: a rejected drop-off waits for its
+rejected email (the window starts when it is sent; never sent, it closes 30 days after
+the rejection); this phase's close and its "needs attention" lists follow whatever phase
 3's `/prep` settles, and the use counts on the settings page follow phase 3's decision
 on a count read.
 

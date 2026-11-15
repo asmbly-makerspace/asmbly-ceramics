@@ -48,7 +48,7 @@ After the phases: the final cold review fix is `10563be`, the docs are `1fb2307`
 - [ ] **Session key:** set the console's `session-key` parameter by hand.
 - [ ] **Prod reviewer:** switch a required reviewer on for the `prod` environment, or plan to do the sign-in checks right after the prod deploy.
 - [ ] **Sending right:** the maintainer agreed the app sends from `asmbly.org`. The SES identity lives in AsmblyMCPs' `mcp-bootstrap`; moving it (for example to staff-login) is the maintainer's separate task and needs no change here, since the identity is named, not an ARN.
-- [ ] **Issue #20 question 2:** still open; answer it before merge. Question 1 is settled and merged in #29.
+- [x] **Issue #20 question 2:** settled 15 November 2026: a rejected drop-off waits for its rejected email (window from the send; never sent, closes 30 days after the rejection). Built on this branch. Question 1 is settled and merged in #29.
 
 ## After you merge
 
@@ -124,7 +124,7 @@ The branch has 6 commits, which matches the target in Run health.
 - [ ] Before merge: the `ceramics` group and `ceramics-staff` client in asmbly-staff-login.
 - [ ] Before merge: set `session-key`.
 - [ ] Before merge: decide the prod reviewer, or plan the sign-in checks after prod.
-- [ ] Before merge: answer #20 question 2.
+- [x] Before merge: answer #20 question 2.
 - [ ] After the first deploy: check the close alarms reach the alarm topic.
 - [ ] After the first deploy: confirm stage's first `close_run` proves the `GSI1` `LeadingKeys` condition.
 - [ ] Later: a bootstrap change for the close's own schedule group.

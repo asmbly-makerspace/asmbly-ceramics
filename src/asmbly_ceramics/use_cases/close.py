@@ -3,9 +3,9 @@
 A fired drop-off closes once the pickup window its ready email gave has passed (the end
 of the Austin day the email named, counted with the window kept with that email, so a
 shorter window set later never closes one early); a rejected one once the studio's
-window has passed since the rejection. A fired drop-off whose ready email never sent
+window has passed since its rejected email was sent (#20). One whose email never sent
 has no window: the console shows its failed email, and it closes a month after its
-firing (`UNSENT_READY_CLOSE_AFTER`, #20). Photos are deleted before the record is
+firing or rejection (`UNSENT_EMAIL_CLOSE_AFTER`, #20). Photos are deleted before the record is
 closed, so a failure between the two leaves a drop-off the next run closes again, never a
 closed drop-off whose photos remain. Logs carry drop-off IDs and codes only.
 """
@@ -16,7 +16,7 @@ from datetime import datetime
 
 from asmbly_ceramics.domain.closing import close, is_due_to_close
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
-from asmbly_ceramics.domain.email import EmailKind
+from asmbly_ceramics.domain.email import Email, EmailKind, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.studio import Studio
 from asmbly_ceramics.ports.clock import Clock
@@ -78,12 +78,17 @@ class CloseFinished:
         return CloseReport(tuple(closed), failed)
 
     def _closable(self, drop_off: DropOff, studio: Studio, now: datetime) -> bool:
-        ready = (
-            self._records.email(drop_off.id, EmailKind.READY)
-            if drop_off.state is DropOffState.FIRED
-            else None
-        )
-        return is_due_to_close(drop_off, ready, studio.pickup_window_days, now)
+        return is_due_to_close(drop_off, self._email(drop_off), studio.pickup_window_days, now)
+
+    def _email(self, drop_off: DropOff) -> Email | None:
+        """The email whose sending starts the drop-off's window: the ready email, or the
+        rejected email of its current rejection."""
+        if drop_off.state is DropOffState.FIRED:
+            return self._records.email(drop_off.id, EmailKind.READY)
+        if drop_off.state is DropOffState.REJECTED and drop_off.rejection is not None:
+            occasion = rejection_occasion(drop_off.rejection.at)
+            return self._records.email(drop_off.id, EmailKind.REJECTED, occasion)
+        return None
 
     def _closed_elsewhere(self, drop_off: DropOff) -> bool:
         try:

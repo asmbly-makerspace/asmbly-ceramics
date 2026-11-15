@@ -120,7 +120,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
-| Close once the pickup window has passed since the ready email (fired, with the window that email gave) or since the rejection (rejected); a fired drop-off whose ready email never sent closes 30 days after its firing (#20); delete the details, keep the rest (#7) | `domain/closing.py`, `is_due_to_close` and `close` |
+| Close once the pickup window has passed since the ready email (fired, with the window that email gave) or since the rejected email (rejected, with the studio's window); a drop-off whose email never sent closes 30 days after its firing or rejection (#20); delete the details, keep the rest (#7) | `domain/closing.py`, `is_due_to_close` and `close` |
 | Weekly counts Monday to Sunday, Austin time (#7) | `domain/counts.py` |
 | Undoing a rejection says to contact the person when its email went or may have: a failure is "not sent" only for a refused or pre-send code on a single attempt (#5) | `use_cases/emails.py`, `may_have_gone` and `NOT_SENT_CODES`; `ports/mailer.py`, `REFUSED_CODES` |
 
