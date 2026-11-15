@@ -1,7 +1,9 @@
 {% extends "console/layout.html" %}
 {% block title %}Loads{% endblock %}
 {% block content %}
-<h2>Loads</h2>
+<div class="page-head">
+  <h2>Loads</h2>
+</div>
 {% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
 {% if add %}
 <div class="notice" role="status"><p>Pick a loading load for {{ add }}, or start a new one.</p></div>
@@ -13,6 +15,7 @@
   <form method="post" action="/console/loads">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     {% if add %}<input type="hidden" name="add" value="{{ add }}">{% endif %}
+    <div class="form-row">
     <div class="field">
       <label for="kiln">Kiln</label>
       <select id="kiln" name="kiln">
@@ -34,6 +37,7 @@
       <input type="date" id="date" name="date" value="{{ form.date }}" required>
     </div>
     <button type="submit">Start a load</button>
+    </div>
   </form>
 </section>
 
@@ -67,7 +71,7 @@
 {% endif %}
 
 <h3>Past loads</h3>
-<p class="hint">Fired in the last {{ recent_weeks }} weeks, newest first. An older load stays viewable by its address.</p>
+<p class="hint footnote">Fired in the last {{ recent_weeks }} weeks, newest first. An older load stays viewable by its address.</p>
 {% if fired_loads %}
 <div class="table-box">
 <table class="list">

@@ -35,6 +35,8 @@ COLOURS = MappingProxyType(
         "lasers-20": "#ecd0cd",
         "asmbly-purple-20": "#caccd4",
         "asmbly-purple-40": "#a2a4ba",
+        "asmbly-purple-5": "#e8eae8",
+        "midnight-black-70": "#595e5a",
     }
 )
 """Each colour token's name (as `--<name>` in `app.css`) and its value."""
@@ -51,6 +53,8 @@ DERIVED = MappingProxyType(
         "lasers-20": ("lasers", "tint", 0.2),
         "asmbly-purple-20": ("asmbly-purple", "tint", 0.2),
         "asmbly-purple-40": ("asmbly-purple", "tint", 0.4),
+        "asmbly-purple-5": ("asmbly-purple", "tint", 0.05),
+        "midnight-black-70": ("midnight-black", "tint", 0.7),
     }
 )
 

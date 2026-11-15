@@ -34,6 +34,7 @@ def test_the_header_is_one_band_with_both_marks_and_who_is_signed_in(signed_in: 
     assert 'class="asmbly-band"' not in page  # not the wordmark band
     assert 'class="ceramics-band"' not in page
     assert page.count("<h1>") == 1
+    assert '<body class="console">' in page  # the console's styles hang on it
 
 
 def test_the_console_s_error_page_has_the_same_band(signed_in: Console) -> None:
@@ -50,6 +51,7 @@ def test_the_signed_out_page_has_the_band_without_anyone_signed_in(console: Cons
     assert 'class="asmbly-band"' not in page
     assert "Signed in as" not in page
     assert 'class="page page-console"' in page
+    assert '<body class="console">' in page
 
 
 def test_waiting_drop_offs_are_listed_oldest_first_with_days_waiting(signed_in: Console) -> None:

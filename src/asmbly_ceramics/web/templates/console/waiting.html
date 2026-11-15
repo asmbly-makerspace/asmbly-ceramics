@@ -2,8 +2,11 @@
 {% block title %}Waiting to fire{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Waiting to fire</h2>
-  <p class="hint">Oldest first.</p>
+  <div>
+    <h2>Waiting to fire</h2>
+    <p class="hint">Oldest first.</p>
+  </div>
+  <a class="button" href="/console/loads">Start a load</a>
 </div>
 <form method="post" action="/console/search" class="search" role="search">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -13,7 +16,6 @@
     <button type="submit">Find</button>
   </div>
 </form>
-<p><a class="button" href="/console/loads">Start a load</a></p>
 
 <div class="cards">
 {% for item in view.firing_types %}

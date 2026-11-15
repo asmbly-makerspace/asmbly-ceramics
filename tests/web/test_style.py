@@ -117,6 +117,16 @@ def test_summaries_and_action_links_are_at_least_44px() -> None:
         ("error-edge", "error-bg", 3.0),
         ("focus", "page-bg", 3.0),
         ("line", "page-bg", 3.0),  # input edges
+        ("text", "canvas", 7.0),  # the console's canvas
+        ("muted", "canvas", 4.5),  # the console's secondary text
+        ("muted", "surface", 4.5),
+        ("accent-strong", "canvas", 4.5),  # links on the canvas
+        ("tag-text", "tag-bg", 4.5),
+        ("line", "canvas", 3.0),
+        ("control-edge", "surface", 3.0),  # quiet buttons, chips, the weeks
+        ("control-edge", "canvas", 3.0),
+        ("accent-strong", "row-hover", 4.5),  # links on a hovered row
+        ("muted", "row-hover", 4.5),
     ],
 )
 def test_text_colour_pairs_meet_wcag_aa(foreground: str, background: str, minimum: float) -> None:
@@ -130,3 +140,35 @@ def test_no_template_has_inline_style_or_script() -> None:
             assert "style=" not in text, path
             assert "<style" not in text, path
             assert not re.search(r"<script(?![^>]*\bsrc=)", text), path
+
+
+def _public_classes() -> set[str]:
+    """Every class the public form's pages and script use."""
+    names: set[str] = set()
+    sources = [
+        *(WEB / "templates").glob("*.html"),
+        *(WEB / "templates" / "partials" / name for name in ("field.html", "logo.svg", "ceramics-icon.svg")),
+        WEB / "static" / "upload.js",
+    ]
+    for path in sources:
+        text = re.sub(r"\{[%{#].*?[%}#]\}", " ", path.read_text())
+        for value in re.findall(r'class="([^"]*)"', text):
+            names |= set(value.split())
+        for value in re.findall(r"class(?:Name\s*=|List\.add\()\s*[\"']([^\"']+)", text):
+            names |= set(value.split())
+    return names
+
+
+def test_console_rules_do_not_reach_the_public_form() -> None:
+    """A rule in the console's section starts at .console, .page-console, or a class
+    only the console uses, so the public form looks as it did."""
+    public = _public_classes()
+    assert {"photos", "photo-item", "field", "notice"} <= public
+    section = REST[REST.index(".console {") :]
+    problems = []
+    for selectors, _ in re.findall(r"([^{}]+)\{([^{}]*)\}", section):
+        for selector in selectors.split(","):
+            first = re.search(r"\.([a-z][a-z0-9-]*)", selector)
+            if first is not None and first.group(1) in public:
+                problems.append(selector.strip())
+    assert problems == []
