@@ -124,17 +124,29 @@ def test_closing_deletes_name_email_phone_message_and_photos_and_keeps_the_rest(
     assert (rejection.reason, rejection.message, rejection.by) == (ItemId("other"), None, STAFF)
 
 
-def test_a_fired_drop_off_whose_ready_email_failed_doesnt_close(world: World) -> None:
+def test_a_fired_drop_off_whose_ready_email_failed_closes_a_month_after_the_firing(world: World) -> None:
+    id = dropped_off(world, 1)
+    send_all(world)
+    fired(world, id)
+    fired_at = world.clock.now()
+    world.mailer.fail_with = "MessageRejected"
+    send_all(world)
+
+    at(world, fired_at + timedelta(days=29))
+    assert world.close().closed == ()
+    assert stored(world, AC_1).contact is not None
+    at(world, fired_at + timedelta(days=30))
+    assert world.close().closed == (AC_1,)  # #20: never kept without an end
+    assert stored(world, AC_1).contact is None
+
+
+def test_a_ready_email_sent_late_starts_the_window(world: World) -> None:
     id = dropped_off(world, 1)
     send_all(world)
     fired(world, id)
     world.mailer.fail_with = "MessageRejected"
     send_all(world)
-
-    at(world, NOW + timedelta(days=365))
-    assert world.close().closed == ()
-    assert stored(world, AC_1).contact is not None
-    # Once it is sent, the window starts.
+    at(world, world.clock.now() + timedelta(days=2))
     world.mailer.fail_with = None
     world.retry_email(AC_1, EmailKind.READY, "", STAFF_MEMBER)
     send_all(world)

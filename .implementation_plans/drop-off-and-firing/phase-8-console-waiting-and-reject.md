@@ -333,8 +333,9 @@ Calls phase 3's `EmailsNeedingAttention(records, clock)()`: every email, studio-
 that is failed, or stuck pending or sending, and isn't history (its drop-off closed or
 its rejection undone), oldest first. It is the only page that shows a fired drop-off
 whose ready email never went out once its load has left the loads list: such a drop-off
-keeps its contact details and photos until the email is sent (the close waits for it,
-#7; how long it may wait is #20, phase 9), so it must not be out of sight.
+keeps its contact details and photos until the email is sent or, at the latest, 30
+days after its firing, when the close deletes them (#7, #20), so it must not be out of
+sight.
 
 - The console's band shows "Emails need attention (n)" linking here whenever n > 0
   (the layout calls the use case on every console page; one GSI query per unfinished

@@ -18,7 +18,7 @@ number.
 | --- | --- |
 | [0001](decisions/0001-the-ceramics-studio-has-its-own-repository.md) | The ceramics studio has its own repository: public, Python with uv, set up like the sibling repositories, staff sign in through asmbly-staff-login, a clean start with no ClickUp migration, no fees |
 | [0002](decisions/0002-how-the-app-is-built-and-deployed.md) | Proposed: Starlette pages on Lambda behind an HTTP API, one DynamoDB table, photos uploaded straight to a private S3 bucket, email through an outbox and SES, sign-in checked by the app, SAM with a bootstrap stack, stage then prod |
-| [0003](decisions/0003-one-function-boundary-per-environment.md) | Proposed: one function boundary per environment, each on its own names; the HTTP API and event-source mappings take their tags in the create request (mappings' tags only on create, no import); the bootstrap owns the access-log policy |
+| [0003](decisions/0003-one-function-boundary-per-environment.md) | Accepted: one function boundary per environment, each on its own names; the HTTP API and event-source mappings take their tags in the create request (mappings' tags only on create, no import); the bootstrap owns the access-log policy |
 
 ## Runbooks
 
