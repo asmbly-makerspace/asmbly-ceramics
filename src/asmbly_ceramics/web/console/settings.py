@@ -31,7 +31,7 @@ from asmbly_ceramics.domain.limits import (
     PICKUP_WINDOW_MAX,
     PICKUP_WINDOW_MIN,
 )
-from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
+from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio, can_delete_item
 from asmbly_ceramics.mail.compose import austin_time
 from asmbly_ceramics.ports.records import BadCursor, CommitOutcomeUnknown, Conflict
 from asmbly_ceramics.ports.staff import StaffMember
@@ -107,9 +107,10 @@ def _settings_page(
     studio = view.studio
     lists = []
     for which in CatalogList:
-        items = [
-            {"item": item, "used": view.used.get((which, item.id), False)} for item in studio.items(which)
-        ]
+        items = []
+        for item in studio.items(which):
+            used = view.used.get((which, item.id), False)
+            items.append({"item": item, "used": used, "can_delete": can_delete_item(item, used=used)})
         form = list_form if list_form is not None and list_form.which is which else ListForm(which)
         lists.append(
             {"which": which, "slug": SLUGS[which], "title": TITLES[which], "rows": items, "form": form}

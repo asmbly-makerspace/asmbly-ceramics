@@ -21,8 +21,10 @@ from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
     add_to_load,
+    can_start_firing,
     change_load,
     fire,
+    firing_type_locked,
     remove_from_load,
     start_firing,
     start_load,
@@ -198,6 +200,8 @@ class LoadView:
     sent: int  # "11 of 12 emails sent"
     needing_attention: tuple[Email, ...]  # failed, or stuck sending or pending
     waiting: tuple[WaitingRow, ...]  # while loading: waiting drop-offs, by default of the load's firing type
+    can_start_firing: bool  # the domain's `can_start_firing`
+    firing_type_locked: bool  # the domain's `firing_type_locked`
 
 
 class ViewLoad:
@@ -239,6 +243,8 @@ class ViewLoad:
             sent=sum(1 for email in emails.values() if email.status is EmailStatus.SENT),
             needing_attention=tuple(attention),
             waiting=waiting,
+            can_start_firing=can_start_firing(load),
+            firing_type_locked=firing_type_locked(load),
         )
 
 

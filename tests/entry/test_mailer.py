@@ -9,6 +9,8 @@ from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.entry import mailer
+from asmbly_ceramics.ports.errors import RecordsUnavailable
+from asmbly_ceramics.settings import SettingsError
 from tests.domain.builders import NOW, TEST_EMAIL, TEST_NAME, TEST_PHONE
 from tests.use_cases.conftest import World
 from tests.use_cases.conftest import world as world  # the fakes and use cases
@@ -146,3 +148,43 @@ def test_the_sender_is_built_once_from_the_environment(monkeypatch: pytest.Monke
     first = mailer.sender()
     assert mailer.sender() is first
     assert len(built) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (
+            SettingsError("INITIAL_SENDING_ADDRESS is not an asmbly.org address"),
+            "SettingsError.INITIAL_SENDING_ADDRESS",
+        ),
+        (
+            RecordsUnavailable("ProvisionedThroughputExceededException"),
+            "ProvisionedThroughputExceededException",
+        ),
+        (ValueError(f"bad address {TEST_EMAIL} for {TEST_NAME}"), "ValueError"),
+    ],
+)
+def test_a_mailer_that_can_t_start_raises_and_logs_a_code_only(
+    error: Exception, code: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Lambda's traceback and the log get a code or the class name, never the text; the
+    whole batch is retried."""
+
+    def broken() -> object:
+        raise error
+
+    monkeypatch.setattr(mailer, "sender", broken)
+    caplog.set_level(logging.INFO)
+
+    with pytest.raises(mailer.MailerStartFailed) as raised:
+        mailer.handler({"Records": [record(12)]}, None)
+
+    assert raised.value.code == code
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
+    for text in (str(raised.value), repr(vars(raised.value)), caplog.text):
+        assert TEST_NAME not in text
+        assert TEST_EMAIL not in text
+    [logged] = [r for r in caplog.records if r.getMessage() == "mailer_start_failed"]
+    assert logged.levelno == logging.ERROR
+    assert vars(logged)["error_code"] == code

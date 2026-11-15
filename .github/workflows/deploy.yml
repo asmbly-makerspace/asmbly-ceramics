@@ -8,8 +8,8 @@
 # address: the addresses are SSM parameters CloudFormation resolves (only their names
 # are passed), the role ARNs are environment secrets, and the account ID is masked
 # before anything that could print it. tests/repo/test_deploy_workflow.py pins this.
-# The actions are on major tags, as in pr-checks.yml; pinning them to commit SHAs is
-# issue #31 (they run with id-token: write).
+# Every action is pinned to a commit SHA, its version in the comment beside it (they run
+# with id-token: write).
 name: Deploy
 
 on:
@@ -98,10 +98,17 @@ jobs:
           sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE" \
             --s3-bucket "$ARTIFACTS_BUCKET" --s3-prefix "asmbly-ceramics-$CONFIG_ENV" \
             --parameter-overrides "$parameters"
+      # Without AWS credentials: `env -i` drops what configure-aws-credentials exported.
+      # FORM_OFFLINE is the environment's variable, `true` while the form is taken offline.
       - name: Smoke test
         id: smoke
         if: steps.tip.outputs.tip == 'true'
-        run: python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}"
+        env:
+          FORM_OFFLINE: ${{ vars.FORM_OFFLINE }}
+        run: |
+          flags=()
+          if [ "$FORM_OFFLINE" = "true" ]; then flags+=(--form-offline); fi
+          env -i PATH="$PATH" python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}" "${flags[@]}"
       - name: Summary
         if: always() && steps.tip.outputs.tip == 'true'
         env:
@@ -184,10 +191,17 @@ jobs:
           sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE" \
             --s3-bucket "$ARTIFACTS_BUCKET" --s3-prefix "asmbly-ceramics-$CONFIG_ENV" \
             --parameter-overrides "$parameters"
+      # Without AWS credentials: `env -i` drops what configure-aws-credentials exported.
+      # FORM_OFFLINE is the environment's variable, `true` while the form is taken offline.
       - name: Smoke test
         id: smoke
         if: steps.tip.outputs.tip == 'true'
-        run: python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}"
+        env:
+          FORM_OFFLINE: ${{ vars.FORM_OFFLINE }}
+        run: |
+          flags=()
+          if [ "$FORM_OFFLINE" = "true" ]; then flags+=(--form-offline); fi
+          env -i PATH="$PATH" python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}" "${flags[@]}"
       - name: Summary
         if: always() && steps.tip.outputs.tip == 'true'
         env:

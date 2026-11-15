@@ -37,6 +37,8 @@ from asmbly_ceramics.web.security import CACHE_STATIC, csp, origin_of, security_
 COOKIE_KEY_MIN_BYTES = 32
 APP_ROLES = ("form", "console")
 STATIC = Path(__file__).parent / "static"
+CONSOLE_PREFIX = "/console"
+STATIC_PATHS = ("/static/", CONSOLE_PREFIX + "/static/")  # the form's, the console's
 _CSP = b"content-security-policy"
 
 
@@ -90,7 +92,7 @@ class SecurityHeaders:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        static = scope["path"].startswith("/static/")
+        static = scope["path"].startswith(STATIC_PATHS)
         started = False
 
         async def send_with_headers(message: Message) -> None:
@@ -150,7 +152,12 @@ def create_app(
     services: WebServices | None, settings: WebSettings, console: ConsoleServices | None = None
 ) -> Starlette:
     """The form's routes when `services` is given, the console's when `console` is;
-    `/health` and `/static` always. Each deployed function's app has one of the two."""
+    `/health` and `/static` always. Each deployed function's app has one of the two.
+
+    The console also answers `/console/health` and `/console/static/`: the API sends
+    every `/console` path to the console's function and everything else to the form's,
+    so the console keeps its health check and its stylesheet while the form is offline
+    (reserved concurrency 0, `docs/runbooks/operations.md`)."""
     routes: list[BaseRoute] = []
     if services is not None:
         routes += [
@@ -161,6 +168,10 @@ def create_app(
         ]
     if console is not None:
         routes += console_routes()
+        routes += [
+            Route(CONSOLE_PREFIX + "/health", public.health, methods=["GET"]),
+            Mount(CONSOLE_PREFIX + "/static", app=StaticFiles(directory=STATIC), name="console_static"),
+        ]
     routes += [
         Route("/health", public.health, methods=["GET"]),
         Mount("/static", app=StaticFiles(directory=STATIC), name="static"),

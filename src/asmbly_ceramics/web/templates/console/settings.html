@@ -47,7 +47,7 @@
     <tbody>
     {% for row in list.rows %}
     {% set item = row.item %}
-    {% set retired = item.status.value == "retired" %}
+    {% set retired = item.retired %}
       <tr>
         <td>{{ item.name }}{% if retired %} <span class="tag">Retired</span>{% endif %}{% if item.needs_message %} <span class="tag">Needs a message</span>{% endif %}{% if item.needs_glaze_type %} <span class="tag">Needs a glaze type</span>{% endif %}</td>
         <td>{{ "Used" if row.used else "Not used yet" }}</td>
@@ -66,7 +66,7 @@
             <input type="hidden" name="item" value="{{ item.id }}">
             <button type="submit" class="button-quiet">Bring back</button>
           </form>
-          {% if not row.used %}
+          {% if row.can_delete %}
           <form method="post" action="/console/settings/{{ list.slug }}/delete" class="inline-form">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <input type="hidden" name="version" value="{{ studio.version }}">

@@ -1,13 +1,16 @@
-"""The smoke test the deploy runs against an environment, with no AWS credentials.
+"""The smoke test the deploy runs against an environment, with no AWS credentials (the
+workflow runs it with an empty environment: `env -i PATH="$PATH"`).
 
     python3 scripts/smoke.py https://ceramics-stage.asmbly.org abc1234
+    python3 scripts/smoke.py https://ceramics.asmbly.org abc1234 --form-offline
 
 It stops at the first failed check, printing the check's name and the status it got,
 never a body. It never submits a drop-off and never sends an email; its upload slots
 count once against the rate limit; the one-byte upload expires with `uploads/`. Standard library only.
 
-1. health: `GET /health` is 200 with `status: ok` and the expected version (retried,
-   for the new version to be live).
+1. health: `GET /health` (the form's function) is 200 with `status: ok` and the
+   expected version (retried, for the new version to be live). console-health: the
+   same for `GET /console/health` (the console's function).
 2. form: `GET /` is 200 with the form's security headers; its device cookie and
    submission token are kept for check 5.
 3. console: `GET /console` without a session is a 302 to
@@ -24,6 +27,11 @@ count once against the rate limit; the one-byte upload expires with `uploads/`. 
    closed the connection).
 6. private-photos: a kept photo's and an upload's storage addresses, without
    credentials, are 403.
+
+With `--form-offline` (the environment's `FORM_OFFLINE` variable, set while the form is
+taken offline, `docs/runbooks/operations.md`), it runs console-health and the console's
+checks (3), then form-offline: `GET /health` must not be 200, so a deploy that brought
+the form back fails. Checks 1's health, 2, 4, 5 and 6 need the form, and are skipped.
 """
 
 import http.client
@@ -87,11 +95,13 @@ def expect(check: str, answer: Answer, status: int) -> None:
         raise SmokeError(check, f"expected {status}, got {answer.status}")
 
 
-def check_health(site: str, version: str, tries: int, wait: float) -> None:
+def check_health(
+    site: str, version: str, tries: int, wait: float, *, path: str = "/health", check: str = "health"
+) -> None:
     last = "no answer"
     for attempt in range(tries):
         try:
-            answer = request(f"{site}/health")
+            answer = request(f"{site}{path}")
         except OSError as error:
             last = type(error).__name__
         else:
@@ -110,7 +120,18 @@ def check_health(site: str, version: str, tries: int, wait: float) -> None:
                 last = "not the expected version yet"
         if attempt + 1 < tries:
             time.sleep(wait)
-    raise SmokeError("health", last)
+    raise SmokeError(check, last)
+
+
+def check_form_offline(site: str) -> str:
+    """The form's function is offline: its health check doesn't answer 200."""
+    try:
+        answer = request(f"{site}/health")
+    except OSError as error:
+        return f"no answer ({type(error).__name__})"
+    if answer.status == 200:
+        raise SmokeError("form-offline", "the form's health check answers 200")
+    return f"status {answer.status}"
 
 
 def check_form(site: str) -> tuple[str, str]:
@@ -227,19 +248,31 @@ def check_oversized_upload(url: str, fields: Mapping[str, str]) -> str:
     return f"{answer.status} {code.group(1) if code else 'without an S3 code'}"
 
 
-def run(site: str, version: str, *, tries: int = 10, wait: float = 6.0) -> list[str]:
-    site = site.rstrip("/")
-    report: list[str] = []
-    check_health(site, version, tries, wait)
-    report.append("health: ok")
-    cookie, token = check_form(site)
-    report.append("form: ok")
+def run_console_checks(site: str, version: str, tries: int, wait: float, report: list[str]) -> None:
+    check_health(site, version, tries, wait, path="/console/health", check="console-health")
+    report.append("console-health: ok")
     check_console(site)
     report.append("console: ok")
     check_console_photo(site)
     report.append("console-photo: ok")
     check_console_pages(site)
     report.append("console-pages: ok")
+
+
+def run(
+    site: str, version: str, *, tries: int = 10, wait: float = 6.0, form_offline: bool = False
+) -> list[str]:
+    site = site.rstrip("/")
+    report: list[str] = []
+    if form_offline:
+        run_console_checks(site, version, tries, wait, report)
+        report.append(f"form-offline: ok, {check_form_offline(site)}")
+        return report
+    check_health(site, version, tries, wait)
+    report.append("health: ok")
+    cookie, token = check_form(site)
+    report.append("form: ok")
+    run_console_checks(site, version, tries, wait, report)
     expect("foreign-origin", slots_request(site, FOREIGN_ORIGIN, cookie, token), 403)
     report.append("foreign-origin: ok")
     answer = slots_request(site, site, cookie, token)
@@ -262,12 +295,17 @@ def run(site: str, version: str, *, tries: int = 10, wait: float = 6.0) -> list[
     return report
 
 
+FORM_OFFLINE_FLAG = "--form-offline"
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: smoke.py <site URL> <version>", file=sys.stderr)
+    form_offline = argv[2:] == [FORM_OFFLINE_FLAG]
+    if len(argv) != 2 and not form_offline:
+        print(f"usage: smoke.py <site URL> <version> [{FORM_OFFLINE_FLAG}]", file=sys.stderr)
         return 2
     try:
-        for line in run(argv[0], argv[1], tries=HEALTH_TRIES, wait=HEALTH_WAIT_SECONDS):
+        lines = run(argv[0], argv[1], tries=HEALTH_TRIES, wait=HEALTH_WAIT_SECONDS, form_offline=form_offline)
+        for line in lines:
             print(line)
     except SmokeError as failed:
         print(f"smoke test failed: {failed}", file=sys.stderr)

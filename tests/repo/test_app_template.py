@@ -23,6 +23,8 @@ from asmbly_ceramics.domain.ids import DropOffId, LoadId
 from asmbly_ceramics.use_cases.emails import EMAIL_FAILED
 from tests.repo.cloudformation import load_template
 from tests.repo.files import REPO
+from tests.use_cases.conftest import World
+from tests.use_cases.conftest import world as world  # the fakes, for the apps' routes
 
 PATH = REPO / "infra" / "app.yaml"
 TEXT = PATH.read_text()
@@ -458,6 +460,18 @@ def test_every_alarm_notifies_this_project_s_topic_and_ignores_missing_data() ->
     ]
 
 
+def test_every_alarm_has_a_row_in_the_operations_runbook() -> None:
+    runbook = (REPO / "docs" / "runbooks" / "operations.md").read_text()
+    section = runbook.split("## When an alarm fires\n", 1)[1].split("\n## ", 1)[0]
+    rows = set(re.findall(r"^\| `([a-z0-9-]+)` \|", section, flags=re.MULTILINE))
+    names = set()
+    for alarm in ALARMS.values():
+        name = sub(alarm["Properties"]["AlarmName"])
+        assert name.startswith("${ProjectSlug}-${AppEnv}-"), name
+        names.add(name.removeprefix("${ProjectSlug}-${AppEnv}-"))
+    assert rows == names
+
+
 def test_the_function_errors_alarm_counts_a_function_that_wasn_t_invoked_as_zero() -> None:
     [total] = [m for m in ALARMS["FunctionErrorsAlarm"]["Properties"]["Metrics"] if m.get("ReturnData")]
     assert total["Expression"] == "FILL(form, 0) + FILL(mailer, 0) + FILL(console, 0)"
@@ -621,6 +635,27 @@ def test_the_console_routes_go_to_the_console_function_only() -> None:
         "ANY /console/{proxy+}": {"ThrottlingBurstLimit": 40, "ThrottlingRateLimit": 10},
         photos: {"ThrottlingBurstLimit": 100, "ThrottlingRateLimit": 30},
     }
+
+
+def test_every_console_path_reaches_the_console_function_and_no_form_path_does(world: World) -> None:
+    """The console's pages, its health check and its stylesheet all go to its function, so
+    it keeps working while the form's function is offline (reserved concurrency 0)."""
+    from starlette.routing import Mount, Route
+
+    from asmbly_ceramics.web.app import create_app
+    from tests.web.conftest import services, settings
+    from tests.web.console.conftest import console_services, console_settings
+
+    def paths(app: Any) -> set[str]:
+        return {r.path for r in app.routes if isinstance(r, (Route, Mount))}
+
+    console = paths(create_app(None, console_settings(world), console_services(world)))
+    form = paths(create_app(services(world), settings()))
+    assert {"/console/health", "/console/static"} <= console
+    for path in console - {"/health", "/static"}:
+        assert path == "/console" or path.startswith("/console/"), path
+    for path in form:
+        assert not path.startswith("/console"), path
 
 
 def test_the_staff_sign_in_values_come_from_parameter_store() -> None:

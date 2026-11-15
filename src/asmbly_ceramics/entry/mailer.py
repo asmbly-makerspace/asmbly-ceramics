@@ -10,17 +10,29 @@ image's fields, and turns them into the email's key with `keys.parse_email_key`.
 - Any other exception (the email couldn't be read or claimed) reports the record in
   `batchItemFailures`, so Lambda tries it again, and logs `mailer_crashed` with the
   exception's class only.
+- A failure to start (the settings, the clients) logs `mailer_start_failed` with a code
+  only (`entry.failure_code`) and raises `MailerStartFailed` holding only that, so
+  Lambda retries the whole batch and its traceback never carries an error's own text.
 """
 
 import logging
 from typing import Any
 
 from asmbly_ceramics.adapters.aws.keys import parse_email_key
+from asmbly_ceramics.entry import failure_code
 from asmbly_ceramics.ports.errors import error_code
 from asmbly_ceramics.use_cases.emails import SendPendingEmail
 from asmbly_ceramics.use_cases.log import log_event
 
 _sender: SendPendingEmail | None = None
+
+
+class MailerStartFailed(Exception):  # noqa: N818  # named for what happened, like CloseAborted
+    """The mailer couldn't start; holds a code, never an error's text."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(f"the mailer couldn't start: {code}")
+        self.code = code
 
 
 def sender() -> SendPendingEmail:
@@ -39,7 +51,12 @@ def sender() -> SendPendingEmail:
 
 def handler(event: dict[str, Any], context: object) -> dict[str, list[dict[str, str]]]:
     """For each stream record, send its email; report the ones that failed to retry."""
-    send = sender()
+    try:
+        send = sender()
+    except Exception as error:  # by code only: the text can quote a setting's value
+        code = failure_code(error)
+        log_event("mailer_start_failed", level=logging.ERROR, error_code=code)
+        raise MailerStartFailed(code) from None
     failures: list[dict[str, str]] = []
     for record in event.get("Records", []):
         stream = record.get("dynamodb") or {}

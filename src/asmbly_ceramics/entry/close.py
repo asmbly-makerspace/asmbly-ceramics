@@ -17,8 +17,7 @@ text.
 import logging
 from collections.abc import Mapping
 
-from asmbly_ceramics.ports.errors import Unavailable, error_code
-from asmbly_ceramics.settings import SettingsError
+from asmbly_ceramics.entry import failure_code
 from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.log import log_event
 
@@ -41,16 +40,6 @@ class CloseAborted(Exception):  # noqa: N818  # named for what happened, like th
         self.code = code
 
 
-def _code(error: Exception) -> str:
-    """An `Unavailable`'s code; `SettingsError.TABLE_NAME` for a missing or malformed
-    variable (its name only, never its value); else the class name."""
-    if isinstance(error, Unavailable):
-        return error.code
-    if isinstance(error, SettingsError):
-        return error_code(f"SettingsError.{error.variable}")
-    return type(error).__name__
-
-
 def closer() -> CloseFinished:
     """Built on the first invocation of a container, then kept."""
     global _closer
@@ -70,7 +59,7 @@ def handler(event: Mapping[str, object], context: object) -> dict[str, int]:
     try:
         report = closer()()
     except Exception as error:
-        code = _code(error)
+        code = failure_code(error)
         log_event("close_aborted", level=logging.ERROR, error_code=code)
         raise CloseAborted(code) from None
     if report.failed:

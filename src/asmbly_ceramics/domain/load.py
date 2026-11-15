@@ -87,7 +87,7 @@ def change_load(load: Load, kiln: ItemId, firing_type: ItemId, on: dt.date, stud
     """
     require_loading(load)
     if firing_type != load.firing_type:
-        if load.members:
+        if firing_type_locked(load):
             raise FiringTypeLocked(load.id)
         studio.active_item(CatalogList.FIRING_TYPES, firing_type)
     if kiln != load.kiln:
@@ -132,11 +132,27 @@ def remove_from_load(load: Load, drop_off: DropOff) -> tuple[Load, DropOff]:
 
 
 def start_firing(load: Load) -> Load:
-    if load.status is not LoadStatus.LOADING:
+    """Loading to firing; `can_start_firing` says beforehand whether this refuses."""
+    if not accepts_drop_offs(load):
         raise WrongLoadStatus(load.id, load.status.value, LoadStatus.LOADING.value)
     if not load.members:
         raise EmptyLoad(load.id)
     return replace(load, status=LoadStatus.FIRING)
+
+
+def accepts_drop_offs(load: Load) -> bool:
+    """Drop-offs can still be added to or removed from `load` (it is loading)."""
+    return load.status is LoadStatus.LOADING
+
+
+def firing_type_locked(load: Load) -> bool:
+    """`change_load` refuses a new firing type (`FiringTypeLocked`): drop-offs are in it."""
+    return bool(load.members)
+
+
+def can_start_firing(load: Load) -> bool:
+    """`start_firing` accepts `load`: it is loading and holds a drop-off."""
+    return accepts_drop_offs(load) and bool(load.members)
 
 
 def fire(load: Load, members: Sequence[DropOff], at: dt.datetime) -> FireResult:
@@ -165,7 +181,7 @@ def fire(load: Load, members: Sequence[DropOff], at: dt.datetime) -> FireResult:
 def require_loading(load: Load) -> None:
     """`LoadNotLoading` unless drop-offs can still be added to or removed from `load`; a
     page asks before it offers the add field's search."""
-    if load.status is not LoadStatus.LOADING:
+    if not accepts_drop_offs(load):
         raise LoadNotLoading(load.id, load.status.value)
 
 

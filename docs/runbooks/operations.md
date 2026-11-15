@@ -42,13 +42,23 @@ the form offline (below) instead.
 When the form must stop taking drop-offs now (abuse, a leak, a bad deploy that a revert
 can't fix quickly):
 
-**Do:** `aws lambda put-function-concurrency --function-name asmbly-ceramics-<env>-form --reserved-concurrent-executions 0`
+**Do:** `aws lambda put-function-concurrency --function-name asmbly-ceramics-<env>-form --reserved-concurrent-executions 0`,
+then set the GitHub environment `<env>`'s variable `FORM_OFFLINE` to `true`.
 **Check:** `curl -s -o /dev/null -w '%{http_code}\n' https://<site>/health` no longer
-answers 200 (API Gateway can't invoke the function; note the code it gives).
-**Undo:** `aws lambda put-function-concurrency --function-name asmbly-ceramics-<env>-form --reserved-concurrent-executions 5`;
-check `/health` answers 200. Whether a **Deploy** puts it back to 5 isn't known yet
-(every deploy updates the function): while the form is meant to stay offline, check
-after each Deploy with
+answers 200 (API Gateway can't invoke the function; note the code it gives), and
+`https://<site>/console/health` still does: the console has its own function, health
+check and stylesheet (every `/console` path goes to it), so staff keep working.
+**Undo:** `aws lambda put-function-concurrency --function-name asmbly-ceramics-<env>-form --reserved-concurrent-executions 5`,
+then delete the variable `FORM_OFFLINE` (or set it to anything but `true`); check
+`/health` answers 200.
+
+While `FORM_OFFLINE` is `true`, each **Deploy**'s smoke test for that environment runs
+only the console's checks and then checks the form's `/health` is *not* 200
+(`scripts/smoke.py --form-offline`); without the variable, the smoke test fails at its
+first check, `health`, on every deploy. Forgetting to delete it after the undo fails the
+next smoke test at `form-offline`, which is how it is noticed. Whether a **Deploy** puts it back to 5 isn't known yet
+(every deploy updates the function): the smoke test's `form-offline` check fails if
+it did. While the form is meant to stay offline, check after each Deploy with
 `aws lambda get-function-concurrency --function-name asmbly-ceramics-<env>-form` and set
 it to 0 again if it changed. The first time on stage settles it; write the answer here.
 
@@ -156,9 +166,11 @@ by drop-off ID only; never open a drop-off's details with the CLI.
 | Alarm | Look at | Then |
 | --- | --- | --- |
 | `email-failures` | the mailer's log group, `email_failed` lines: the drop-off's ID and the SES error code | staff use "Try sending again" in the console (phase 8) once the cause is fixed; a refused address is the person's to correct |
-| `logged-errors` | the form's, the console's and the mailer's log groups, `level` `ERROR` lines: the event and `error_code` | a code that names AWS (`ThrottlingException`, `AccessDenied`) points at the stack; `photos_not_deleted` names a drop-off for the backstop (#19); the console's `jwks_unavailable` or `sign_in_unavailable` means the staff sign-in can't be reached (asmbly-staff-login's) |
+| `logged-errors` | the form's, the console's and the mailer's log groups, `level` `ERROR` lines: the event and `error_code` | a code that names AWS (`ThrottlingException`, `AccessDenied`) points at the stack; `photos_not_deleted` names a drop-off for the backstop (#19); the mailer's `mailer_start_failed` means it can't start (a `SettingsError.<variable>` code names the variable; Lambda retries the batch); the console's `jwks_unavailable` or `sign_in_unavailable` means the staff sign-in can't be reached (asmbly-staff-login's) |
 | `mailer-dead-letters` | the mailer's log group around the alarm's time (`mailer_crashed` with the drop-off's ID) | the email stays pending; fix the cause, then staff retry it |
 | `function-errors` | the function's log group around the alarm's time | a deploy's bad version: roll back |
+| `close-errors` | the close's log group, `close_failed` lines (a drop-off's ID and an error code) or `close_aborted` (a code) | Lambda runs it again (closing is idempotent), and the next daily run tries every drop-off still due, so fix the cause; a drop-off that keeps failing keeps its details past #7's close until it is fixed |
+| `close-dead-letters` | the close's log group around the alarm's time; the dead-letter queue `asmbly-ceramics-<env>-close-dlq`'s message count (`aws sqs get-queue-attributes`) | the run gave up after its retries, or the scheduler couldn't invoke the close: fix the cause; the next daily run closes what is due |
 | `api-5xx` | the API's access log group (status only) and the form's and console's log groups | as for `function-errors`; with no errors logged, many people at once may have used up the form's 5 or the console's 25 reserved executions (the console's thumbnails are each a request; API Gateway answers for it) |
 
 Each returns to OK by itself when the next five minutes are quiet.
@@ -168,8 +180,8 @@ Each returns to OK by itself when the next five minutes are quiet.
 - `/asmbly-ceramics/<env>/initial-sending-address` is read only the first time the
   studio is stored (its first-use seeding). Changing it afterwards doesn't change the
   sending address (staff do that in the console), but the parameter must stay, and stay
-  an `asmbly.org` address: every deploy resolves it, and both functions check it when
-  they start.
+  an `asmbly.org` address: every deploy resolves it, and all four functions (the form,
+  the console, the mailer and the close) check it when they start.
 - The alarm topic's email subscription is confirmed once, from the email AWS sends to
   `/asmbly-ceramics/<env>/alert-email`. Stage's and prod's alarms both go there; the
   alarm's name says which.

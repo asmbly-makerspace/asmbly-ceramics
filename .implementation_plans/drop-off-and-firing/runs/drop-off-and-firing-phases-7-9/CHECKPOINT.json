@@ -5,7 +5,7 @@
   "feature_branch": "feat/drop-off-and-firing-phases-7-9",
   "worktree": ".claude/worktrees/offshore-drop-off-and-firing-phases-7-9",
   "status": "in-progress",
-  "stage": "phases",
+  "stage": "final-review",
   "selected_phases": [
     "7",
     "8",
@@ -99,7 +99,7 @@
       ],
       "status": "done",
       "base_sha": "8493547a7ff7ab36576337441124242cff724275",
-      "squashed_sha": null,
+      "squashed_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": null,
@@ -120,16 +120,16 @@
     }
   ],
   "gate": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
+    "result": "clean",
     "squashed_sha": null,
-    "test_count": null,
-    "coverage": null,
+    "test_count": 2797,
+    "coverage": "99.15%",
     "steps_skipped": []
   },
   "final_review": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
+    "result": "fixed",
     "squashed_sha": null
   },
   "docs": {
@@ -317,6 +317,36 @@
       "ts": "2026-11-15T18:30:47Z",
       "type": "phase_done",
       "phase": "9"
+    },
+    {
+      "ts": "2026-11-15T18:30:49Z",
+      "type": "squash",
+      "phase": "9",
+      "sha": "40553ed15bca95d1c5f3029943ee90f021d124cb"
+    },
+    {
+      "ts": "2026-11-15T18:34:11Z",
+      "type": "gate_result",
+      "result": "clean",
+      "tests": 2797,
+      "coverage": "99.15%"
+    },
+    {
+      "ts": "2026-11-15T18:48:25Z",
+      "type": "final_review",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 3,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T19:00:51Z",
+      "type": "decision",
+      "topic": "form paused",
+      "choice": "console serves /console/static and /console/health; smoke has a form-offline mode",
+      "reason": "the console must work while the form is paused"
     }
   ]
 }

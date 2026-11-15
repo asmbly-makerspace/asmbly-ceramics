@@ -34,7 +34,13 @@ from asmbly_ceramics.domain.errors import (
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
-from asmbly_ceramics.domain.load import Load, LoadStatus, require_firing, require_loading
+from asmbly_ceramics.domain.load import (
+    Load,
+    LoadStatus,
+    accepts_drop_offs,
+    require_firing,
+    require_loading,
+)
 from asmbly_ceramics.domain.search import QUERY_MAX, parse_query
 from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, Studio
 from asmbly_ceramics.mail.compose import austin_day, austin_time
@@ -148,7 +154,12 @@ def _loads_page(
     today = console.clock.now().astimezone(STUDIO_TZ).date()
 
     def row(load: Load) -> dict[str, Any]:
-        return {"load": load, "title": load_title(studio, load), "count": len(load.members)}
+        return {
+            "load": load,
+            "title": load_title(studio, load),
+            "count": len(load.members),
+            "accepts_drop_offs": accepts_drop_offs(load),
+        }
 
     context = {
         "tab": "loads",

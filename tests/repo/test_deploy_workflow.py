@@ -106,10 +106,41 @@ def test_the_deploy_passes_every_parameter_and_names_no_address() -> None:
         assert '--parameter-overrides "$parameters"' in run
         assert '--role-arn "$EXECUTION_ROLE"' in run
         assert "@" not in run
-        smoke = steps(job)[index(job, "Smoke test")]["run"]
-        assert smoke == 'python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}"'
+        smoke = steps(job)[index(job, "Smoke test")]
+        assert smoke["env"] == {"FORM_OFFLINE": "${{ vars.FORM_OFFLINE }}"}
+        assert smoke["run"] == SMOKE_RUN
         compose = steps(job)[index(job, "Compose check")]["run"]
         assert compose == "python3 scripts/compose_check.py .aws-sam/build/MailerFunction"
+
+
+SMOKE_RUN = (
+    "flags=()\n"
+    'if [ "$FORM_OFFLINE" = "true" ]; then flags+=(--form-offline); fi\n'
+    'env -i PATH="$PATH" python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}" "${flags[@]}"\n'
+)
+
+
+def test_the_smoke_test_runs_without_the_deploy_role_s_credentials() -> None:
+    """configure-aws-credentials exports the role's keys to every later step; the smoke
+    test's environment is emptied but for PATH, and its flag is the script's own."""
+    from scripts import smoke
+
+    assert smoke.FORM_OFFLINE_FLAG == "--form-offline"
+    assert "no AWS credentials" in (smoke.__doc__ or "")
+    for job in JOBS:
+        run = steps(job)[index(job, "Smoke test")]["run"]
+        command = [line for line in run.splitlines() if "smoke.py" in line]
+        assert command, job
+        assert all(line.startswith('env -i PATH="$PATH" ') for line in command), job
+        assert "AWS_" not in run
+
+
+def test_every_action_is_pinned_to_a_commit_sha_as_the_header_says() -> None:
+    assert "pinned to a commit SHA" in TEXT.split("\nname:", 1)[0]
+    for job in JOBS:
+        for step in steps(job):
+            if "uses" in step:
+                assert re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", step["uses"]), step["uses"]
 
 
 def test_nothing_prints_a_stack_s_description_or_a_secret() -> None:

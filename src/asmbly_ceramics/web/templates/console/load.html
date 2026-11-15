@@ -33,9 +33,9 @@
   <form method="post" action="/console/loads/{{ load.id }}/start-firing" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="version" value="{{ load.version }}">
-    <button type="submit"{% if not view.members %} disabled aria-describedby="start-hint"{% endif %}>Start firing</button>
+    <button type="submit"{% if not view.can_start_firing %} disabled aria-describedby="start-hint"{% endif %}>Start firing</button>
   </form>
-  {% if not view.members %}<p class="hint" id="start-hint">Add a drop-off first.</p>{% endif %}
+  {% if not view.can_start_firing %}<p class="hint" id="start-hint">Add a drop-off first.</p>{% endif %}
 </div>
 {% elif firing %}
 <div class="actions">
@@ -196,13 +196,13 @@
       <label for="edit-kiln">Kiln</label>
       <select id="edit-kiln" name="kiln">
         {% for item in kilns %}
-        <option value="{{ item.id }}"{% if load.kiln == item.id %} selected{% endif %}>{{ item.name }}{% if item.status.value == "retired" %} (retired){% endif %}</option>
+        <option value="{{ item.id }}"{% if load.kiln == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
         {% endfor %}
       </select>
     </div>
     <div class="field">
       <label for="edit-firing">Firing type</label>
-      {% if view.members %}
+      {% if view.firing_type_locked %}
       <input type="hidden" name="firing_type" value="{{ load.firing_type }}">
       <select id="edit-firing" disabled aria-describedby="firing-locked">
         <option selected>{{ firing_name }}</option>
@@ -211,7 +211,7 @@
       {% else %}
       <select id="edit-firing" name="firing_type">
         {% for item in firing_types %}
-        <option value="{{ item.id }}"{% if load.firing_type == item.id %} selected{% endif %}>{{ item.name }}{% if item.status.value == "retired" %} (retired){% endif %}</option>
+        <option value="{{ item.id }}"{% if load.firing_type == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
         {% endfor %}
       </select>
       {% endif %}

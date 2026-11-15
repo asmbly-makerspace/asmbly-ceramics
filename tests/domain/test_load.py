@@ -26,9 +26,12 @@ from asmbly_ceramics.domain.limits import LOAD_CAPACITY
 from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
+    accepts_drop_offs,
     add_to_load,
+    can_start_firing,
     change_load,
     fire,
+    firing_type_locked,
     remove_from_load,
     require_firing,
     require_loading,
@@ -273,6 +276,32 @@ def test_start_firing_only_from_loading(status: LoadStatus) -> None:
     with pytest.raises(WrongLoadStatus) as caught:
         start_firing(a_load(status=status, members=[1]))
     assert caught.value.message == f"Load L-1 is {status}, not loading."
+
+
+@pytest.mark.parametrize("status", list(LoadStatus))
+@pytest.mark.parametrize("members", [[], [1]])
+def test_the_predicates_agree_with_the_refusals(status: LoadStatus, members: list[int]) -> None:
+    """What a page asks beforehand is what the rule then does."""
+    load = a_load(status=status, members=members)
+    try:
+        start_firing(load)
+    except EmptyLoad, WrongLoadStatus:
+        assert not can_start_firing(load)
+    else:
+        assert can_start_firing(load)
+    try:
+        require_loading(load)
+    except LoadNotLoading:
+        assert not accepts_drop_offs(load)
+    else:
+        assert accepts_drop_offs(load)
+    if status is LoadStatus.LOADING:
+        try:
+            change_load(load, load.kiln, GLAZE, TODAY, a_studio())
+        except FiringTypeLocked:
+            assert firing_type_locked(load)
+        else:
+            assert not firing_type_locked(load)
 
 
 def test_fire_marks_every_member_fired_and_queues_one_ready_email_each() -> None:

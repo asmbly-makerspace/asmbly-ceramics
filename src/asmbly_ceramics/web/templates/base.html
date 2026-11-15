@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Drop off for firing{% endblock %} · Asmbly Ceramics</title>
-<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+{# The console's pages take its own copy: the form's function may be offline. #}
+{% set static_root = "/console/static" if request.url.path.startswith("/console") else "/static" %}
+<link rel="stylesheet" href="{{ static_root }}/app.css?v={{ version }}">
 {% block scripts %}{% endblock %}
 {% block head_extra %}{% endblock %}
 </head>
