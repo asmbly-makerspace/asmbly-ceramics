@@ -218,6 +218,8 @@ a { color: var(--accent-strong); }
 
 @media (hover: hover) {
   button:hover:not(:disabled), .button:hover { background: var(--accent-hover); }
+  /* A quiet button turns solid on hover, so its text turns white with it. */
+  button.button-quiet:hover:not(:disabled), .button.button-quiet:hover { color: var(--on-accent); }
 }
 
 [hidden] { display: none; }

@@ -36,6 +36,22 @@ def test_the_header_is_one_band_with_both_marks_and_who_is_signed_in(signed_in: 
     assert page.count("<h1>") == 1
 
 
+def test_the_console_s_error_page_has_the_same_band(signed_in: Console) -> None:
+    page = signed_in.get("/console/drop-offs/AC-999").text
+    assert 'class="console-band"' in page
+    assert 'class="asmbly-band"' not in page
+    assert "<h1>Ceramics console</h1>" in page
+    assert 'class="page page-console"' in page
+
+
+def test_the_signed_out_page_has_the_band_without_anyone_signed_in(console: Console) -> None:
+    page = console.get("/console/signed-out").text
+    assert 'class="console-band"' in page
+    assert 'class="asmbly-band"' not in page
+    assert "Signed in as" not in page
+    assert 'class="page page-console"' in page
+
+
 def test_waiting_drop_offs_are_listed_oldest_first_with_days_waiting(signed_in: Console) -> None:
     console = signed_in
     first = console.drop_off(1, name="Wren Okafor")
