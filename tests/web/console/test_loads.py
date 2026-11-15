@@ -2,6 +2,7 @@
 the ready emails and their retry, past loads, and who may do any of it."""
 
 import html
+import logging
 import re
 from datetime import date, timedelta
 
@@ -713,3 +714,140 @@ def test_the_load_pages_build_no_refusal_of_their_own() -> None:
     source = inspect.getsource(page)
     for error in ("LoadNotLoading(", "AlreadyFired(", "WrongLoadStatus(", "NotWaiting(", "EmptyLoad("):
         assert error not in source, error
+
+
+# --- deleting a load started by mistake ----------------------------------------------------
+
+
+def delete(console: Console, typed: str | None = None, *, version: int | None = None) -> httpx2.Response:
+    fields = {"version": str(load_of(console).version if version is None else version)}
+    if typed is not None:
+        fields |= {"confirm": "1", "typed_id": typed}
+    return console.post("/console/loads/L-1/delete", fields)
+
+
+def test_a_loading_load_offers_delete_behind_a_closed_panel(staff: Console) -> None:
+    start(staff)
+    page = text(staff.get("/console/loads/L-1"))
+    assert "<summary>Delete this load</summary>" in page
+    assert 'action="/console/loads/L-1/delete"' in page
+    assert "Delete L-1…" in page
+    assert 'name="typed_id"' not in page  # the confirmation comes only after asking
+
+
+def test_delete_asks_first_and_names_what_goes_back_to_waiting(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    add(staff, "AC-1")
+    add(staff, "AC-2")
+
+    asked = delete(staff)
+
+    assert asked.status_code == 200
+    page = text(asked)
+    assert "Delete load L-1?" in page
+    assert "This can't be undone." in page
+    assert "2 drop-offs in it go back to the waiting list" in page
+    assert "AC-1, AC-2" in page
+    assert 'name="typed_id"' in page
+    assert "Delete L-1 for good" in page
+    assert "<summary>Delete this load</summary>" not in page
+    assert load_of(staff).status is LoadStatus.LOADING
+    assert state(staff, DropOffId(1)) is DropOffState.IN_LOAD
+
+
+@pytest.mark.parametrize("typed", ["", "L-2", "AC-1", "yes", "L-11"])
+def test_delete_refuses_unless_the_load_id_is_typed_exactly(staff: Console, typed: str) -> None:
+    staff.drop_off(1)
+    start(staff)
+    add(staff, "AC-1")
+
+    refused = delete(staff, typed)
+
+    assert refused.status_code == 400
+    assert "Type L-1 exactly to delete this load." in text(refused)
+    assert "Delete load L-1?" in text(refused)  # still asking
+    assert load_of(staff).status is LoadStatus.LOADING
+    assert state(staff, DropOffId(1)) is DropOffState.IN_LOAD
+
+
+@pytest.mark.parametrize("typed", ["L-1", " l-1 "])
+def test_delete_with_the_id_typed_deletes_and_returns_to_the_list(
+    staff: Console, typed: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    staff.drop_off(1)
+    start(staff)
+    add(staff, "AC-1")
+
+    done = delete(staff, typed)
+
+    assert done.status_code == 303
+    assert done.headers["location"] == "/console/loads?done=deleted&load=L-1"
+    assert load_of(staff).status is LoadStatus.DELETED
+    assert state(staff, DropOffId(1)) is DropOffState.WAITING
+    listed = text(staff.get(done.headers["location"]))
+    assert "Load L-1 deleted. Its drop-offs are back in the waiting list." in listed
+    assert "/console/loads/L-1" not in listed
+    assert staff.get("/console/loads/L-1").status_code == 404
+    assert delete(staff, "L-1").status_code == 404
+    assert ("load_deleted", STAFF) in events(caplog)
+
+
+def test_a_firing_load_can_be_deleted_with_a_warning(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    add(staff, "AC-1")
+    staff.post("/console/loads/L-1/start-firing", {"version": str(load_of(staff).version)})
+
+    asked = text(delete(staff))
+    assert "This load is firing. Delete it only if it was never really put in the kiln." in re.sub(
+        r"</?strong>", "", asked
+    )
+    assert delete(staff, "L-1").status_code == 303
+    assert state(staff, DropOffId(1)) is DropOffState.WAITING
+
+
+def test_a_fired_load_cannot_be_deleted(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    add(staff, "AC-1")
+    fire(staff)
+    assert "Delete this load" not in text(staff.get("/console/loads/L-1"))
+
+    for answer in (delete(staff), delete(staff, "L-1")):
+        assert answer.status_code == 400
+        assert "Load L-1 is fired: a fired load can't be deleted." in text(answer)
+    assert load_of(staff).status is LoadStatus.FIRED
+
+
+def test_delete_from_a_stale_page_is_a_conflict(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    shown = load_of(staff).version
+    add(staff, "AC-1")
+
+    answer = delete(staff, "L-1", version=shown)
+
+    assert answer.status_code == 409
+    assert "L-1 changed while you were working" in text(answer)
+    assert load_of(staff).status is LoadStatus.LOADING
+
+
+def test_the_deleted_notice_never_echoes_what_is_in_the_address(staff: Console) -> None:
+    page = text(staff.get("/console/loads?done=deleted&load=<b>hi</b>"))
+    assert "deleted" not in page.split("<h2>Loads</h2>", 1)[1].split("Start a load", 1)[0]
+    assert "<b>hi</b>" not in page
+
+
+def test_a_delete_that_may_not_have_landed_says_so(staff: Console) -> None:
+    from asmbly_ceramics.ports.records import CommitOutcomeUnknown
+
+    start(staff)
+    staff.world.records.fail_next_commit_with = CommitOutcomeUnknown("RequestTimeout")
+
+    answer = delete(staff, "L-1")
+
+    assert answer.status_code == 503
+    assert "That may or may not have been saved." in text(answer)

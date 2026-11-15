@@ -12,7 +12,7 @@ from datetime import datetime
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
 from asmbly_ceramics.ports.records import (
     MAX_CHANGES,
@@ -131,7 +131,7 @@ class MemoryRecords:
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         self._read("is_item_used")
         drop_offs = self._all(DropOff)
-        loads = self._all(Load)
+        loads = [load for load in self._all(Load) if load.status in LIVE_STATUSES]
         match which:
             case CatalogList.KILNS:
                 return any(load.kiln == id for load in loads)

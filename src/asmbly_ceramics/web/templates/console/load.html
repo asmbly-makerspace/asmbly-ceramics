@@ -14,7 +14,34 @@
   {% endfor %}
 </ol>
 
-{% if confirm_fire %}
+{% if confirm_delete %}
+<section class="panel panel-danger" id="confirm-delete" aria-labelledby="confirm-delete-title">
+  <h3 id="confirm-delete-title">Delete load {{ load.id }}?</h3>
+  <p><strong>This can't be undone.</strong> The load disappears from the console for everyone, and its number isn't used again.</p>
+  {% if members %}
+  <p>{{ view.total_drop_offs }} drop-off{{ "" if view.total_drop_offs == 1 else "s" }} in it go{{ "es" if view.total_drop_offs == 1 else "" }} back to the waiting list: <span class="mono">{% for row in members %}{{ row.drop_off.id }}{{ ", " if not loop.last }}{% endfor %}</span>. No one is emailed.</p>
+  {% else %}
+  <p>The load is empty. No one is emailed.</p>
+  {% endif %}
+  {% if firing %}
+  <p>This load is <strong>firing</strong>. Delete it only if it was never really put in the kiln.</p>
+  {% endif %}
+  <form method="post" action="/console/loads/{{ load.id }}/delete">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <input type="hidden" name="confirm" value="1">
+    <div class="field{% if delete_error %} field-invalid{% endif %}">
+      <label for="typed_id">To confirm, type the load's ID, <span class="mono">{{ load.id }}</span></label>
+      {% if delete_error %}<p class="field-error" id="typed_id-error">{{ delete_error }}</p>{% endif %}
+      <input type="text" id="typed_id" name="typed_id" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus{% if delete_error %} aria-describedby="typed_id-error"{% endif %}>
+    </div>
+    <div class="actions">
+      <button type="submit" class="button-danger">Delete {{ load.id }} for good</button>
+      <a class="cancel" href="/console/loads/{{ load.id }}">Keep this load</a>
+    </div>
+  </form>
+</section>
+{% elif confirm_fire %}
 <section class="panel" id="confirm-fire">
   <h3>Mark {{ load.id }} fired?</h3>
   <p>This emails {{ view.total_drop_offs }} {{ "person" if view.total_drop_offs == 1 else "people" }} “Ready for pickup”.</p>
@@ -221,6 +248,18 @@
       <input type="date" id="edit-date" name="date" value="{{ load.date.isoformat() }}" required>
     </div>
     <button type="submit">Save changes</button>
+  </form>
+</details>
+{% endif %}
+
+{% if view.can_delete and not confirm_delete %}
+<details class="panel">
+  <summary>Delete this load</summary>
+  <p>Only for a load started by mistake or for a test. Its drop-offs go back to the waiting list. You'll be asked to confirm.</p>
+  <form method="post" action="/console/loads/{{ load.id }}/delete" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <button type="submit" class="button-danger">Delete {{ load.id }}…</button>
   </form>
 </details>
 {% endif %}

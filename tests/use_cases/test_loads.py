@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.errors import (
     AlreadyFired,
     AlreadyInLoad,
     EmptyLoad,
+    FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
     ItemRetired,
@@ -461,6 +462,74 @@ def test_past_loads_are_listed_with_their_contents(world: World) -> None:
     assert [load.id for load in world.list_loads()[1]] == [recent]
     # Older loads stay viewable by their ID, with what was in them.
     assert [d.id for d in world.view_load(old).members] == [AC_1]
+
+
+# Deleting a load started by mistake
+
+
+@pytest.mark.parametrize("start_it_firing", [False, True])
+def test_delete_load_puts_its_drop_offs_back_and_hides_it_everywhere(
+    world: World, caplog: pytest.LogCaptureFixture, start_it_firing: bool
+) -> None:
+    caplog.set_level(logging.INFO)
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    load_id = firing(world, AC_1, AC_2) if start_it_firing else loaded(world, AC_1, AC_2)
+    commits = len(world.records.commits)
+
+    deleted = world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+
+    assert deleted.status is LoadStatus.DELETED
+    assert len(world.records.commits) == commits + 1  # the load and its drop-offs together
+    assert state(world, AC_1) is DropOffState.WAITING
+    assert state(world, AC_2) is DropOffState.WAITING
+    assert [row.drop_off.id for row in world.waiting().rows] == [AC_1, AC_2]
+    stored = world.records.load(load_id)
+    assert stored is not None
+    assert (stored.deleted_by, stored.deleted_at) == (STAFF, NOW)
+    assert world.list_loads() == ([], [])
+    with pytest.raises(NotFound):
+        world.view_load(load_id)
+    with pytest.raises(NotFound):
+        world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+    with pytest.raises(NotFound):
+        world.add_to_load(load_id, AC_1, confirmed=True, staff=STAFF_MEMBER)
+    [event] = events(caplog, "load_deleted")
+    assert (event["load_id"], event["count"], event["user"]) == ("L-1", 2, STAFF)
+    # The drop-offs can go in another load, and the next load takes a new number.
+    assert world.add_to_load(loaded(world), AC_1, confirmed=False, staff=STAFF_MEMBER).id == L_2
+
+
+def test_delete_load_refuses_a_fired_load_and_changes_nothing(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = fired(world, AC_1)
+    commits = len(world.records.commits)
+
+    with pytest.raises(FiredLoadNotDeletable):
+        world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+
+    assert len(world.records.commits) == commits
+    assert state(world, AC_1) is DropOffState.FIRED
+
+
+def test_delete_load_with_a_stale_version_is_a_conflict(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world)
+    shown = version(world, load_id)
+    world.add_to_load(load_id, AC_1, confirmed=False, staff=STAFF_MEMBER)  # after the page was shown
+
+    with pytest.raises(Conflict):
+        world.delete_load(load_id, shown, STAFF_MEMBER)
+
+    assert world.view_load(load_id).load.members == (AC_1,)
+    assert state(world, AC_1) is DropOffState.IN_LOAD
+
+
+def test_a_deleted_load_no_longer_keeps_its_kiln_in_use(world: World) -> None:
+    load_id = loaded(world, kiln=HELIOS)
+    assert world.records.is_item_used(CatalogList.KILNS, HELIOS)
+    world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+    assert not world.records.is_item_used(CatalogList.KILNS, HELIOS)
 
 
 def test_a_store_that_cant_be_reached_stores_nothing(world: World) -> None:

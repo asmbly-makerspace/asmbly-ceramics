@@ -21,8 +21,10 @@ from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
     add_to_load,
+    can_delete,
     can_start_firing,
     change_load,
+    delete_load,
     fire,
     firing_type_locked,
     remove_from_load,
@@ -43,8 +45,9 @@ RECENT_LOADS = timedelta(weeks=8)
 
 
 def _load(records: Records, id: LoadId) -> Load:
+    """The load, or `NotFound`: a deleted load is gone for every use case and page."""
     load = records.load(id)
-    if load is None:
+    if load is None or load.status is LoadStatus.DELETED:
         raise NotFound(id)
     return load
 
@@ -188,6 +191,26 @@ class MarkFired:
         return _stored(result.load)
 
 
+class DeleteLoad:
+    def __init__(self, records: Records, clock: Clock) -> None:
+        self._records = records
+        self._clock = clock
+
+    def __call__(self, load_id: LoadId, version: int, staff: StaffMember) -> Load:
+        """A load started by mistake, deleted while loading or firing: its drop-offs go back
+        to the waiting list, in one commit with the load (at most 1 + 48 changes).
+        `NotFound` (deleted already), `FiredLoadNotDeletable`, `Conflict`."""
+        load = _load(self._records, load_id)
+        members = [_drop_off(self._records, id) for id in load.members] if can_delete(load) else []
+        deleted, waiting = delete_load(load, members, staff.username, self._clock.now())
+        _check_version(load, version)
+        changes: list[Change] = [Update(deleted)]
+        changes.extend(Update(drop_off) for drop_off in waiting)
+        self._records.commit(changes)
+        log_event("load_deleted", load_id=str(load.id), count=len(waiting), user=staff.username)
+        return _stored(deleted)
+
+
 @dataclass(frozen=True, slots=True)
 class LoadView:
     load: Load
@@ -201,6 +224,7 @@ class LoadView:
     needing_attention: tuple[Email, ...]  # failed, or stuck sending or pending
     waiting: tuple[WaitingRow, ...]  # while loading: waiting drop-offs, by default of the load's firing type
     can_start_firing: bool  # the domain's `can_start_firing`
+    can_delete: bool  # the domain's `can_delete`
     firing_type_locked: bool  # the domain's `firing_type_locked`
 
 
@@ -244,6 +268,7 @@ class ViewLoad:
             needing_attention=tuple(attention),
             waiting=waiting,
             can_start_firing=can_start_firing(load),
+            can_delete=can_delete(load),
             firing_type_locked=firing_type_locked(load),
         )
 

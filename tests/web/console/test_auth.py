@@ -48,6 +48,7 @@ POSTS = [
     "/console/loads/L-1/edit",
     "/console/loads/L-1/start-firing",
     "/console/loads/L-1/fire",
+    "/console/loads/L-1/delete",
     "/console/loads/L-1/emails/AC-1/retry",
     "/console/settings/email",
     "/console/settings/test-email",

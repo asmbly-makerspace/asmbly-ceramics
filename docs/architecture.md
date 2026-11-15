@@ -71,7 +71,11 @@ What the domain code settles, beyond the stories:
   still waiting after 60 days shows as overdue.
 - A **load** is a kiln, a firing type and a date. It goes *loading → firing → fired*;
   drop-offs are added and removed only while it is loading, and a fired load and its
-  drop-offs can't change. Every fired drop-off belongs to exactly one load. With #9, a
+  drop-offs can't change. A load started by mistake (or for a test) can be deleted while
+  it is loading or firing, after staff type its ID to confirm: its drop-offs go back to
+  waiting, and the load is kept, marked *deleted* with who did it and when, but shown
+  nowhere again (a soft delete, so the functions need no `DeleteItem` right). Every
+  fired drop-off belongs to exactly one load. With #9, a
   load can be planned ahead with a date.
 - **Kilns** (Athena, Helios and Vulcan today), **firing types**, **glaze types**,
   **rejection reasons**, the **pickup window and hours** and the **sending address**

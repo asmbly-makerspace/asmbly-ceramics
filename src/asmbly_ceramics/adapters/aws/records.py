@@ -33,7 +33,7 @@ from asmbly_ceramics.adapters.aws.errors import log_aws_error, retry_attempts
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import (
@@ -235,7 +235,7 @@ class DynamoDbRecords:
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         drop_off_partitions = [keys.drop_off_partition(s) for s in _ALL_STATES]
-        load_partitions = [keys.load_partition(s) for s in _ALL_STATUSES]
+        load_partitions = [keys.load_partition(s) for s in _ALL_STATUSES if s in LIVE_STATUSES]
         match which:
             case CatalogList.KILNS:
                 searches = [(load_partitions, "kiln")]

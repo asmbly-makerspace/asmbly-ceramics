@@ -59,6 +59,7 @@ def console_services(world: World) -> ConsoleServices:
         remove_from_load=world.remove_from_load,
         start_firing=world.start_firing,
         mark_fired=world.mark_fired,
+        delete_load=world.delete_load,
         view_studio=world.view_studio,
         change_email_settings=world.change_email_settings,
         send_test_email=world.send_test_email,
