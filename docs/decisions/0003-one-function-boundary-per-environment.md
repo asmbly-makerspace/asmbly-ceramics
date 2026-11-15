@@ -1,6 +1,6 @@
 # 0003: Each environment's functions have their own permissions boundary, and the HTTP API is created with its tags
 
-Status: proposed, 14 November 2026, with phase 5 of the plan for epic #1
+Status: accepted, 15 November 2026 (proposed 14 November 2026), with phase 5 of the plan for epic #1
 ([phase 5](../../.implementation_plans/drop-off-and-firing/phase-5-aws-bootstrap.md)).
 It amends [0002](0002-how-the-app-is-built-and-deployed.md), "The deploy", which named
 one boundary for every function role. It becomes accepted when the maintainer approves

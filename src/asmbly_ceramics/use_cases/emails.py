@@ -275,8 +275,9 @@ class EmailNeedingAttention:
 class EmailsNeedingAttention:
     """Every email the console must show as needing attention, studio-wide, oldest first:
     `needs_acting_on` (failed, or stuck pending or sending, and not history). Without it,
-    a fired drop-off whose ready email never went out would never close (#7) and no page
-    would show it once its load fell off `ListLoads`. A read: nothing is logged."""
+    a fired drop-off whose ready email never went out would sit unseen until the close
+    deletes it a month after its firing (#20), once its load fell off `ListLoads`. A
+    read: nothing is logged."""
 
     def __init__(self, records: Records, clock: Clock) -> None:
         self._records = records

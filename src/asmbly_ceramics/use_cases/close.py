@@ -4,7 +4,8 @@ A fired drop-off closes once the pickup window its ready email gave has passed (
 of the Austin day the email named, counted with the window kept with that email, so a
 shorter window set later never closes one early); a rejected one once the studio's
 window has passed since the rejection. A fired drop-off whose ready email never sent
-stays open: the console shows its failed email. Photos are deleted before the record is
+has no window: the console shows its failed email, and it closes a month after its
+firing (`UNSENT_READY_CLOSE_AFTER`, #20). Photos are deleted before the record is
 closed, so a failure between the two leaves a drop-off the next run closes again, never a
 closed drop-off whose photos remain. Logs carry drop-off IDs and codes only.
 """

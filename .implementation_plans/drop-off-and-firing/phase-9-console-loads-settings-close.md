@@ -641,8 +641,10 @@ the maintainer owns:
 ## Hand-off
 
 For this phase's `/prep` (from phase 1's whole-branch review): the retention of a fired
-drop-off whose ready email never sends is the maintainer's call (phase 3's hand-off has
-the question); this phase's close and its "needs attention" lists follow whatever phase
+drop-off whose ready email never sends was settled by the maintainer on 15 November 2026
+(#20): it closes 30 days after its firing (`UNSENT_READY_CLOSE_AFTER`, in the domain).
+A rejected drop-off still closes by the rejection whatever its email's status (#20's
+second question, still open); this phase's close and its "needs attention" lists follow whatever phase
 3's `/prep` settles, and the use counts on the settings page follow phase 3's decision
 on a count read.
 

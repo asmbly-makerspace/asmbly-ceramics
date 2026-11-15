@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
-from asmbly_ceramics.domain.limits import STUDIO_TZ
+from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_READY_CLOSE_AFTER
 
 
 def pickup_day(start: datetime, pickup_window_days: int) -> date:
@@ -41,7 +41,7 @@ def _is_closable(
     the ready email named). Private: only `is_due_to_close` calls it, with the window a
     fired drop-off's ready email gave (kept with it), so no caller can pass the studio's
     later setting for a fired drop-off. A fired drop-off whose ready email never went out
-    never closes: the console shows the failed email instead."""
+    is `is_due_to_close`'s to judge, by `UNSENT_READY_CLOSE_AFTER`."""
     _check_aware(now)
     if ready_sent_at is not None:
         _check_aware(ready_sent_at)
@@ -63,7 +63,12 @@ def is_due_to_close(drop_off: DropOff, ready: Email | None, studio_window_days: 
     setting; a rejected one counts from the rejection with the studio's window.
     `ValueError` for a broken record, which the close reports rather than skip silently:
     a fired drop-off with no ready email, a sent ready email without its window or of
-    another drop-off, a rejected drop-off with no rejection."""
+    another drop-off, a rejected drop-off with no rejection.
+
+    A fired drop-off whose ready email hasn't gone (failed, or stuck sending or pending)
+    has no pickup window, so the console shows the email for staff to send again; it
+    still closes `UNSENT_READY_CLOSE_AFTER` after its firing, so the person's details are
+    never kept without an end (#20). A fired drop-off without `fired_at` is reported."""
     if drop_off.state is DropOffState.REJECTED and drop_off.rejection is None:
         raise ValueError(f"{drop_off.id} is rejected with no rejection")
     if drop_off.state is not DropOffState.FIRED:
@@ -71,7 +76,11 @@ def is_due_to_close(drop_off: DropOff, ready: Email | None, studio_window_days: 
     if ready is None:
         raise ValueError(f"{drop_off.id} is fired with no ready email")  # firing queues one
     if ready.status is not EmailStatus.SENT:
-        return False  # the window hasn't started: the console shows the email instead
+        if drop_off.fired_at is None:
+            raise ValueError(f"{drop_off.id} is fired with no firing time")
+        _check_aware(now)
+        _check_aware(drop_off.fired_at)
+        return drop_off.fired_at + UNSENT_READY_CLOSE_AFTER <= now  # no window yet (#20)
     if ready.kind is not EmailKind.READY or ready.drop_off_id != drop_off.id:
         raise ValueError(f"that isn't {drop_off.id}'s ready email")
     if ready.sent_at is None or ready.pickup_window_days is None:

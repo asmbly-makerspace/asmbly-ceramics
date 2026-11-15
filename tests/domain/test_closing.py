@@ -7,7 +7,7 @@ from asmbly_ceramics.domain.closing import close, is_due_to_close, pickup_day, p
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState, Rejection
 from asmbly_ceramics.domain.email import Email, EmailKind, claim, mark_sent, new_email
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import STUDIO_TZ
+from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_READY_CLOSE_AFTER
 from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off, a_sent_ready_email
 
 WINDOW = 14
@@ -40,9 +40,26 @@ def test_fired_closes_after_the_window_from_the_ready_email() -> None:
     assert is_closable(fired, late, WINDOW, READY_END + timedelta(days=2))
 
 
-def test_fired_without_a_sent_ready_email_never_closes() -> None:
+def test_fired_without_a_sent_ready_email_closes_a_month_after_the_firing() -> None:
+    fired = a_drop_off(state=DropOffState.FIRED)  # fired at NOW
+    assert timedelta(days=30) == UNSENT_READY_CLOSE_AFTER
+    assert not is_closable(fired, None, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER - SECOND)
+    assert is_closable(fired, None, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER)
+
+
+def test_a_sent_ready_email_counts_by_its_window_not_the_month() -> None:
     fired = a_drop_off(state=DropOffState.FIRED)
-    assert not is_closable(fired, None, WINDOW, NOW + timedelta(days=365))
+    late = NOW + timedelta(days=29)  # sent just before the month ran out
+    assert not is_closable(fired, late, WINDOW, NOW + UNSENT_READY_CLOSE_AFTER)
+    assert is_closable(fired, late, WINDOW, pickup_deadline(late, WINDOW))
+
+
+def test_an_unsent_ready_email_needs_the_firing_time_and_an_aware_now() -> None:
+    fired = replace(a_drop_off(state=DropOffState.FIRED), fired_at=None)
+    with pytest.raises(ValueError, match="no firing time"):
+        is_closable(fired, None, WINDOW, NOW)
+    with pytest.raises(ValueError, match="aware"):
+        is_closable(a_drop_off(state=DropOffState.FIRED), None, WINDOW, NOW.replace(tzinfo=None))
 
 
 def test_rejected_closes_after_the_window_from_the_rejection() -> None:
@@ -199,8 +216,9 @@ def test_a_fired_drop_off_is_due_by_its_sent_ready_emails_kept_window() -> None:
     # The studio's window now (1 day) is ignored: the email gave 14.
     assert not is_due_to_close(fired, sent, 1, READY_END - SECOND)
     assert is_due_to_close(fired, sent, 1, READY_END)
-    # Not sent yet (or never queued): the window hasn't started.
-    assert not is_due_to_close(fired, _ready(None, None), 1, NOW + timedelta(days=365))
+    # Not sent yet: the window hasn't started; the month from the firing still ends it.
+    assert not is_due_to_close(fired, _ready(None, None), 1, NOW + timedelta(days=29))
+    assert is_due_to_close(fired, _ready(None, None), 1, NOW + timedelta(days=30))
 
 
 def test_a_rejected_drop_off_is_due_by_the_studios_window() -> None:
