@@ -128,8 +128,7 @@ def test_every_name_starts_with_the_project_slug() -> None:
 def test_tags_are_sent_in_each_create_request() -> None:
     assert GLOBALS["PropagateTags"] is True
     assert set(GLOBALS["Tags"]) == TAGS  # copied to each function's role and mapping
-    for name in ("HttpApi", "HttpApiStage"):
-        assert set(RESOURCES[name]["Properties"]["Tags"]) == TAGS, name
+    assert set(RESOURCES["HttpApiStage"]["Properties"]["Tags"]) == TAGS
     for name, alarm in ALARMS.items():
         assert {tag["Key"] for tag in alarm["Properties"]["Tags"]} == TAGS, name
     samconfig = (REPO / "samconfig.toml").read_text()
@@ -219,11 +218,12 @@ def test_the_api_is_plain_cloudformation_with_no_body_and_no_sam_events() -> Non
     for name, function in FUNCTIONS.items():
         for event in function["Properties"].get("Events", {}).values():
             assert event["Type"] not in ("HttpApi", "Api"), name
-    api = RESOURCES["HttpApi"]["Properties"]
-    assert api["ProtocolType"] == "HTTP"
-    assert api["DisableExecuteApiEndpoint"] is True
-    assert "Body" not in api
-    assert "BodyS3Location" not in api
+    # The API itself is the bootstrap's (decision 0005); this stack adds to it by its ID.
+    assert not [r for r in RESOURCES.values() if r["Type"] == "AWS::ApiGatewayV2::Api"]
+    api_id = {"Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-api-id"}}
+    for name, resource in RESOURCES.items():
+        if resource["Type"].startswith("AWS::ApiGatewayV2::"):
+            assert resource["Properties"]["ApiId"] == api_id, name
     assert not [r for r in RESOURCES.values() if r["Type"] == "AWS::Logs::ResourcePolicy"]
     mapping = RESOURCES["HttpApiMapping"]["Properties"]
     assert mapping["DomainName"] == {"Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-domain-name"}}
@@ -236,9 +236,12 @@ def test_every_invoke_permission_is_for_api_gateway_on_this_api_only() -> None:
         properties = permission["Properties"]
         assert properties["Principal"] == "apigateway.amazonaws.com"
         assert properties["Action"] == "lambda:InvokeFunction"
-        assert sub(properties["SourceArn"]) == (
-            "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
-        )
+        assert properties["SourceArn"] == {
+            "Fn::Sub": [
+                "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*",
+                {"ApiId": {"Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-api-id"}}},
+            ]
+        }
 
 
 def test_access_logs_hold_no_address_agent_or_query() -> None:

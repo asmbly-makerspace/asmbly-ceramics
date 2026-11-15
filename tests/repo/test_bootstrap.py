@@ -70,7 +70,7 @@ def resources(statement: dict[str, Any]) -> list[str]:
     return [sub(resource) for resource in as_list(statement.get("Resource", []))]
 
 
-EXEC_POLICIES = ("CreateAndTagPolicy", "ChangeOwnPolicy", "RolesAndNamesPolicy")
+EXEC_POLICIES = ("CreateAndTagPolicy", "ChangeOwnPolicy", "RolesAndNamesPolicy", "ApisAndNamesPolicy")
 EXEC = by_sid("CloudFormationExecutionRole")
 
 # The execution role's statements that may allow without a tag condition, each for the
@@ -86,6 +86,9 @@ UNTAGGED_EXCEPTIONS = {
     "ResolveStackParameters",  # Strings read as stack parameters; another project tags some
     "DescribeWithoutAResource",  # reads that take no resource
     "ApiAccessLogDelivery",  # API Gateway's access-log delivery: no resource, no tag
+    "ApisById",  # HTTP API routes, integrations and mappings take no tags (decision 0005)
+    "ReadAndDeleteByName",  # before a create (no tag yet) and in a rollback (0005)
+    "ReadAndDeleteRolesByName",  # the same, for the app's function roles (0005)
 }
 # Where "*" may be a resource, and why.
 STAR_ALLOWED = {
@@ -110,7 +113,8 @@ def test_every_name_starts_with_the_project_slug() -> None:
         for key in ("RoleName", "ManagedPolicyName", "BucketName", "PolicyName")
         if key in properties
     ]
-    assert len(names) == 10
+    names += [r["Properties"]["Name"] for r in RESOURCES.values() if r["Type"] == "AWS::ApiGatewayV2::Api"]
+    assert len(names) == 13
     for name in names:
         assert sub(name).startswith(f"{SLUG}-"), name
     for output in TEMPLATE["Outputs"].values():
@@ -300,10 +304,8 @@ def test_every_create_statement_requires_the_project_request_tag() -> None:
                 "ChangeOwn",  # PutMetricAlarm also updates an alarm
                 "SchedulesByName",  # schedules take no tags
             }, sid
-    # Creating an API is the only API Gateway call with tags in it.
-    assert [r for r in resources(EXEC["CreateTagged"]) if ":apigateway:" in r] == [
-        "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis"
-    ]
+    # The app creates no API: the two are the bootstrap's (decision 0005).
+    assert not [r for r in resources(EXEC["CreateTagged"]) if ":apigateway:" in r]
 
 
 def test_every_change_statement_requires_the_project_resource_tag() -> None:
@@ -571,8 +573,9 @@ def test_each_address_has_a_dns_validated_certificate_a_regional_domain_and_alia
 
 
 def test_the_template_creates_only_the_resources_the_runbook_expects() -> None:
-    # Runbook step 4 checks the change set against this count: 19, or 20 with the provider.
-    assert len(RESOURCES) == 20
+    # Runbook step 4 checks the change set against this count: 22, or 23 with the
+    # provider (the two HTTP APIs and their policy came with decision 0005).
+    assert len(RESOURCES) == 23
     assert RESOURCES["GitHubOidcProvider"]["Condition"] == "CreateOidcProvider"
 
 
@@ -603,6 +606,8 @@ def test_the_outputs_and_exports_phase_7_reads() -> None:
         "ProdFunctionBoundaryArn",
         "ProdDomainNameOut",
         "StageDomainNameOut",
+        "ProdApiId",
+        "StageApiId",
     }
     exports = {name: sub(output["Export"]["Name"]) for name, output in outputs.items() if "Export" in output}
     assert exports == {
@@ -610,6 +615,8 @@ def test_the_outputs_and_exports_phase_7_reads() -> None:
         "ProdFunctionBoundaryArn": f"{SLUG}-prod-function-boundary-arn",
         "ProdDomainNameOut": f"{SLUG}-prod-domain-name",
         "StageDomainNameOut": f"{SLUG}-stage-domain-name",
+        "ProdApiId": f"{SLUG}-prod-api-id",
+        "StageApiId": f"{SLUG}-stage-api-id",
     }
 
 
@@ -654,6 +661,8 @@ FILLED = {
     "FunctionBoundaryProd": f"{POLICIES}asmbly-ceramics-prod-function-boundary",
     "WebAdapterPublisherAccount": "8" * 12,
     "CloudFormationExecutionRole.Arn": f"arn:aws:iam::{ACCOUNT}:role/{BOOTSTRAP_PATH}{EXEC_NAME}",
+    "StageApi": "a1b2c3d4e5",
+    "ProdApi": "f6g7h8i9j0",
 }
 
 
@@ -691,8 +700,6 @@ def test_every_policy_fits_iams_size_limits() -> None:
 # resource's ID is generated or AWS's: everything else must name the project.
 GENERATED_OR_AWS = {
     "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*",
-    "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis",
-    "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*",
     "arn:${AWS::Partition}:lambda:${AWS::Region}:${WebAdapterPublisherAccount}:layer:LambdaAdapterLayerArm64:*",
     "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31",
     "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/cognito/staff/*",
@@ -709,24 +716,34 @@ def test_the_execution_role_reaches_only_project_names() -> None:
                 or "ArtifactsBucket" in resource
                 or "${ProdDomainName}/apimappings" in resource
                 or "${StageDomainName}/apimappings" in resource
+                or "${StageApi}" in resource
+                or "${ProdApi}" in resource
                 or resource in GENERATED_OR_AWS
             ), (statement["Sid"], resource)
 
 
-TEMPLATE_BYTES_LIMIT = 51_200  # CloudFormation's limit for a template sent inline (runbook step 4)
+TEMPLATE_BYTES_LIMIT = 1_000_000  # CloudFormation's limit for a template uploaded to S3
 
 
-def test_the_template_fits_cloudformations_inline_size_limit() -> None:
-    # The first deploy can't use --s3-bucket: the bucket is in this stack.
+def test_the_template_fits_cloudformations_s3_size_limit() -> None:
+    # Over the 51,200-byte inline limit since decision 0005: an update uploads it to the
+    # artifacts bucket (--s3-bucket, the runbook's "Later changes to the bootstrap
+    # stack"). A rebuild from nothing uploads it to a bucket made by hand first.
     assert len((REPO / "infra" / "bootstrap.yaml").read_bytes()) < TEMPLATE_BYTES_LIMIT
 
 
 def test_no_api_gateway_tagging_and_mapping_tags_only_with_the_five() -> None:
-    # API IDs are generated: a tagging right would let the role give another
-    # project's untagged API this Project tag, and then change it.
+    # API IDs are generated: a tagging right on any API would let the role give another
+    # project's untagged API this Project tag, and then change it. Only the stages of
+    # the bootstrap's two APIs may be tagged, and only with this Project (0005).
     for statement in allows("CloudFormationExecutionRole"):
         for resource in resources(statement):
-            assert "/tags/" not in resource, statement["Sid"]
+            if "/tags/" in resource:
+                assert statement["Sid"] == "StageTagsById", statement["Sid"]
+                assert re.search(r"%2Fapis%2F\$\{(Stage|Prod)Api\}%2Fstages%2F\*$", resource), resource
+    stage_tags = EXEC["StageTagsById"]
+    assert actions(stage_tags) == ["apigateway:POST"]
+    assert stage_tags["Condition"] == {"StringEquals": {"aws:RequestTag/Project": {"Ref": "ProjectSlug"}}}
     tagging = EXEC["TagOnCreate"]
     assert not any(action.startswith("apigateway:") for action in actions(tagging))
     assert not any("event-source-mapping" in resource for resource in resources(tagging))
@@ -744,13 +761,26 @@ def test_no_api_gateway_tagging_and_mapping_tags_only_with_the_five() -> None:
     }
     for role in DEPLOY_ROLES:
         assert by_sid(role)["NoResourceImport"]["Effect"] == "Deny"
-    # API Gateway writes on /apis (the collection) only with the tags in the request.
-    for sid, statement in EXEC.items():
-        if statement[
-            "Effect"
-        ] == "Allow" and "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis" in resources(statement):
-            assert sid == "CreateTagged", sid
-            assert "apigateway:PUT" not in actions(statement)
+    # API Gateway: only the bootstrap's two APIs and their sub-resources, by ID, and
+    # the two addresses' mappings; the APIs themselves are only read.
+    apis = "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/"
+    for statement in allows("CloudFormationExecutionRole"):
+        for resource in resources(statement):
+            if resource.startswith(apis):
+                assert statement["Sid"] == "ApisById", statement["Sid"]
+                assert re.fullmatch(r"\$\{(Stage|Prod)Api\}(/\*)?", resource[len(apis) :]), resource
+    read_only = EXEC["TheApisAreReadOnly"]
+    assert (read_only["Effect"], read_only["NotAction"]) == ("Deny", "apigateway:GET")
+    assert resources(read_only) == [apis + "${StageApi}", apis + "${ProdApi}"]
+
+
+def test_by_name_reads_and_deletes_only() -> None:
+    verbs = re.compile(r":(Get|List|Describe|Delete|Detach)")
+    for sid in ("ReadAndDeleteByName", "ReadAndDeleteRolesByName"):
+        assert all(verbs.search(action) for action in actions(EXEC[sid])), sid
+        assert "Condition" not in EXEC[sid]
+    roles = f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{SLUG}-app/{SLUG}-*"
+    assert resources(EXEC["ReadAndDeleteRolesByName"]) == [roles]
 
 
 def test_event_source_mappings_only_when_tagged_and_feeding_this_projects_functions() -> None:

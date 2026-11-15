@@ -195,10 +195,10 @@ It prints a `describe-change-set` command; read the change set before executing 
 aws cloudformation describe-change-set --stack-name asmbly-ceramics-bootstrap \
   --change-set-name <the name it printed> \
   --query 'Changes[].ResourceChange.[Action,LogicalResourceId,ResourceType]' --output table   # read only
-# expect: 19 rows (20 with the OIDC provider), every Action "Add": the two deploy roles,
-# the execution role and its three managed policies, the two boundaries (stage and
+# expect: 22 rows (23 with the OIDC provider), every Action "Add": the two deploy roles,
+# the execution role and its four managed policies, the two boundaries (stage and
 # prod), the log delivery policy, the artifacts bucket and its policy, two
-# certificates, two domain names and four DNS records.
+# certificates, two domain names, two HTTP APIs (decision 0005) and four DNS records.
 
 aws cloudformation execute-change-set --stack-name asmbly-ceramics-bootstrap \
   --change-set-name <the name it printed>
@@ -214,7 +214,7 @@ The wait includes the certificates' DNS validation; a few minutes is normal.
 ```bash
 aws cloudformation describe-stacks --stack-name asmbly-ceramics-bootstrap \
   --query 'Stacks[0].[StackStatus,EnableTerminationProtection,length(Outputs)]'   # read only
-# expect: ["CREATE_COMPLETE", true, 8]
+# expect: ["CREATE_COMPLETE", true, 10]
 
 aws logs describe-resource-policies --query "resourcePolicies[?policyName=='asmbly-ceramics-log-delivery'] | length(@)"   # read only
 # expect: 1
@@ -443,9 +443,12 @@ bucket). Use the same `Environment` tag value as step 4.
 ```bash
 git rev-parse --short HEAD   # note the commit; the undo goes back to the one before it
 export ENV_TAG=prod   # step 4's value: the stack's EnvironmentTag parameter
+BUCKET=$(aws cloudformation describe-stacks --stack-name asmbly-ceramics-bootstrap \
+  --query "Stacks[0].Outputs[?OutputKey=='ArtifactsBucketName'].OutputValue" --output text)
 aws cloudformation deploy \
   --template-file infra/bootstrap.yaml \
   --stack-name asmbly-ceramics-bootstrap \
+  --s3-bucket "$BUCKET" --s3-prefix bootstrap \
   --capabilities CAPABILITY_NAMED_IAM \
   --no-execute-changeset \
   --tags Project=asmbly-ceramics Component=Bootstrap "Environment=$ENV_TAG" Owner=it-volunteers ManagedBy=cloudformation
@@ -456,12 +459,11 @@ aws cloudformation describe-change-set --stack-name asmbly-ceramics-bootstrap \
 # "False", unless the pull request says otherwise
 ```
 
-The template is sent inline, and `test_the_template_fits_cloudformations_inline_size_limit`
-keeps it under 51,200 bytes. It had about 2,000 bytes to spare on 14 November 2026. If a
-change doesn't fit, trim the template's comments (keeping what they say), or, since the
-artifacts bucket exists after the first create, add
-`--s3-bucket <the ArtifactsBucketName output>` to the `deploy` command above, which
-uploads the template there and lifts the limit to 1 MB.
+Since decision 0005 the template is over CloudFormation's 51,200-byte inline limit, so
+the `deploy` above uploads it to the artifacts bucket (`--s3-bucket`), which lifts the
+limit to 1 MB (`test_the_template_fits_cloudformations_s3_size_limit`). Step 4's first
+create sends the template inline, so a rebuild from nothing (the stack deleted) first
+uploads it to a bucket made by hand for the purpose, and deletes that bucket after.
 
 Before executing, read the change set:
 
@@ -487,7 +489,7 @@ aws cloudformation wait stack-update-complete --stack-name asmbly-ceramics-boots
 ```bash
 aws cloudformation describe-stacks --stack-name asmbly-ceramics-bootstrap \
   --query 'Stacks[0].[StackStatus,EnableTerminationProtection,length(Outputs)]'   # read only
-# expect: ["UPDATE_COMPLETE", true, 8]
+# expect: ["UPDATE_COMPLETE", true, 10]
 ```
 
 Then run step 8 again (both boundaries). After a change to a deploy role or the
