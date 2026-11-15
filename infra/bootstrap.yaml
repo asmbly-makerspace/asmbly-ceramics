@@ -6,8 +6,8 @@ Description: >-
   Deployed once by hand as the stack asmbly-ceramics-bootstrap
   (docs/runbooks/aws-bootstrap.md).
 
-# No account ID: ARNs use AWS::AccountId; names come from ProjectSlug. Sent inline
-# (under 51,200 bytes). tests/repo/test_bootstrap.py pins it; a failed right is fixed
+# No account ID: ARNs use AWS::AccountId; names come from ProjectSlug. Uploaded with
+# --s3-bucket (over 51,200 bytes). tests/repo/test_bootstrap.py pins it; a failed right is fixed
 # by a reviewed change here, never a quiet widening.
 
 Parameters:
@@ -288,6 +288,7 @@ Resources:
         - !Ref CreateAndTagPolicy
         - !Ref ChangeOwnPolicy
         - !Ref RolesAndNamesPolicy
+        - !Ref ApisAndNamesPolicy
       Policies:
         - PolicyName: denials
           PolicyDocument:
@@ -313,6 +314,13 @@ Resources:
                   - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectSlug}-bootstrap/*'
                   - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}'
                   - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}'
+              # The two HTTP APIs are the bootstrap's (0005): their routes are the app's.
+              - Sid: TheApisAreReadOnly
+                Effect: Deny
+                NotAction: apigateway:GET
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${StageApi}'
+                  - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ProdApi}'
               - Sid: ArtifactsAreReadOnly
                 Effect: Deny
                 NotAction:
@@ -384,7 +392,6 @@ Resources:
               - sqs:CreateQueue
               - logs:CreateLogGroup
               - cloudwatch:PutMetricAlarm
-              - apigateway:POST
             Resource:
               - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*'
@@ -395,7 +402,6 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
             Condition:
               StringEquals:
                 aws:RequestTag/Project: !Ref ProjectSlug
@@ -419,9 +425,8 @@ Resources:
                 aws:RequestTag/Environment: 'false'
                 aws:RequestTag/Owner: 'false'
                 aws:RequestTag/ManagedBy: 'false'
-          # Tagging only to set this Project, on these names. No API Gateway
-          # tagging (generated IDs): the HTTP API takes its tags in POST /apis.
-          # No Untag right anywhere.
+          # Tagging only to set this Project, on these names (API Gateway's: in
+          # ApisById). No Untag right anywhere.
           - Sid: TagOnCreate
             Effect: Allow
             Action:
@@ -472,8 +477,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          # The handlers' actions, only on what carries this Project tag. API
-          # sub-resources: their API's or domain's tags, else fail closed (0003).
+          # The handlers' actions, only on what carries this Project tag.
           - Sid: ChangeOwn
             Effect: Allow
             Action:
@@ -524,11 +528,6 @@ Resources:
               - cloudwatch:PutMetricAlarm
               - cloudwatch:ListTagsForResource
               - cloudwatch:DeleteAlarms
-              - apigateway:GET
-              - apigateway:POST
-              - apigateway:PUT
-              - apigateway:PATCH
-              - apigateway:DELETE
             Resource:
               - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
@@ -538,11 +537,6 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
               - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings/*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings/*'
             Condition:
               StringEquals:
                 aws:ResourceTag/Project: !Ref ProjectSlug
@@ -762,6 +756,100 @@ Resources:
               - logs:UpdateLogDelivery
               - logs:DeleteLogDelivery
             Resource: '*'
+
+  ApisAndNamesPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-cfn-exec-apis'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: The two HTTP APIs by ID, and reads and deletes by name (asmbly-ceramics execution role).
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Exception, by ID (0005): HTTP API routes, integrations and mappings take
+          # no tags and inherit none. The two APIs are the bootstrap's; their
+          # stages' tags are set by ID; the domains are this project's.
+          - Sid: ApisById
+            Effect: Allow
+            Action:
+              - apigateway:GET
+              - apigateway:POST
+              - apigateway:PUT
+              - apigateway:PATCH
+              - apigateway:DELETE
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${StageApi}'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${StageApi}/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ProdApi}'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ProdApi}/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings/*'
+          - Sid: StageTagsById
+            Effect: Allow
+            Action: apigateway:POST
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fapis%2F${StageApi}%2Fstages%2F*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fapis%2F${ProdApi}%2Fstages%2F*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F${StageApi}%2Fstages%2F*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F${ProdApi}%2Fstages%2F*'
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: !Ref ProjectSlug
+          # Exception, by name: the reads and deletes CloudFormation makes before a
+          # create (no tag yet) and in a rollback of a create that never ran. Reads
+          # and deletes only; HandsOffOtherProjects still holds.
+          - Sid: ReadAndDeleteByName
+            Effect: Allow
+            Action:
+              - sns:GetTopicAttributes
+              - sns:ListTagsForResource
+              - sns:ListSubscriptionsByTopic
+              - sns:DeleteTopic
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ListQueueTags
+              - sqs:DeleteQueue
+              - logs:ListTagsForResource
+              - logs:ListTagsLogGroup
+              - logs:DeleteLogGroup
+              - logs:DeleteMetricFilter
+              - dynamodb:DescribeTable
+              - dynamodb:DescribeTimeToLive
+              - dynamodb:DescribeContinuousBackups
+              - dynamodb:ListTagsOfResource
+              - dynamodb:DeleteTable
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:GetFunctionRecursionConfig
+              - lambda:GetRuntimeManagementConfig
+              - lambda:GetFunctionScalingConfig
+              - lambda:GetPolicy
+              - lambda:ListTags
+              - lambda:DeleteFunction
+              - cloudwatch:ListTagsForResource
+              - cloudwatch:DeleteAlarms
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
+          - Sid: ReadAndDeleteRolesByName
+            Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListAttachedRolePolicies
+              - iam:DeleteRolePolicy
+              - iam:DetachRolePolicy
+              - iam:DeleteRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-*'
 
   # One boundary per environment (decision 0003): the most a function or
   # scheduler role there can do, on its environment's names only.
@@ -1040,6 +1128,33 @@ Resources:
         Owner: it-volunteers
         ManagedBy: cloudformation
 
+  # Each environment's HTTP API; its app stack adds the routes and stage (0005).
+  ProdApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectSlug}-prod'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: true
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: Bootstrap
+        Environment: !Ref EnvironmentTag
+        Owner: it-volunteers
+        ManagedBy: cloudformation
+
+  StageApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectSlug}-stage'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: true
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: Bootstrap
+        Environment: !Ref EnvironmentTag
+        Owner: it-volunteers
+        ManagedBy: cloudformation
+
   ProdDnsRecord:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -1117,3 +1232,13 @@ Outputs:
     Value: !Ref StageDomain
     Export:
       Name: !Sub '${ProjectSlug}-stage-domain-name'
+  ProdApiId:
+    Description: The prod app stack adds its routes and stage to this HTTP API.
+    Value: !Ref ProdApi
+    Export:
+      Name: !Sub '${ProjectSlug}-prod-api-id'
+  StageApiId:
+    Description: The stage app stack adds its routes and stage to this HTTP API.
+    Value: !Ref StageApi
+    Export:
+      Name: !Sub '${ProjectSlug}-stage-api-id'

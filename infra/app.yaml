@@ -184,26 +184,15 @@ Resources:
             Condition:
               Bool: {aws:SecureTransport: 'false'}
 
-  # The HTTP API, in plain CloudFormation (decision 0003): SAM's HttpApi imports an
-  # OpenAPI body and tags the API afterwards, which the execution role can't do.
-
-  HttpApi:
-    Type: AWS::ApiGatewayV2::Api
-    Properties:
-      Name: !Sub '${ProjectSlug}-${AppEnv}'
-      ProtocolType: HTTP
-      DisableExecuteApiEndpoint: true
-      Tags:
-        Project: !Ref ProjectSlug
-        Component: App
-        Environment: !Ref AppEnv
-        Owner: it-volunteers
-        ManagedBy: sam
+  # The HTTP API is the bootstrap's (decision 0005): routes and integrations take no
+  # tags, so the execution role may change only that API's, by its ID. This stack adds
+  # the integrations, routes and stage, in plain CloudFormation (decision 0003).
 
   FormIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       IntegrationType: AWS_PROXY
       IntegrationUri: !GetAtt FormFunction.Arn
       PayloadFormatVersion: '2.0'
@@ -211,7 +200,8 @@ Resources:
   DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       RouteKey: $default
       Target: !Sub 'integrations/${FormIntegration}'
 
@@ -220,7 +210,8 @@ Resources:
   ConsoleIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       IntegrationType: AWS_PROXY
       IntegrationUri: !GetAtt ConsoleFunction.Arn
       PayloadFormatVersion: '2.0'
@@ -228,14 +219,16 @@ Resources:
   ConsoleRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       RouteKey: ANY /console
       Target: !Sub 'integrations/${ConsoleIntegration}'
 
   ConsoleProxyRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       RouteKey: ANY /console/{proxy+}
       Target: !Sub 'integrations/${ConsoleIntegration}'
 
@@ -244,7 +237,8 @@ Resources:
   ConsolePhotosRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       RouteKey: GET /console/drop-offs/{id}/photos/{proxy+}
       Target: !Sub 'integrations/${ConsoleIntegration}'
 
@@ -253,7 +247,8 @@ Resources:
     Type: AWS::ApiGatewayV2::Stage
     DependsOn: [ConsoleRoute, ConsoleProxyRoute, ConsolePhotosRoute]
     Properties:
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       StageName: $default
       AutoDeploy: true
       DefaultRouteSettings:
@@ -285,7 +280,10 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref FormFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+      SourceArn: !Sub
+        - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*'
+        - ApiId:
+            Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
 
   ConsoleInvokePermission:
     Type: AWS::Lambda::Permission
@@ -293,14 +291,18 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ConsoleFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+      SourceArn: !Sub
+        - 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*'
+        - ApiId:
+            Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
 
   HttpApiMapping:
     Type: AWS::ApiGatewayV2::ApiMapping
     Properties:
       DomainName:
         Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-domain-name'
-      ApiId: !Ref HttpApi
+      ApiId:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
       Stage: !Ref HttpApiStage
 
   # Functions ---------------------------------------------------------------------------
@@ -973,7 +975,9 @@ Resources:
       Namespace: AWS/ApiGateway
       MetricName: 5xx
       Dimensions:
-        - {Name: ApiId, Value: !Ref HttpApi}
+        - Name: ApiId
+          Value:
+            Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-api-id'
         - {Name: Stage, Value: $default}
       Statistic: Sum
       Period: 300

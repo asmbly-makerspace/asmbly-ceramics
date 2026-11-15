@@ -155,6 +155,8 @@ integration or a route takes no tags, and the stage's create is `POST
 check. So if HTTP APIs don't inherit, the integration, route and stage fail closed
 (another project's API is never reachable).
 
+**Superseded by [0005](0005-the-http-apis-are-the-bootstraps.md)** (15 November 2026): the first stage deploy failed as foreseen here, and the bootstrap now creates the two HTTP APIs, so their IDs are known without this fallback.
+
 **Fallback, decided now:** if phase 7's first stage deploy is refused on its
 integration, route or stage, the maintainer recreates it with rollback disabled so the
 API stays and reads its ID (phase 7, "If the first create of a stack fails"). A
