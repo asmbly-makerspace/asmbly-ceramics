@@ -2,6 +2,7 @@
 {% block title %}Loads{% endblock %}
 {% block content %}
 <h2>Loads</h2>
+{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
 {% if add %}
 <div class="notice" role="status"><p>Pick a loading load for {{ add }}, or start a new one.</p></div>
 {% endif %}

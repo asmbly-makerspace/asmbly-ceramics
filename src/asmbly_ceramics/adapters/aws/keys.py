@@ -218,6 +218,8 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "started_by": entity.started_by,
                 "started_at": iso(entity.started_at),
                 "fired_at": _iso_or_none(entity.fired_at),
+                "deleted_by": entity.deleted_by,
+                "deleted_at": _iso_or_none(entity.deleted_at),
             }
         case Studio():
             return {
@@ -338,6 +340,8 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 started_by=values["started_by"],
                 started_at=parse_iso(values["started_at"]),
                 fired_at=_time_or_none(values.get("fired_at")),
+                deleted_by=values.get("deleted_by"),
+                deleted_at=_time_or_none(values.get("deleted_at")),
                 version=values["version"],
             )
         case "studio":

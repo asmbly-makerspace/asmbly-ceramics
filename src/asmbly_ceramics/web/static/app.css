@@ -36,6 +36,7 @@
   --focus: var(--ceramics-shade-60);
   --error-bg: var(--lasers-20);
   --error-edge: var(--lasers-shade);
+  --danger: var(--lasers-shade); /* the one button that deletes: a load (#4) */
   --notice-bg: var(--ceramics-10);
   --glyph-error: "✕";
 
@@ -220,6 +221,7 @@ a { color: var(--accent-strong); }
   button:hover:not(:disabled), .button:hover { background: var(--accent-hover); }
   /* A quiet button turns solid on hover, so its text turns white with it. */
   button.button-quiet:hover:not(:disabled), .button.button-quiet:hover { color: var(--on-accent); }
+  .button-danger:hover:not(:disabled) { background: var(--danger); text-decoration: underline; }
 }
 
 [hidden] { display: none; }
@@ -240,6 +242,8 @@ a { color: var(--accent-strong); }
 .signed-in { margin: var(--none); overflow-wrap: anywhere; }
 .inline-form { display: inline-flex; margin: var(--none); }
 .button-quiet { color: var(--accent-strong); background: var(--page-bg); border: var(--border-width) solid var(--accent-strong); }
+.button-danger { color: var(--on-accent); background: var(--danger); }
+.panel-danger { border: var(--border-width-accent) solid var(--error-edge); background: var(--error-bg); }
 .tabs { border-bottom: var(--border-width) solid var(--line); overflow-x: auto; }
 .tabs-inner { gap: var(--space-4); flex-wrap: nowrap; }
 .tabs a { display: inline-flex; align-items: center; min-height: var(--tap-target); white-space: nowrap; font-weight: var(--weight-strong); text-decoration: none; }

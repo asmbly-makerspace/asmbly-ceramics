@@ -31,6 +31,7 @@ from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
@@ -160,6 +161,7 @@ def build_console_services(
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records),
         mark_fired=MarkFired(records, clock),
+        delete_load=DeleteLoad(records, clock),
         view_studio=ViewStudio(records, studio),
         change_email_settings=ChangeEmailSettings(records, clock, studio),
         send_test_email=SendTestEmail(SesMailer(clients.ses), studio, JinjaComposer()),

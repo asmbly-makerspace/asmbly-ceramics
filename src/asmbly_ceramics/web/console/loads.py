@@ -1,5 +1,6 @@
 """Kiln loads (#4): the list and "Start a load", one load's page, adding (by ID, by name,
-from the waiting list), removing, changing, firing, and retrying a ready email.
+from the waiting list), removing, changing, firing, retrying a ready email, and deleting
+a load started by mistake.
 
 The use cases decide every rule and log every change; a page turns their result or
 refusal into a response, and after a change answers 303 to the load (Post/Redirect/Get)
@@ -21,6 +22,7 @@ from asmbly_ceramics.domain.errors import (
     AlreadyInLoad,
     EmailNotRetryable,
     EmptyLoad,
+    FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
     ItemRetired,
@@ -38,6 +40,7 @@ from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
     accepts_drop_offs,
+    require_deletable,
     require_firing,
     require_loading,
 )
@@ -60,6 +63,8 @@ NO_MATCH = "No waiting drop-off matches that. Check the ID, or try part of the n
 TYPE_SOMETHING = "Scan a slip, or type an ID or name."
 MAYBE_SAVED = "That may or may not have been saved. Reload the load to check before trying again."
 START_CLASHED = "Another load was started at the same moment, and this one wasn't saved. Try again."
+TYPE_THE_ID = "Type {id} exactly to delete this load."
+DELETED = "Load {id} deleted. Its drop-offs are back in the waiting list."
 STEPS = (("Loading", LoadStatus.LOADING), ("Firing", LoadStatus.FIRING), ("Fired", LoadStatus.FIRED))
 # After a change the page says what happened from a fixed word in its address, and the
 # drop-off's ID when there is one (parsed again, so nothing else is ever echoed).
@@ -170,8 +175,19 @@ def _loads_page(
         "form": form or StartForm(date=today.isoformat()),
         "add": add,
         "recent_weeks": RECENT_LOADS.days // 7,
+        "notice": _deleted_notice(request),
     }
     return render(request, "console/loads.html", context, staff, status=status)
+
+
+def _deleted_notice(request: Request) -> str | None:
+    """After a delete, "Load L-4 deleted.", from the ID parsed again, never echoed."""
+    if request.query_params.get("done") != "deleted":
+        return None
+    try:
+        return DELETED.format(id=LoadId.parse(request.query_params.get("load", "")))
+    except ValueError:
+        return None
 
 
 async def loads_page(request: Request) -> Response:
@@ -247,6 +263,8 @@ def _load_page(
     add: AddState | None = None,
     prefill: str = "",
     confirm_fire: bool = False,
+    confirm_delete: bool = False,
+    delete_error: str | None = None,
     status: int = 200,
 ) -> Response:
     studio = services(request).studio()
@@ -291,6 +309,8 @@ def _load_page(
         if mismatch
         else None,
         "confirm_fire": confirm_fire and load.status is LoadStatus.FIRING,
+        "confirm_delete": confirm_delete and view.can_delete,
+        "delete_error": delete_error,
         "query_max": QUERY_MAX,
     }
     return render(request, "console/load.html", context, staff, status=status)
@@ -546,3 +566,36 @@ async def retry_email(request: Request) -> Response:
     except CommitOutcomeUnknown:
         raise PageError(503, MAYBE_SAVED) from None
     return _done(id, "retried", drop_off_id)
+
+
+# --- POST .../delete -----------------------------------------------------------------------
+
+
+async def delete_load(request: Request) -> Response:
+    """Asks first and asks hard: without `confirm=1` the page shows "Delete L-4?" and
+    changes nothing, and the delete runs only when the load's ID is typed into that
+    question exactly, so neither a stray tap nor a reflexive "Yes" deletes a load."""
+    staff, form = await require_staff_post(request)
+    id = load_id(request)
+    version = form_version(form)
+    view = _view(request, id)
+    try:
+        require_deletable(view.load)
+    except FiredLoadNotDeletable as refused:
+        return _load_page(request, staff, view, problem=refused.message, status=400)
+    if form.get("confirm") != "1":
+        return _load_page(request, staff, view, confirm_delete=True)
+    if form.get("typed_id", "").strip().upper() != str(id):
+        error = TYPE_THE_ID.format(id=id)
+        return _load_page(request, staff, view, confirm_delete=True, delete_error=error, status=400)
+    try:
+        services(request).delete_load(id, version, staff.member)
+    except NotFound:
+        raise _load_not_found(id) from None
+    except FiredLoadNotDeletable as refused:
+        return _refused(request, staff, id, problem=refused.message)
+    except Conflict as conflict:
+        return _conflicted(request, staff, id, conflict)
+    except CommitOutcomeUnknown:
+        raise PageError(503, MAYBE_SAVED) from None
+    return RedirectResponse(f"/console/loads?done=deleted&load={id}", status_code=303)

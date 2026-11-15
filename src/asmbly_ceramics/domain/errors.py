@@ -104,6 +104,12 @@ class AlreadyFired(DomainError):
         self.load_id = load_id
 
 
+class FiredLoadNotDeletable(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__(f"Load {load_id} is fired: a fired load can't be deleted.")
+        self.load_id = load_id
+
+
 class FiringTypeMismatch(DomainError):
     """Both firing types are kept by ID, so a page can name them from the studio's items."""
 

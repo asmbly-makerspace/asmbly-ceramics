@@ -110,6 +110,7 @@ def test_summaries_and_action_links_are_at_least_44px() -> None:
         ("accent-strong", "page-bg", 4.5),  # the ID, links
         ("on-accent", "accent-strong", 4.5),  # buttons
         ("on-accent", "accent-hover", 4.5),
+        ("on-accent", "danger", 4.5),  # "Delete L-4"
         ("on-band", "band-bg", 4.5),  # the logo band
         ("on-accent", "accent", 3.0),  # large h1 and the icon only
         ("error-edge", "page-bg", 3.0),

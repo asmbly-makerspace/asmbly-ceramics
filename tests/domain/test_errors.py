@@ -20,6 +20,7 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.EmptyLoad(L4), "Load L-4 is empty: add a drop-off before firing."),
     (errors.WrongLoadStatus(L4, "loading", "firing"), "Load L-4 is loading, not firing."),
     (errors.AlreadyFired(L4), "Load L-4 is already fired; nothing was sent again."),
+    (errors.FiredLoadNotDeletable(L4), "Load L-4 is fired: a fired load can't be deleted."),
     (
         errors.FiringTypeMismatch(DropOffId(61), ItemId("bisque"), ItemId("cone-6-glaze")),
         "AC-61's firing type is bisque; this load's is cone-6-glaze.",
