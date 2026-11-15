@@ -67,6 +67,12 @@ class Handler(BaseHTTPRequestHandler):
             location = "https://sign-in.example.org/oauth2/authorize?" + urlencode(query)
             cookie = "__Host-signin=x.y; Path=/; Secure; HttpOnly; SameSite=Lax"
             self.answer(302, headers={"Location": location, "Set-Cookie": cookie})
+        elif self.path in ("/console/loads", "/console/settings"):
+            if wrong == "console-pages":
+                self.answer(404)
+            else:
+                location = "/console/auth/sign-in?next=" + self.path.replace("/", "%2F")
+                self.answer(302, headers={"Location": location})
         elif self.path == "/console/drop-offs/AC-1/photos/1":
             if wrong == "console-photo":
                 self.answer(200, b"\xff\xd8", {"Content-Type": "image/jpeg"})
@@ -133,6 +139,7 @@ def test_every_check_passes_against_a_right_site(site: tuple[str, Stub]) -> None
         "form: ok",
         "console: ok",
         "console-photo: ok",
+        "console-pages: ok",
         "foreign-origin: ok",
         "upload-slot: ok",
         "upload: ok",
@@ -148,6 +155,7 @@ def test_every_check_passes_against_a_right_site(site: tuple[str, Stub]) -> None
         "form",
         "console",
         "console-photo",
+        "console-pages",
         "foreign-origin",
         "upload-slot",
         "upload",
@@ -167,7 +175,7 @@ def test_an_upload_s3_cuts_off_while_it_is_sent_counts_as_refused(site: tuple[st
     url, server = site
     server.wrong = "close-early"
     report = smoke.run(url, VERSION, tries=1, wait=0)
-    assert report[7].startswith("oversized-upload: refused, ")
+    assert report[8].startswith("oversized-upload: refused, ")
 
 
 def test_health_is_retried_until_the_new_version_is_live(site: tuple[str, Stub]) -> None:
@@ -268,3 +276,4 @@ def test_the_console_checks_pass_against_the_real_console_app(
         monkeypatch.setattr(smoke, "request", through_client)
         smoke.check_console(SITE)
         smoke.check_console_photo(SITE)
+        smoke.check_console_pages(SITE)

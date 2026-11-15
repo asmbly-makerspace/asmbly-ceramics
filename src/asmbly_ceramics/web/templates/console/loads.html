@@ -1,0 +1,88 @@
+{% extends "console/layout.html" %}
+{% block title %}Loads{% endblock %}
+{% block content %}
+<h2>Loads</h2>
+{% if add %}
+<div class="notice" role="status"><p>Pick a loading load for {{ add }}, or start a new one.</p></div>
+{% endif %}
+
+<section class="panel">
+  <h3>Start a load</h3>
+  {% if form.error %}<div class="notice notice-error" role="alert"><h2>{{ form.error }}</h2></div>{% endif %}
+  <form method="post" action="/console/loads">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if add %}<input type="hidden" name="add" value="{{ add }}">{% endif %}
+    <div class="field">
+      <label for="kiln">Kiln</label>
+      <select id="kiln" name="kiln">
+        {% for item in kilns %}
+        <option value="{{ item.id }}"{% if form.kiln == item.id %} selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="firing_type">Firing type</label>
+      <select id="firing_type" name="firing_type">
+        {% for item in firing_types %}
+        <option value="{{ item.id }}"{% if form.firing_type == item.id %} selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="date">Date</label>
+      <input type="date" id="date" name="date" value="{{ form.date }}" required>
+    </div>
+    <button type="submit">Start a load</button>
+  </form>
+</section>
+
+<h3>Open loads</h3>
+{% if open_loads %}
+<div class="table-box">
+<table class="list">
+  <thead><tr><th scope="col">Load</th><th scope="col">Status</th><th scope="col">Drop-offs</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
+  <tbody>
+  {% for row in open_loads %}
+    <tr>
+      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span></td>
+      <td>{{ row.load.status.value | capitalize }}</td>
+      <td>{{ row.count }}</td>
+      <td>
+        {% if add and row.load.status.value == "loading" %}
+        <form method="post" action="/console/loads/{{ row.load.id }}/add" class="inline-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="drop_off" value="{{ add }}">
+          <button type="submit">Add {{ add }} here</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="notice" role="status">No load is open.</p>
+{% endif %}
+
+<h3>Past loads</h3>
+<p class="hint">Fired in the last {{ recent_weeks }} weeks, newest first. An older load stays viewable by its address.</p>
+{% if fired_loads %}
+<div class="table-box">
+<table class="list">
+  <thead><tr><th scope="col">Load</th><th scope="col">Fired</th><th scope="col">Drop-offs</th></tr></thead>
+  <tbody>
+  {% for row in fired_loads %}
+    <tr>
+      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span></td>
+      <td>Fired</td>
+      <td>{{ row.count }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="notice" role="status">No load was fired in the last {{ recent_weeks }} weeks.</p>
+{% endif %}
+{% endblock %}

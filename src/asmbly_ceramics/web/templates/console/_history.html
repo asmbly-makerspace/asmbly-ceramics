@@ -1,0 +1,9 @@
+{% if history %}
+<ul class="history">
+  {% for change in history %}
+  <li>{{ change.what }} · {{ change.by }} · {{ change.at }}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="notice" role="status">No changes yet.</p>
+{% endif %}

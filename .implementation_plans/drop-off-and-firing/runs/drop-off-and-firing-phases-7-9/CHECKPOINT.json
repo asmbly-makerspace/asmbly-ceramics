@@ -66,7 +66,7 @@
       ],
       "status": "done",
       "base_sha": "12665328f27be8694314ff67c4622d652166d521",
-      "squashed_sha": null,
+      "squashed_sha": "8493547a7ff7ab36576337441124242cff724275",
       "review_rounds": 3,
       "cold_review": "fixed",
       "split_from": null,
@@ -97,19 +97,26 @@
       "depends_on": [
         "8"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "8493547a7ff7ab36576337441124242cff724275",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
-      "closes": [],
+      "closes": [
+        4,
+        6,
+        7
+      ],
       "refs": [],
       "admin_actions": [
-        "maintainer: answer #20 question 2 before merge"
+        "maintainer: answer #20 question 2 before merge",
+        "maintainer, after deploy: check close alarms reach the alarm topic",
+        "maintainer: stage first close_run proves the GSI1 LeadingKeys condition (fallback in phase 9 Rollout)",
+        "later: own schedule group for the close needs a bootstrap change"
       ],
-      "notes": ""
+      "notes": "2786 tests 99.12%; opened #32"
     }
   ],
   "gate": {
@@ -241,6 +248,75 @@
       "ts": "2026-11-15T16:07:53Z",
       "type": "phase_done",
       "phase": "8"
+    },
+    {
+      "ts": "2026-11-15T16:07:55Z",
+      "type": "squash",
+      "phase": "8",
+      "sha": "8493547a7ff7ab36576337441124242cff724275"
+    },
+    {
+      "ts": "2026-11-15T16:07:55Z",
+      "type": "phase_start",
+      "phase": "9"
+    },
+    {
+      "ts": "2026-11-15T17:46:11Z",
+      "type": "decision",
+      "topic": "decision 0004",
+      "choice": "accepted by the maintainer (15 Nov 2026); docs step marks it accepted",
+      "reason": "maintainer said so in the conversation"
+    },
+    {
+      "ts": "2026-11-15T17:46:11Z",
+      "type": "decision",
+      "topic": "SES sending right",
+      "choice": "maintainer agrees the app sends from asmbly.org; the identity lives in AsmblyMCPs mcp-bootstrap; moving it (e.g. to staff-login) is the maintainer's separate task",
+      "reason": "maintainer said so; ARN is by name so a move needs no change here"
+    },
+    {
+      "ts": "2026-11-15T17:59:38Z",
+      "type": "decision",
+      "topic": "close retries",
+      "choice": "function DeadLetterQueue + Errors alarm",
+      "reason": "Scheduler invokes async; EventInvokeConfig needs a bootstrap change"
+    },
+    {
+      "ts": "2026-11-15T17:59:38Z",
+      "type": "decision",
+      "topic": "Mark fired",
+      "choice": "confirm first",
+      "reason": "a double tap would email everyone twice"
+    },
+    {
+      "ts": "2026-11-15T18:13:07Z",
+      "type": "cold_review",
+      "phase": "9",
+      "review_lead": "CHANGES REQUESTED",
+      "rl_block": 1,
+      "rl_warn": 3,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "decision",
+      "topic": "deleted-item label",
+      "choice": "one answer: a deleted item",
+      "reason": "review"
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "decision",
+      "topic": "close Query scope",
+      "choice": "LeadingKeys on GSI1, proven by stage first close",
+      "reason": "AWS docs indirect"
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "phase_done",
+      "phase": "9"
     }
   ]
 }

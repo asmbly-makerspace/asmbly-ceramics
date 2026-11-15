@@ -438,30 +438,32 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, LOAD#*, STUDIO]
-            # A drop-off's emails: the table's EMAIL#AC-n partition only.
-            - Sid: QueryEmailsOfADropOff
+            # A drop-off's emails (its EMAIL#AC-n partition) and the settings history
+            # (the STUDIO partition's HISTORY# items).
+            - Sid: QueryByPartition
               Effect: Allow
               Action: dynamodb:Query
               Resource: !GetAtt RecordsTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: [EMAIL#*]
+                  dynamodb:LeadingKeys: [EMAIL#*, STUDIO]
             # The waiting list and search (GSI1 by state) and the emails needing
             # attention (GSI2 by status).
             - Sid: QueryIndexes
               Effect: Allow
               Action: dynamodb:Query
               Resource: !Sub '${RecordsTable.Arn}/index/*'
-            # A rejection, its undo, a retried email, and the studio's first-use
-            # seeding: each a transactional Put of the whole item under its version check
-            # (phase 4's commit). No UpdateItem: phase 9 adds it for load numbers.
+            # A rejection, its undo, a retried email, a load and its drop-offs, the
+            # ready emails "Fired" queues, the studio and its history: each a
+            # transactional Put of the whole item under its version check (phase 4's
+            # commit).
             - Sid: WriteRecords
               Effect: Allow
               Action: dynamodb:PutItem
               Resource: !GetAtt RecordsTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, STUDIO]
+                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, LOAD#*, STUDIO]
                 ForAnyValue:StringEquals:
                   dynamodb:EnclosingOperation: [TransactWriteItems]
                 # Never the item it replaces, nor the one a failed condition met:
@@ -480,11 +482,31 @@ Resources:
               Condition:
                 StringLike:
                   s3:prefix: dropoffs/*
+            # Load numbers: the only UpdateItem the console sends (an ADD on the counter).
+            - Sid: CountLoadIds
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [COUNTER#load] # the console takes load numbers only
             # The console's own key: never the form's hash-key or form-key.
             - Sid: ReadSessionKey
               Effect: Allow
               Action: ssm:GetParameter
               Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key'
+            # The test email (#6), to the signed-in staff member only: the mailer's own
+            # statement. IAM can't limit the recipient; SendTestEmail sends only to the
+            # address in the member's verified token.
+            - Sid: SendFromAsmblyOrg
+              Effect: Allow
+              Action: ses:SendEmail
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}'
+                - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailDomain}'
+              Condition:
+                StringLike:
+                  ses:FromAddress: !Sub '*@${EmailDomain}'
 
   MailerFunction:
     Type: AWS::Serverless::Function
@@ -576,6 +598,144 @@ Resources:
               Action: sqs:SendMessage
               Resource: !GetAtt MailerDeadLetterQueue.Arn
 
+  # The daily close (#7). EventBridge Scheduler invokes it asynchronously at 03:17
+  # Austin time; a run that raises is retried by Lambda (twice) and then sent to the
+  # dead-letter queue, which also takes an invoke the scheduler couldn't make.
+  CloseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectSlug}-${AppEnv}-close'
+      Description: Closes finished drop-offs and deletes their personal details and photos (#7).
+      Handler: asmbly_ceramics.entry.close.handler
+      MemorySize: 512
+      # About 80 drop-offs a week, each a few reads, one DeleteObjects and one commit.
+      Timeout: 300
+      ReservedConcurrentExecutions: 1 # one run at a time; a retry waits its turn
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt CloseDeadLetterQueue.Arn
+      LoggingConfig:
+        LogGroup: !Ref CloseLogGroup
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Each listed drop-off read again by key, its ready email, and the studio.
+            - Sid: ReadWhatTheCloseNeeds
+              Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, STUDIO]
+            # Fired and rejected drop-offs (GSI1 by state), and nothing else: not the
+            # waiting drop-offs' partitions, not GSI2. AWS's docs don't say outright that
+            # LeadingKeys holds the index's partition key on an index Query; the service
+            # reference lists the key on the index resource, and Second- to
+            # FourthPartitionKeyValues beside FirstPartitionKeyValues (= LeadingKeys) only
+            # make sense for index keys. Stage's first close_run proves it (phase 9's
+            # Rollout); if not, every run logs close_aborted AccessDenied*, alarmed, with
+            # nothing deleted, and the fix is to drop this Condition and keep index/GSI1.
+            # The Null guard refuses a request without a leading key.
+            - Sid: ListDropOffs
+              Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub '${RecordsTable.Arn}/index/GSI1'
+              Condition:
+                ForAllValues:StringEquals:
+                  dynamodb:LeadingKeys: [DROPOFF#fired, DROPOFF#rejected]
+                'Null':
+                  dynamodb:LeadingKeys: 'false'
+            # Closing is a commit: a transactional Put of the drop-off under its version.
+            - Sid: CloseDropOffs
+              Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [DROPOFF#*]
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation: [TransactWriteItems]
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues: NONE
+            # One DeleteObjects of the drop-off's known keys, without listing; no read.
+            - Sid: DeleteKeptPhotos
+              Effect: Allow
+              Action: s3:DeleteObject
+              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            - Sid: DeadLetters
+              Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt CloseDeadLetterQueue.Arn
+
+  # Holds the schedule's event ({}) and Lambda's request metadata, nothing personal.
+  CloseDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectSlug}-${AppEnv}-close-dlq'
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  # No RoleName: the stacks deploy with CAPABILITY_IAM, and the generated name
+  # (asmbly-ceramics-<env>-CloseSchedulerRole-...) fits the bootstrap's role grants.
+  CloseSchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /asmbly-ceramics-app/
+      PermissionsBoundary:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                # Scheduler's confused-deputy guard names a schedule group, never one schedule.
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/default'
+      Policies:
+        - PolicyName: invoke-close
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeTheClose
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt CloseFunction.Arn
+              - Sid: DeadLetters
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt CloseDeadLetterQueue.Arn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  # 03:17 Austin time: no one drops off or fires then, and off the busiest minute.
+  # A retry of a failed invoke stays inside the same night.
+  CloseSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${ProjectSlug}-${AppEnv}-close'
+      Description: Closes finished drop-offs and deletes their personal details (#7).
+      ScheduleExpression: cron(17 3 * * ? *)
+      ScheduleExpressionTimezone: America/Chicago
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      State: ENABLED
+      Target:
+        Arn: !GetAtt CloseFunction.Arn
+        RoleArn: !GetAtt CloseSchedulerRole.Arn
+        Input: '{}'
+        RetryPolicy:
+          MaximumRetryAttempts: 3
+          MaximumEventAgeInSeconds: 3600
+        DeadLetterConfig:
+          Arn: !GetAtt CloseDeadLetterQueue.Arn
+
   # Holds the stream record's metadata (shard and sequence numbers), not the item.
   MailerDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -602,6 +762,12 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-mailer'
+      RetentionInDays: !If [IsProd, 90, 14]
+
+  CloseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-close'
       RetentionInDays: !If [IsProd, 90, 14]
 
   # The bootstrap's asmbly-ceramics-log-delivery policy lets log delivery write here.
@@ -813,6 +979,56 @@ Resources:
       Period: 300
       EvaluationPeriods: 1
       Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  # A close run that raised (its failed drop-offs' IDs are in the close's log).
+  CloseErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-close-errors'
+      AlarmDescription: The daily close failed on a drop-off or stopped; see close_failed or close_aborted in its log.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - {Name: FunctionName, Value: !Ref CloseFunction}
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  CloseDeadLettersAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-close-dead-letters'
+      AlarmDescription: The daily close gave up after its retries, or the scheduler couldn't invoke it.
+      # Each new dead letter, as the mailer's: a depth alarm would stay in ALARM.
+      Namespace: AWS/SQS
+      MetricName: NumberOfMessagesSent
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt CloseDeadLetterQueue.QueueName}
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlarmTopic]

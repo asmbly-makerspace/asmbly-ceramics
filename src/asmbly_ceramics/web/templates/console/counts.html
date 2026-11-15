@@ -1,0 +1,72 @@
+{% extends "console/layout.html" %}
+{% block title %}Weekly counts{% endblock %}
+{% block content %}
+<h2>Weekly counts</h2>
+<p class="lead">{{ week_label }}</p>
+<nav class="actions" aria-label="Weeks">
+  <a href="/console/counts?week={{ previous }}">Previous week</a>
+  <a href="/console/counts">This week</a>
+  <a href="/console/counts?week={{ next }}">Next week</a>
+</nav>
+
+<section id="overdue">
+  <h3>Overdue: waiting {{ limits.OVERDUE_AFTER.days }} days or more</h3>
+  {% if view.overdue %}
+  <div class="table-box">
+  <table class="list">
+    <thead><tr><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Days waiting</th></tr></thead>
+    <tbody>
+    {% for row in view.overdue %}
+      <tr>
+        <td class="mono"><a href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
+        <td>{{ row.drop_off.contact.name if row.drop_off.contact else "Closed" }}</td>
+        <td>{{ row.days_waiting }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="notice" role="status">Nothing is overdue.</p>
+  {% endif %}
+</section>
+
+<section id="received">
+  <h3>Drop-offs received</h3>
+  {% if firing %}
+  <div class="table-box">
+  <table class="list">
+    <thead><tr><th scope="col">Firing type</th><th scope="col">Drop-offs</th><th scope="col">Pieces</th></tr></thead>
+    <tbody>
+    {% for name, drop_offs, pieces in firing %}
+      <tr><td>{{ name }}</td><td>{{ drop_offs }}</td><td>{{ pieces }}</td></tr>
+    {% endfor %}
+      <tr><th scope="row">Total</th><td>{{ total_drop_offs }}</td><td>{{ total_pieces }}</td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="notice" role="status">No drop-offs this week.</p>
+  {% endif %}
+</section>
+
+<section id="loads">
+  <h3>Loads fired, by kiln</h3>
+  {% if kilns %}
+  <ul>{% for name, n in kilns %}<li>{{ name }}: {{ n }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="notice" role="status">No loads fired this week.</p>
+  {% endif %}
+</section>
+
+<section id="rejections">
+  <h3>Rejections, by reason</h3>
+  {% if reasons %}
+  <ul>{% for name, n in reasons %}<li>{{ name }}: {{ n }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="notice" role="status">No rejections this week.</p>
+  {% endif %}
+</section>
+
+<p class="hint">Closing a drop-off deletes its name, email, phone, rejection message and photos. Its ID, dates, firing type, pieces, load and reason are kept for these counts.</p>
+{% endblock %}

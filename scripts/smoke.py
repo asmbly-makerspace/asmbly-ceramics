@@ -15,7 +15,8 @@ count once against the rate limit; the one-byte upload expires with `uploads/`. 
    https address on another host, path `/oauth2/authorize`, with `client_id`,
    `code_challenge_method=S256` and `redirect_uri` `<site>/console/auth/callback`, and
    the `__Host-signin` cookie set. console-photo: a console photo's address without a
-   session is 401, never an image.
+   session is 401, never an image. console-pages: `/console/loads` and
+   `/console/settings` without a session are each a 302 to the console's sign-in.
 4. foreign-origin: `POST /drop-off/uploads` from another origin is 403.
 5. upload-slot, upload, oversized-upload: two slots are issued; S3 takes a one-byte
    upload to the first (so a refusal below isn't a broken upload) and refuses a photo
@@ -162,6 +163,19 @@ def check_console_photo(site: str) -> None:
         raise SmokeError("console-photo", "an image without a session")
 
 
+CONSOLE_PAGES = ("/console/loads", "/console/settings")
+
+
+def check_console_pages(site: str) -> None:
+    """The load and settings pages exist and send someone not signed in to sign in."""
+    for path in CONSOLE_PAGES:
+        answer = request(f"{site}{path}")
+        expect("console-pages", answer, 302)
+        wanted = "/console/auth/sign-in?next=" + path.replace("/", "%2F")
+        if answer.headers.get("Location", "") != wanted:
+            raise SmokeError("console-pages", "not sent to the console's sign-in")
+
+
 def slots_request(site: str, origin: str, cookie: str, token: str) -> Answer:
     return request(
         f"{site}/drop-off/uploads",
@@ -224,6 +238,8 @@ def run(site: str, version: str, *, tries: int = 10, wait: float = 6.0) -> list[
     report.append("console: ok")
     check_console_photo(site)
     report.append("console-photo: ok")
+    check_console_pages(site)
+    report.append("console-pages: ok")
     expect("foreign-origin", slots_request(site, FOREIGN_ORIGIN, cookie, token), 403)
     report.append("foreign-origin: ok")
     answer = slots_request(site, site, cookie, token)

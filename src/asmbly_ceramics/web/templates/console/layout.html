@@ -14,9 +14,9 @@
 <nav class="tabs" aria-label="Console">
   <div class="band-inner tabs-inner">
     <a href="/console"{% if tab == "waiting" %} aria-current="page"{% endif %}>Waiting{% if waiting_count is defined %} ({{ waiting_count }}){% endif %}</a>
-    <a href="/console/loads">Loads</a>
-    <a href="/console/counts">Weekly counts</a>
-    <a href="/console/settings">Settings</a>
+    <a href="/console/loads"{% if tab == "loads" %} aria-current="page"{% endif %}>Loads</a>
+    <a href="/console/counts"{% if tab == "counts" %} aria-current="page"{% endif %}>Weekly counts</a>
+    <a href="/console/settings"{% if tab == "settings" %} aria-current="page"{% endif %}>Settings</a>
   </div>
 </nav>
 {% if attention %}

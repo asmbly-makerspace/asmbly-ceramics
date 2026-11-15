@@ -85,7 +85,7 @@ def change_load(load: Load, kiln: ItemId, firing_type: ItemId, on: dt.date, stud
     firing type of a load with drop-offs in it can't change (`FiringTypeLocked`): each
     was added, and any different one confirmed, against the firing type it has (#4).
     """
-    _require_loading(load)
+    require_loading(load)
     if firing_type != load.firing_type:
         if load.members:
             raise FiringTypeLocked(load.id)
@@ -97,7 +97,7 @@ def change_load(load: Load, kiln: ItemId, firing_type: ItemId, on: dt.date, stud
 
 def add_to_load(load: Load, drop_off: DropOff, *, confirmed: bool) -> tuple[Load, DropOff]:
     """Add a waiting drop-off. A different firing type from the load's needs `confirmed`."""
-    _require_loading(load)
+    require_loading(load)
     if drop_off.state is DropOffState.IN_LOAD:
         if drop_off.load_id is None:
             raise ValueError(f"{drop_off.id} is in a load with no load ID")
@@ -118,7 +118,7 @@ def add_to_load(load: Load, drop_off: DropOff, *, confirmed: bool) -> tuple[Load
 
 def remove_from_load(load: Load, drop_off: DropOff) -> tuple[Load, DropOff]:
     """Take a drop-off out of a loading load and put it back in the waiting list."""
-    _require_loading(load)
+    require_loading(load)
     if (
         drop_off.state is not DropOffState.IN_LOAD
         or drop_off.load_id != load.id
@@ -147,10 +147,7 @@ def fire(load: Load, members: Sequence[DropOff], at: dt.datetime) -> FireResult:
     a bug in the caller, not a refusal.
     """
     _check_aware(at)
-    if load.status is LoadStatus.FIRED:
-        raise AlreadyFired(load.id)
-    if load.status is not LoadStatus.FIRING:
-        raise WrongLoadStatus(load.id, load.status.value, LoadStatus.FIRING.value)
+    require_firing(load)
     by_id = {drop_off.id: drop_off for drop_off in members}
     if len(by_id) != len(members) or set(by_id) != set(load.members):
         raise ValueError(f"the drop-offs given aren't exactly load {load.id}'s members")
@@ -165,9 +162,20 @@ def fire(load: Load, members: Sequence[DropOff], at: dt.datetime) -> FireResult:
     )
 
 
-def _require_loading(load: Load) -> None:
+def require_loading(load: Load) -> None:
+    """`LoadNotLoading` unless drop-offs can still be added to or removed from `load`; a
+    page asks before it offers the add field's search."""
     if load.status is not LoadStatus.LOADING:
         raise LoadNotLoading(load.id, load.status.value)
+
+
+def require_firing(load: Load) -> None:
+    """`AlreadyFired` or `WrongLoadStatus` unless `load` can be marked fired now; a page
+    asks before it shows "Mark L-4 fired?"."""
+    if load.status is LoadStatus.FIRED:
+        raise AlreadyFired(load.id)
+    if load.status is not LoadStatus.FIRING:
+        raise WrongLoadStatus(load.id, load.status.value, LoadStatus.FIRING.value)
 
 
 def _check_aware(at: dt.datetime) -> None:

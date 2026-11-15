@@ -15,7 +15,13 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 
 class SettingsError(Exception):
-    """A variable is missing or has the wrong shape; the message names it, never its value."""
+    """A variable is missing or has the wrong shape; the message starts with its name and
+    never holds its value."""
+
+    @property
+    def variable(self) -> str:
+        """The variable's name (`TABLE_NAME`), the message's first word."""
+        return str(self).split(" ", 1)[0]
 
 
 @dataclass(frozen=True)

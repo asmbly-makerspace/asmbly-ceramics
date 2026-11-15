@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.limits import OVERDUE_AFTER
 from asmbly_ceramics.domain.studio import ItemStatus
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import Put, Update
+from asmbly_ceramics.use_cases.studio import DELETED_ITEM
 from asmbly_ceramics.use_cases.waiting import SEARCH_MAX, Found
 from tests.domain.builders import NOW, TEST_EMAIL, TEST_PHONE_DIGITS, a_drop_off
 from tests.use_cases.conftest import World
@@ -117,12 +118,12 @@ def test_the_filter_offers_a_retired_type_that_still_has_waiting_rows(world: Wor
     assert [row.firing_type for row in view.rows] == ["Glaze"]
 
 
-def test_a_firing_type_the_studio_lacks_shows_as_its_id(world: World) -> None:
+def test_a_firing_type_the_studio_lacks_shows_as_a_deleted_item(world: World) -> None:
     stored(world, replace(a_drop_off(1), firing_type=ItemId("raku")))
 
     [row] = world.waiting().rows
 
-    assert row.firing_type == "raku"
+    assert row.firing_type == DELETED_ITEM == "a deleted item"
 
 
 def test_the_waiting_list_logs_nothing(world: World, caplog: pytest.LogCaptureFixture) -> None:

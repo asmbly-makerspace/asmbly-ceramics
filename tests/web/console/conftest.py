@@ -51,6 +51,22 @@ def console_services(world: World) -> ConsoleServices:
         undo_rejection=world.undo,
         retry_email=world.retry_email,
         emails_needing_attention=world.emails_needing_attention,
+        list_loads=world.list_loads,
+        start_load=world.start_load,
+        view_load=world.view_load,
+        change_load=world.change_load,
+        add_to_load=world.add_to_load,
+        remove_from_load=world.remove_from_load,
+        start_firing=world.start_firing,
+        mark_fired=world.mark_fired,
+        view_studio=world.view_studio,
+        change_email_settings=world.change_email_settings,
+        send_test_email=world.send_test_email,
+        add_item=world.add_item,
+        retire_item=world.retire_item,
+        restore_item=world.restore_item,
+        delete_item=world.delete_item,
+        weekly_counts=world.counts,
     )
 
 

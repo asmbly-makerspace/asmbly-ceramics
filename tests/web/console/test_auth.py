@@ -10,12 +10,14 @@ import httpx2
 import pytest
 
 from asmbly_ceramics.adapters.memory.staff_tokens import SIGN_IN_ORIGIN, s256
+from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.ports.errors import SignInUnavailable
 from asmbly_ceramics.ports.secrets import SecretName
 from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.web.console.session import SESSION_COOKIE, SIGNIN_COOKIE, decode_sign_in
 from tests.domain.builders import STAFF, TEST_NAME
 from tests.use_cases.conftest import World
+from tests.use_cases.flows import STAFF_MEMBER
 from tests.web.conftest import SITE, Site
 from tests.web.console.conftest import OUTSIDER, Console, events, page_csrf, query_of
 
@@ -28,6 +30,11 @@ GETS = [
     "/console/drop-offs/AC-1",
     "/console/drop-offs/AC-1/photos/1",
     "/console/drop-offs/AC-1/photos/1/thumb",
+    "/console/loads",
+    "/console/loads/L-1",
+    "/console/settings",
+    "/console/settings/history",
+    "/console/counts",
 ]
 POSTS = [
     "/console/search",
@@ -35,6 +42,19 @@ POSTS = [
     "/console/drop-offs/AC-1/reject",
     "/console/drop-offs/AC-1/undo-reject",
     "/console/drop-offs/AC-1/emails/received/retry",
+    "/console/loads",
+    "/console/loads/L-1/add",
+    "/console/loads/L-1/remove",
+    "/console/loads/L-1/edit",
+    "/console/loads/L-1/start-firing",
+    "/console/loads/L-1/fire",
+    "/console/loads/L-1/emails/AC-1/retry",
+    "/console/settings/email",
+    "/console/settings/test-email",
+    "/console/settings/kilns/add",
+    "/console/settings/kilns/retire",
+    "/console/settings/kilns/restore",
+    "/console/settings/kilns/delete",
     "/console/sign-out",
 ]
 PHOTOS = {path for path in GETS if "/photos/" in path}
@@ -417,6 +437,10 @@ def test_every_console_route_is_in_the_checked_lists() -> None:
 
     checked = {p.replace("AC-1", "{id}").replace("/photos/1", "/photos/{k}") for p in GETS + POSTS}
     checked = {p.replace("/emails/received/", "/emails/{kind}/") for p in checked}
+    checked = {
+        p.replace("L-1/emails/{id}/", "L-1/emails/{drop_off}/").replace("L-1", "{load}") for p in checked
+    }
+    checked = {p.replace("/settings/kilns/", "/settings/{list}/") for p in checked}
     for route in console_routes():
         assert isinstance(route, Route)
         assert route.path in checked | PUBLIC, route.path
@@ -510,3 +534,22 @@ def test_the_sign_out_page_goes_to_the_real_staff_logout(world: World) -> None:
     location = logout_url(answer.text)
     assert location.startswith(f"{ORIGIN}/logout?")
     assert query_of(location) == {"client_id": [CLIENT_ID], "logout_uri": [SIGNED_OUT]}
+
+
+@pytest.mark.parametrize("path", [p for p in POSTS if p != "/console/sign-out"])
+def test_every_console_post_needs_this_session_s_csrf_token_and_this_origin(
+    console: Console, path: str
+) -> None:
+    console.drop_off(1)
+    console.sign_in()
+    console.world.start_load(ItemId("athena"), ItemId("bisque"), None, STAFF_MEMBER)  # L-1
+    fields = {"q": "x", "version": "1", "drop_off": "AC-1", "item": "helios", "name": "Hestia"}
+    commits = len(console.world.records.commits)
+
+    without = console.post(path, fields, csrf=False)
+    other_site = console.post(path, fields, headers={"origin": "https://evil.example"})
+
+    assert without.status_code == 403
+    assert other_site.status_code == 403
+    assert len(console.world.records.commits) == commits
+    assert console.world.mailer.sent == []

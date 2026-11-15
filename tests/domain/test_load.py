@@ -30,6 +30,8 @@ from asmbly_ceramics.domain.load import (
     change_load,
     fire,
     remove_from_load,
+    require_firing,
+    require_loading,
     start_firing,
     start_load,
 )
@@ -302,6 +304,20 @@ def test_fire_refuses_a_loading_load() -> None:
     with pytest.raises(WrongLoadStatus) as caught:
         fire(a_load(members=[1]), [in_load(1)], LATER)
     assert caught.value.message == "Load L-1 is loading, not firing."
+
+
+def test_the_page_s_checks_are_the_rules_the_changes_use() -> None:
+    """A page asks `require_loading` before its name search and `require_firing` before
+    "Mark L-1 fired?": the same refusals the changes raise, decided once here."""
+    require_loading(a_load())
+    for status in (LoadStatus.FIRING, LoadStatus.FIRED):
+        with pytest.raises(LoadNotLoading, match=f"L-1 is {status}"):
+            require_loading(a_load(status=status, members=[1]))
+    require_firing(a_load(status=LoadStatus.FIRING, members=[1]))
+    with pytest.raises(AlreadyFired):
+        require_firing(a_load(status=LoadStatus.FIRED, members=[1]))
+    with pytest.raises(WrongLoadStatus, match="L-1 is loading, not firing"):
+        require_firing(a_load(members=[1]))
 
 
 def test_fire_with_the_wrong_members_is_a_bug() -> None:

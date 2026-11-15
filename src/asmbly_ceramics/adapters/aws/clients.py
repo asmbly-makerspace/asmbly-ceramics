@@ -95,6 +95,47 @@ class FormClients:
         return FormClients(dynamodb_client(region), s3_client(region), ssm_client(region))
 
 
+def _request_ses_config() -> Config:
+    # Imported here: `mailer` imports this module's timeouts.
+    from asmbly_ceramics.adapters.aws.mailer import SES_CLIENT_CONFIG
+
+    return SES_CLIENT_CONFIG
+
+
+@dataclass(frozen=True)
+class ConsoleClients:
+    """The form's three clients and SES, for the test email alone (`SES_CLIENT_CONFIG`:
+    one attempt, sized to a request)."""
+
+    dynamodb: DynamoDBClient
+    s3: S3Client
+    ssm: SSMClient
+    ses: SESV2Client
+
+    @staticmethod
+    @cache
+    def build(region: str) -> ConsoleClients:
+        return ConsoleClients(
+            dynamodb_client(region),
+            s3_client(region),
+            ssm_client(region),
+            ses_client(region, _request_ses_config()),
+        )
+
+
+@dataclass(frozen=True)
+class CloserClients:
+    """The daily close's: records and photos only."""
+
+    dynamodb: DynamoDBClient
+    s3: S3Client
+
+    @staticmethod
+    @cache
+    def build(region: str) -> CloserClients:
+        return CloserClients(dynamodb_client(region), s3_client(region))
+
+
 @dataclass(frozen=True)
 class MailerClients:
     dynamodb: DynamoDBClient

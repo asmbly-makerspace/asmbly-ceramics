@@ -1,0 +1,247 @@
+{% extends "console/layout.html" %}
+{% block title %}Load {{ load.id }}{% endblock %}
+{% block content %}
+{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
+{% if problem %}<div class="notice notice-error" role="alert"><h2>{{ problem }}</h2></div>{% endif %}
+<div class="page-head">
+  <h2>{{ title }} <span class="mono">{{ load.id }}</span></h2>
+  <p class="hint">Load started by {{ load.started_by }} on {{ started }}{% if fired %} · Fired {{ fired_on }}{% endif %}</p>
+</div>
+
+<ol class="steps" aria-label="Status">
+  {% for label, status in steps %}
+  <li{% if load.status == status %} aria-current="step"{% endif %}>{{ loop.index }} {{ label }}</li>
+  {% endfor %}
+</ol>
+
+{% if confirm_fire %}
+<section class="panel" id="confirm-fire">
+  <h3>Mark {{ load.id }} fired?</h3>
+  <p>This emails {{ view.total_drop_offs }} {{ "person" if view.total_drop_offs == 1 else "people" }} “Ready for pickup”.</p>
+  <div class="actions">
+    <form method="post" action="/console/loads/{{ load.id }}/fire" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="version" value="{{ load.version }}">
+      <input type="hidden" name="confirm" value="1">
+      <button type="submit">Yes, mark fired</button>
+    </form>
+    <a class="cancel" href="/console/loads/{{ load.id }}">Not yet</a>
+  </div>
+</section>
+{% elif loading %}
+<div class="actions">
+  <form method="post" action="/console/loads/{{ load.id }}/start-firing" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <button type="submit"{% if not view.members %} disabled aria-describedby="start-hint"{% endif %}>Start firing</button>
+  </form>
+  {% if not view.members %}<p class="hint" id="start-hint">Add a drop-off first.</p>{% endif %}
+</div>
+{% elif firing %}
+<div class="actions">
+  <form method="post" action="/console/loads/{{ load.id }}/fire" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <button type="submit">Mark fired</button>
+  </form>
+</div>
+{% endif %}
+
+<h3>In this load</h3>
+{% if members %}
+<p>{{ view.total_drop_offs }} drop-off{{ "" if view.total_drop_offs == 1 else "s" }} · {{ view.total_pieces }} piece{{ "" if view.total_pieces == 1 else "s" }}</p>
+<div class="table-box">
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col"><span class="visually-hidden">Photo</span></th>
+      <th scope="col">ID</th>
+      <th scope="col">Name</th>
+      <th scope="col">Pieces</th>
+      {% if loading %}<th scope="col"><span class="visually-hidden">Remove</span></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in members %}
+    <tr>
+      <td>{% if row.thumb %}<img class="thumb" src="{{ row.thumb }}" alt="Photo of {{ row.drop_off.id }}" width="48" height="48" loading="lazy">{% endif %}</td>
+      <td class="mono"><a href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
+      <td>{{ row.name }}</td>
+      <td>{{ row.drop_off.pieces }}</td>
+      {% if loading %}
+      <td>
+        <form method="post" action="/console/loads/{{ load.id }}/remove" class="inline-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="drop_off" value="{{ row.drop_off.id }}">
+          <button type="submit" class="button-quiet">Remove</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="notice" role="status">Nothing in this load yet. Scan a slip, search, or tap Add in the waiting list.</p>
+{% endif %}
+
+{% if loading %}
+<section class="panel" id="add">
+  <h3>Add by ID or name</h3>
+  {% if add.mismatch %}
+  <div class="notice notice-error" role="alert">
+    <h2>{{ add.mismatch_id }} is {{ mismatch_names[0] }}. This load is {{ mismatch_names[1] }}.</h2>
+    <div class="actions">
+      <form method="post" action="/console/loads/{{ load.id }}/add" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if all_types %}<input type="hidden" name="all" value="1">{% endif %}
+        <input type="hidden" name="drop_off" value="{{ add.mismatch_id }}">
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit">Add anyway</button>
+      </form>
+      <a class="cancel" href="/console/loads/{{ load.id }}">Don't add</a>
+    </div>
+  </div>
+  {% endif %}
+  <form method="post" action="/console/loads/{{ load.id }}/add">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if all_types %}<input type="hidden" name="all" value="1">{% endif %}
+    <div class="field{% if add.error %} field-invalid{% endif %}">
+      <label for="drop_off">Scan a slip, or type an ID or name</label>
+      {% if add.error %}<p class="field-error" id="drop_off-error">{{ add.error }}</p>{% endif %}
+      {% if add.detail %}<p class="hint" id="drop_off-detail">{{ add.detail }}</p>{% endif %}
+      <div class="search-row">
+        <input type="text" id="drop_off" name="drop_off" value="{{ '' if add.mismatch else add.text }}" maxlength="{{ query_max }}" autocomplete="off" inputmode="text" autofocus{% if add.error %} aria-describedby="drop_off-error{% if add.detail %} drop_off-detail{% endif %}"{% endif %}>
+        <button type="submit">Add</button>
+      </div>
+    </div>
+  </form>
+  {% if add.found %}
+  <h4>Waiting drop-offs matching “{{ add.text }}”</h4>
+  <div class="table-box">
+  <table class="list">
+    <tbody>
+    {% for row in add.found.rows %}
+      <tr>
+        <td class="mono">{{ row.drop_off.id }}</td>
+        <td>{{ row.drop_off.contact.name if row.drop_off.contact else "Closed" }}</td>
+        <td>{{ row.drop_off.pieces }}</td>
+        <td><span class="tag">{{ row.firing_type }}</span></td>
+        <td>
+          <form method="post" action="/console/loads/{{ load.id }}/add" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            {% if all_types %}<input type="hidden" name="all" value="1">{% endif %}
+            <input type="hidden" name="drop_off" value="{{ row.drop_off.id }}">
+            <button type="submit">Add {{ row.drop_off.id }}</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if add.found.truncated %}
+  <p class="hint">Only the oldest {{ add.found.rows | length }} matches are shown. Type more of the name to narrow it.</p>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section id="waiting">
+  <h3>Waiting · {{ "all firing types" if all_types else firing_name }}</h3>
+  {% if all_types %}
+  <p><a href="/console/loads/{{ load.id }}#waiting">Show {{ firing_name }} only</a></p>
+  {% else %}
+  <p><a href="/console/loads/{{ load.id }}?all=1#waiting">Show all firing types</a></p>
+  {% endif %}
+  {% if waiting %}
+  <div class="table-box">
+  <table class="list">
+    <thead>
+      <tr><th scope="col"><span class="visually-hidden">Photo</span></th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Pieces</th><th scope="col">Firing</th><th scope="col"><span class="visually-hidden">Add</span></th></tr>
+    </thead>
+    <tbody>
+    {% for row in waiting %}
+    {% set d = row.drop_off %}
+      <tr>
+        <td>{% if d.photos and d.contact %}<img class="thumb" src="/console/drop-offs/{{ d.id }}/photos/1/thumb" alt="Photo of {{ d.id }}" width="48" height="48" loading="lazy">{% endif %}</td>
+        <td class="mono">{{ d.id }}</td>
+        <td>{{ d.contact.name if d.contact else "Closed" }}</td>
+        <td>{{ d.pieces }}</td>
+        <td><span class="tag">{{ row.firing_type }}</span></td>
+        <td>
+          <form method="post" action="/console/loads/{{ load.id }}/add" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            {% if all_types %}<input type="hidden" name="all" value="1">{% endif %}
+            <input type="hidden" name="drop_off" value="{{ d.id }}">
+            <button type="submit">Add</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="notice" role="status">Nothing of this firing type is waiting.</p>
+  {% endif %}
+</section>
+
+<details class="panel">
+  <summary>Change kiln, firing or date</summary>
+  <form method="post" action="/console/loads/{{ load.id }}/edit">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <div class="field">
+      <label for="edit-kiln">Kiln</label>
+      <select id="edit-kiln" name="kiln">
+        {% for item in kilns %}
+        <option value="{{ item.id }}"{% if load.kiln == item.id %} selected{% endif %}>{{ item.name }}{% if item.status.value == "retired" %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="edit-firing">Firing type</label>
+      {% if view.members %}
+      <input type="hidden" name="firing_type" value="{{ load.firing_type }}">
+      <select id="edit-firing" disabled aria-describedby="firing-locked">
+        <option selected>{{ firing_name }}</option>
+      </select>
+      <p class="hint" id="firing-locked">Remove its drop-offs to change the firing type.</p>
+      {% else %}
+      <select id="edit-firing" name="firing_type">
+        {% for item in firing_types %}
+        <option value="{{ item.id }}"{% if load.firing_type == item.id %} selected{% endif %}>{{ item.name }}{% if item.status.value == "retired" %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    <div class="field">
+      <label for="edit-date">Date</label>
+      <input type="date" id="edit-date" name="date" value="{{ load.date.isoformat() }}" required>
+    </div>
+    <button type="submit">Save changes</button>
+  </form>
+</details>
+{% endif %}
+
+{% if fired %}
+<section id="emails">
+  <h3>Ready for pickup emails</h3>
+  <p>{{ view.sent }} of {{ view.total_drop_offs }} emails sent</p>
+  <ul class="email-list">
+    {% for email in emails %}
+    <li>
+      <span class="mono">{{ email.id }}</span>: {{ email.state }}
+      {% if email.retry %}
+      <form method="post" action="/console/loads/{{ load.id }}/emails/{{ email.id }}/retry" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Try sending again</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

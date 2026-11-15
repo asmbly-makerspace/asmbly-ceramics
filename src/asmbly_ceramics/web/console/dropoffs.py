@@ -40,7 +40,15 @@ from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict
 from asmbly_ceramics.use_cases.reject import RejectRequest, UndoRequest
 from asmbly_ceramics.use_cases.view_drop_off import DropOffView
 from asmbly_ceramics.web.console.auth import require_staff, require_staff_for_photo, require_staff_post
-from asmbly_ceramics.web.console.common import Staff, drop_off_id, not_found, phone_text, render, services
+from asmbly_ceramics.web.console.common import (
+    Staff,
+    drop_off_id,
+    form_version,
+    not_found,
+    phone_text,
+    render,
+    services,
+)
 from asmbly_ceramics.web.errors import PageError
 from asmbly_ceramics.web.security import csp
 
@@ -50,7 +58,6 @@ KIND_LABELS = {
     EmailKind.REJECTED: "Rejected",
 }
 MAYBE_SAVED = "That may or may not have been saved. Reload the drop-off to check before trying again."
-VERSION_DIGITS_MAX = 12
 # After a change, the page says what happened from a fixed word in its address: never the
 # message or anything the person typed.
 DONE = {
@@ -176,13 +183,6 @@ def _view(request: Request, id: DropOffId) -> DropOffView:
         raise not_found(id) from None
 
 
-def _version(form: Mapping[str, str]) -> int:
-    raw = form.get("version", "")
-    if not raw.isascii() or not raw.isdigit() or len(raw) > VERSION_DIGITS_MAX:
-        raise PageError(400)
-    return int(raw)
-
-
 # --- GET /console/drop-offs/{id} ----------------------------------------------------------
 
 
@@ -253,7 +253,7 @@ def _reject_request(id: DropOffId, form: Mapping[str, str], staff: Staff) -> Rej
         drop_off_id=id,
         reason=ItemId(reason),
         message=form.get("message", ""),
-        version=_version(form),
+        version=form_version(form),
         staff=staff.member,
     )
 
@@ -310,7 +310,7 @@ async def preview(request: Request) -> Response:
         "from_address": console.studio().sending_address,
         "reason": form.get("reason", ""),
         "message": form.get("message", ""),
-        "version": _version(form),  # the version the staff member saw, for Send
+        "version": form_version(form),  # the version the staff member saw, for Send
     }
     response = render(request, "console/reject_preview.html", context, staff)
     response.headers["Content-Security-Policy"] = csp(
@@ -340,7 +340,7 @@ async def undo(request: Request) -> Response:
     staff, form = await require_staff_post(request)
     id = drop_off_id(request)
     try:
-        undone = services(request).undo_rejection(UndoRequest(id, _version(form), staff.member))
+        undone = services(request).undo_rejection(UndoRequest(id, form_version(form), staff.member))
     except NotFound:
         raise not_found(id) from None
     except CommitOutcomeUnknown:

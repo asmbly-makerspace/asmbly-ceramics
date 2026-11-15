@@ -116,7 +116,7 @@ h2 { font-size: var(--font-size-h2); margin: var(--none) var(--none) var(--space
 .field label, .field legend { display: block; font-weight: var(--weight-strong); margin-bottom: var(--space-2); padding: var(--none); }
 .hint { margin: var(--none) var(--none) var(--space-2); font-size: var(--font-size-small); }
 
-input[type="text"], input[type="email"], input[type="tel"], input[type="number"] {
+input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"] {
   display: block;
   width: var(--full);
   min-height: var(--tap-target);
@@ -131,7 +131,7 @@ input[type="text"], input[type="email"], input[type="tel"], input[type="number"]
 
 input[type="file"] { display: block; width: var(--full); min-height: var(--tap-target); font: inherit; font-size: var(--font-size-body); }
 
-.field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"] {
+.field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"], .field-invalid input[type="date"] {
   border: var(--border-width-accent) solid var(--error-edge);
 }
 
@@ -275,6 +275,8 @@ a { color: var(--accent-strong); }
 .email-list li { margin-bottom: var(--space-2); }
 .cancel { display: inline-flex; align-items: center; min-height: var(--tap-target); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: var(--space-4) var(--none); }
+.actions a { display: inline-flex; align-items: center; min-height: var(--tap-target); }
+summary { min-height: var(--tap-target); padding: var(--space-2) var(--none); cursor: pointer; font-weight: var(--weight-strong); }
 .panel { padding: var(--space-4); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
 .panel select, .panel textarea {
   display: block;
@@ -288,6 +290,10 @@ a { color: var(--accent-strong); }
   background: var(--field-bg);
 }
 .field-invalid select, .field-invalid textarea { border-color: var(--error-edge); border-width: var(--border-width-accent); }
+.steps { display: flex; flex-wrap: wrap; gap: var(--space-4); list-style: none; margin: var(--space-3) var(--none); padding: var(--none); }
+.steps li[aria-current="step"] { font-weight: var(--weight-strong); text-decoration: underline; text-decoration-thickness: var(--border-width-accent); }
+.history { list-style: none; margin: var(--none) var(--none) var(--space-4); padding: var(--none); }
+.history li { padding: var(--space-2) var(--none); border-bottom: var(--border-width) solid var(--line); }
 .email-preview { display: block; width: var(--full); height: var(--preview-height); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
 @media (min-width: 48rem) {
   .drop-off-body { grid-template-columns: 3fr 2fr; }

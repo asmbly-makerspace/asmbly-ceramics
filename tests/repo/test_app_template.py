@@ -17,6 +17,7 @@ import pytest
 from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.adapters.aws.ids import DROP_OFF_COUNTER
 from asmbly_ceramics.adapters.aws.photos import KEPT_PREFIX, UPLOADS_PREFIX
+from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, claim, new_email
 from asmbly_ceramics.domain.ids import DropOffId, LoadId
 from asmbly_ceramics.use_cases.emails import EMAIL_FAILED
@@ -256,7 +257,7 @@ def test_every_function_has_its_environment_s_boundary_a_path_and_its_own_log_gr
         "Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-function-boundary-arn"}
     }
     assert GLOBALS["RolePath"] == "/asmbly-ceramics-app/"
-    assert set(FUNCTIONS) == {"FormFunction", "MailerFunction", "ConsoleFunction"}
+    assert set(FUNCTIONS) == {"FormFunction", "MailerFunction", "ConsoleFunction", "CloseFunction"}
     for name, function in FUNCTIONS.items():
         properties = function["Properties"]
         for override in ("PermissionsBoundary", "RolePath", "Role", "AssumeRolePolicyDocument"):
@@ -368,14 +369,18 @@ def test_every_table_statement_is_on_the_table_and_scoped_by_its_keys() -> None:
                 assert leading_keys(statement), f"{function}.{sid}"
 
 
-def test_only_the_mailer_sends_email_and_only_from_asmbly_org() -> None:
+def test_ses_send_is_limited_to_the_asmbly_org_identity_and_from_address() -> None:
+    # The mailer sends the outbox; the console sends only the test email (#6).
     assert not granted("FormFunction", "ses:SendEmail")
-    [send] = granted("MailerFunction", "ses:SendEmail")
-    assert [sub(r) for r in resources(send)] == [
-        "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}",
-        "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailDomain}",
-    ]
-    assert send["Condition"] == {"StringLike": {"ses:FromAddress": {"Fn::Sub": "*@${EmailDomain}"}}}
+    assert not granted("CloseFunction", "ses:SendEmail")
+    for function in ("MailerFunction", "ConsoleFunction"):
+        [send] = granted(function, "ses:SendEmail")
+        assert actions(send) == ["ses:SendEmail"], function
+        assert [sub(r) for r in resources(send)] == [
+            "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}",
+            "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailDomain}",
+        ], function
+        assert send["Condition"] == {"StringLike": {"ses:FromAddress": {"Fn::Sub": "*@${EmailDomain}"}}}
     assert TEMPLATE["Parameters"]["EmailDomain"]["AllowedValues"] == ["asmbly.org"]
 
 
@@ -437,6 +442,8 @@ def test_every_alarm_notifies_this_project_s_topic_and_ignores_missing_data() ->
         "MailerDeadLettersAlarm",
         "FunctionErrorsAlarm",
         "Api5xxAlarm",
+        "CloseErrorsAlarm",
+        "CloseDeadLettersAlarm",
     }
     for name, alarm in ALARMS.items():
         properties = alarm["Properties"]
@@ -535,6 +542,7 @@ def test_the_addresses_are_ssm_parameters_resolved_by_cloudformation(name: str) 
 # The console (phase 8) -------------------------------------------------------------------------
 
 LOADS = _partition_prefix(keys.load_key(LoadId(1)), "L-1")
+LOAD_COUNTER_PK = keys.counter_key("load")["PK"]["S"]
 
 
 def test_the_console_reads_only_kept_photos_and_its_session_key() -> None:
@@ -555,30 +563,35 @@ def test_the_console_reads_only_kept_photos_and_its_session_key() -> None:
     assert sorted(leading_keys(get)) == sorted([DROP_OFFS, EMAILS, LOADS, STUDIO])
     table_query, index_query = granted("ConsoleFunction", "dynamodb:Query")
     assert table_query["Resource"] == TABLE
-    assert leading_keys(table_query) == [EMAILS]  # never SUBMISSION#, RATE# or COUNTER#
+    # A drop-off's emails and the settings history: never SUBMISSION#, RATE# or COUNTER#.
+    assert leading_keys(table_query) == [EMAILS, STUDIO]
     assert sub(index_query["Resource"]) == "${RecordsTable.Arn}/index/*"
 
 
-def test_the_console_role_cannot_send_email_yet() -> None:
+def test_the_console_sends_only_the_test_email_and_nothing_else() -> None:
     for statement in statements("ConsoleFunction").values():
         for action in actions(statement):
-            assert not action.startswith(("ses:", "sqs:", "sns:", "lambda:", "iam:")), action
+            assert not action.startswith(("sqs:", "sns:", "lambda:", "iam:")), action
+            assert not action.startswith("ses:") or action == "ses:SendEmail", action
 
 
-def test_the_console_writes_with_put_item_only() -> None:
+def test_the_console_writes_with_put_item_only_and_updates_only_the_load_counter() -> None:
     every = [
         a for s in statements("ConsoleFunction").values() for a in actions(s) if a.startswith("dynamodb:")
     ]
-    assert sorted(set(every)) == ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
-    for forbidden in (
+    assert sorted(set(every)) == [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
         "dynamodb:UpdateItem",
-        "dynamodb:ConditionCheckItem",
-        "dynamodb:DeleteItem",
-        "dynamodb:Scan",
-    ):
+    ]
+    for forbidden in ("dynamodb:ConditionCheckItem", "dynamodb:DeleteItem", "dynamodb:Scan"):
         assert forbidden not in every
+    [update] = granted("ConsoleFunction", "dynamodb:UpdateItem")
+    assert update["Resource"] == TABLE
+    assert leading_keys(update) == [LOAD_COUNTER_PK]  # never the form's drop-off counter
     [put] = granted("ConsoleFunction", "dynamodb:PutItem")
-    assert sorted(leading_keys(put)) == sorted([DROP_OFFS, EMAILS, STUDIO])
+    assert sorted(leading_keys(put)) == sorted([DROP_OFFS, EMAILS, LOADS, STUDIO])
     assert put["Condition"]["ForAnyValue:StringEquals"] == {
         "dynamodb:EnclosingOperation": ["TransactWriteItems"]
     }
@@ -625,3 +638,102 @@ def test_the_staff_sign_in_values_come_from_parameter_store() -> None:
     assert variables["STAFF_CLIENT_ID"] == {"Ref": "StaffClientId"}
     # One pool serves stage and prod: no environment overrides them.
     assert "Staff" not in (REPO / "samconfig.toml").read_text()
+
+
+# The daily close (#7) ---------------------------------------------------------------------
+
+
+def test_the_close_schedule_runs_daily_in_austin_time_with_a_dead_letter_queue() -> None:
+    schedule = RESOURCES["CloseSchedule"]["Properties"]
+    assert schedule["ScheduleExpression"] == "cron(17 3 * * ? *)"
+    assert schedule["ScheduleExpressionTimezone"] == "America/Chicago"
+    assert schedule["FlexibleTimeWindow"] == {"Mode": "OFF"}
+    assert schedule["State"] == "ENABLED"
+    target = schedule["Target"]
+    assert target["Arn"] == {"Fn::GetAtt": ["CloseFunction", "Arn"]}
+    assert target["RoleArn"] == {"Fn::GetAtt": ["CloseSchedulerRole", "Arn"]}
+    assert target["Input"] == "{}"
+    retry = target["RetryPolicy"]
+    assert 0 <= retry["MaximumRetryAttempts"] <= 185
+    assert 60 <= retry["MaximumEventAgeInSeconds"] <= 3600  # a retry stays inside the night
+    assert target["DeadLetterConfig"] == {"Arn": {"Fn::GetAtt": ["CloseDeadLetterQueue", "Arn"]}}
+    queue = RESOURCES["CloseDeadLetterQueue"]["Properties"]
+    assert queue["SqsManagedSseEnabled"] is True
+
+
+def test_the_close_function_has_a_dead_letter_queue_for_failed_runs() -> None:
+    # The scheduler invokes Lambda asynchronously: a run that raises is retried by Lambda
+    # and then lands here, not in the schedule's own dead-letter config.
+    close = FUNCTIONS["CloseFunction"]["Properties"]
+    assert close["Handler"] == "asmbly_ceramics.entry.close.handler"
+    assert close["DeadLetterQueue"] == {
+        "Type": "SQS",
+        "TargetArn": {"Fn::GetAtt": ["CloseDeadLetterQueue", "Arn"]},
+    }
+    assert close["ReservedConcurrentExecutions"] == 1
+    assert "Events" not in close  # only the schedule runs it; no API route reaches it
+    errors = ALARMS["CloseErrorsAlarm"]["Properties"]
+    assert errors["Dimensions"] == [{"Name": "FunctionName", "Value": {"Ref": "CloseFunction"}}]
+    dead = ALARMS["CloseDeadLettersAlarm"]["Properties"]
+    assert (dead["MetricName"], dead["Statistic"], dead["Threshold"]) == ("NumberOfMessagesSent", "Sum", 1)
+    assert dead["Dimensions"] == [
+        {"Name": "QueueName", "Value": {"Fn::GetAtt": ["CloseDeadLetterQueue", "QueueName"]}}
+    ]
+
+
+def test_the_scheduler_role_invokes_only_the_close_function() -> None:
+    role = RESOURCES["CloseSchedulerRole"]["Properties"]
+    assert "RoleName" not in role  # CAPABILITY_IAM: the stack names it, under the prefix
+    assert role["Path"] == "/asmbly-ceramics-app/"
+    assert role["PermissionsBoundary"] == GLOBALS["PermissionsBoundary"]
+    assert {tag["Key"] for tag in role["Tags"]} == TAGS
+    [trust] = role["AssumeRolePolicyDocument"]["Statement"]
+    assert trust["Principal"] == {"Service": "scheduler.amazonaws.com"}
+    condition = trust["Condition"]["StringEquals"]
+    assert condition["aws:SourceAccount"] == {"Ref": "AWS::AccountId"}
+    # A schedule group, as AWS requires: a schedule's own ARN would refuse every invoke.
+    assert sub(condition["aws:SourceArn"]) == (
+        "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/default"
+    )
+    [policy] = role["Policies"]
+    granted_here = {
+        statement["Action"]: statement["Resource"] for statement in policy["PolicyDocument"]["Statement"]
+    }
+    assert granted_here == {
+        "lambda:InvokeFunction": {"Fn::GetAtt": ["CloseFunction", "Arn"]},
+        "sqs:SendMessage": {"Fn::GetAtt": ["CloseDeadLetterQueue", "Arn"]},
+    }
+
+
+def test_the_close_role_deletes_only_kept_photos_and_cannot_read_them() -> None:
+    [delete] = granted("CloseFunction", "s3:DeleteObject")
+    assert sub(delete["Resource"]) == "${PhotoBucket.Arn}/" + KEPT
+    for action in ("s3:GetObject", "s3:PutObject", "s3:ListBucket", "ssm:GetParameter", "ses:SendEmail"):
+        assert not granted("CloseFunction", action), action
+
+
+def test_the_close_role_writes_with_put_item_only() -> None:
+    every = {a for s in statements("CloseFunction").values() for a in actions(s) if a.startswith("dynamodb:")}
+    assert every == {"dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"}
+    [get] = granted("CloseFunction", "dynamodb:GetItem")
+    assert sorted(leading_keys(get)) == sorted([DROP_OFFS, EMAILS, STUDIO])
+    [put] = granted("CloseFunction", "dynamodb:PutItem")
+    assert leading_keys(put) == [DROP_OFFS]
+    assert put["Condition"]["ForAnyValue:StringEquals"] == {
+        "dynamodb:EnclosingOperation": ["TransactWriteItems"]
+    }
+    assert put["Condition"]["StringEqualsIfExists"] == {"dynamodb:ReturnValues": "NONE"}
+    [dead] = granted("CloseFunction", "sqs:SendMessage")
+    assert dead["Resource"] == {"Fn::GetAtt": ["CloseDeadLetterQueue", "Arn"]}
+
+
+def test_the_close_role_queries_only_gsi1_s_fired_and_rejected_partitions() -> None:
+    """Never the waiting drop-offs' details, nor the emails' GSI2: the partitions are
+    the ones `drop_offs_in` asks for, from the code's own key function."""
+    [query] = granted("CloseFunction", "dynamodb:Query")
+    assert sub(query["Resource"]) == "${RecordsTable.Arn}/index/" + keys.GSI1
+    partitions = sorted(keys.drop_off_partition(s) for s in (DropOffState.FIRED, DropOffState.REJECTED))
+    assert query["Condition"] == {
+        "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": partitions},
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }

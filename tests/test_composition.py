@@ -14,6 +14,8 @@ from botocore.stub import Stubber
 from asmbly_ceramics.adapters.aws.clients import (
     CLIENT_CONFIG,
     CONNECT_TIMEOUT_SECONDS,
+    CloserClients,
+    ConsoleClients,
     FormClients,
     MailerClients,
 )
@@ -50,6 +52,19 @@ def form_clients() -> Iterator[tuple[FormClients, Stubber]]:
         yield clients, ssm
 
 
+@pytest.fixture
+def console_clients() -> Iterator[tuple[ConsoleClients, Stubber]]:
+    region = SETTINGS.region
+    clients = ConsoleClients(
+        boto3.client("dynamodb", region_name=region, config=CLIENT_CONFIG),
+        boto3.client("s3", region_name=region, config=CLIENT_CONFIG),
+        boto3.client("ssm", region_name=region, config=CLIENT_CONFIG),
+        boto3.client("sesv2", region_name=region),
+    )
+    with Stubber(clients.ssm) as ssm:
+        yield clients, ssm
+
+
 def test_form_services_build_on_stubbed_clients(form_clients: tuple[FormClients, Stubber]) -> None:
     clients, ssm = form_clients
     ssm.add_response(
@@ -77,8 +92,10 @@ def test_the_mailer_builds() -> None:
     assert config.connect_timeout == CONNECT_TIMEOUT_SECONDS
 
 
-@pytest.mark.parametrize("bundle", [FormClients, MailerClients])
-def test_every_built_client_stops_at_the_deadline(bundle: type[FormClients] | type[MailerClients]) -> None:
+@pytest.mark.parametrize("bundle", [FormClients, ConsoleClients, MailerClients, CloserClients])
+def test_every_built_client_stops_at_the_deadline(
+    bundle: type[FormClients] | type[ConsoleClients] | type[MailerClients] | type[CloserClients],
+) -> None:
     from asmbly_ceramics import deadline
     from asmbly_ceramics.adapters.aws.deadline import DeadlinePassed
 
@@ -114,18 +131,45 @@ def test_the_mailer_never_seeds_the_studio() -> None:
 def test_the_clients_are_built_once_per_container() -> None:
     assert FormClients.build("us-east-2") is FormClients.build("us-east-2")
     assert MailerClients.build("us-east-2") is MailerClients.build("us-east-2")
+    assert ConsoleClients.build("us-east-2") is ConsoleClients.build("us-east-2")
+    assert CloserClients.build("us-east-2") is CloserClients.build("us-east-2")
+
+
+def test_the_console_s_test_email_client_tries_once_within_a_request() -> None:
+    config: Any = ConsoleClients.build(SETTINGS.region).ses.meta.config
+    assert config.retries == {"total_max_attempts": 1, "mode": "standard"}
+    assert config.read_timeout < 29  # inside the console function's timeout
+
+
+def test_the_closer_builds_and_never_seeds_the_studio() -> None:
+    from asmbly_ceramics.composition import build_closer
+    from asmbly_ceramics.use_cases.close import CloseFinished
+    from asmbly_ceramics.use_cases.studio import StudioNotSeeded
+
+    clients = CloserClients(
+        boto3.client("dynamodb", region_name="us-east-2", config=CLIENT_CONFIG),
+        boto3.client("s3", region_name="us-east-2", config=CLIENT_CONFIG),
+    )
+    closer = build_closer(SETTINGS, clients)
+    assert isinstance(closer, CloseFinished)
+    with Stubber(clients.dynamodb) as dynamodb:
+        dynamodb.add_response("get_item", {})
+        with pytest.raises(StudioNotSeeded):
+            closer._studio()
+        dynamodb.assert_no_pending_responses()
 
 
 def test_the_entry_points_never_import_the_local_fakes_app() -> None:
     code = (
-        "import sys, asmbly_ceramics.composition, asmbly_ceramics.entry.mailer, asmbly_ceramics.web.app\n"
+        "import sys, asmbly_ceramics.composition, asmbly_ceramics.entry.mailer, asmbly_ceramics.entry.close\n"
+        "import asmbly_ceramics.web.app\n"
         "assert 'asmbly_ceramics.web.local' not in sys.modules\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603 (a fixed command)
 
 
 def test_console_services_build_on_stubbed_clients_reading_only_the_session_key(
-    form_clients: tuple[FormClients, Stubber],
+    console_clients: tuple[ConsoleClients, Stubber],
 ) -> None:
     from asmbly_ceramics.adapters.aws.staff_tokens import CognitoStaffTokens
     from asmbly_ceramics.composition import build_console_services
@@ -133,7 +177,7 @@ def test_console_services_build_on_stubbed_clients_reading_only_the_session_key(
     from asmbly_ceramics.web.console import ConsoleServices
     from tests.test_settings import STAFF_ENVIRONMENT
 
-    clients, ssm = form_clients
+    clients, ssm = console_clients
     ssm.add_response(
         "get_parameter",
         {"Parameter": {"Value": KEY}},
@@ -165,18 +209,18 @@ def test_the_console_refuses_to_start_without_its_staff_values(monkeypatch: pyte
 
 
 def test_the_console_app_has_no_form_route(
-    form_clients: tuple[FormClients, Stubber], monkeypatch: pytest.MonkeyPatch
+    console_clients: tuple[ConsoleClients, Stubber], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from starlette.testclient import TestClient
 
     from asmbly_ceramics import composition
     from tests.test_settings import STAFF_ENVIRONMENT
 
-    clients, ssm = form_clients
+    clients, ssm = console_clients
     ssm.add_response("get_parameter", {"Parameter": {"Value": KEY}})
     for name, value in STAFF_ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setattr(FormClients, "build", lambda region: clients)
+    monkeypatch.setattr(ConsoleClients, "build", lambda region: clients)
     app = composition.console_app(SETTINGS)
     with TestClient(app, base_url=SETTINGS.site_url) as client:
         assert client.get("/", follow_redirects=False).status_code == 404

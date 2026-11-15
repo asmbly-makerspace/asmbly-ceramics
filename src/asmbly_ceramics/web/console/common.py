@@ -4,8 +4,10 @@ staff check's result, reading a posted form, and rendering inside the console's 
 Nothing here logs a value from a request.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 from urllib.parse import parse_qsl
 
@@ -23,6 +25,8 @@ from asmbly_ceramics.web.security import read_body
 FORM_BODY_MAX = 32 * 1024  # a 1,000-character message, percent-encoded, with room to spare
 FORM_FIELDS_MAX = 16
 FORM_TYPE = "application/x-www-form-urlencoded"
+VERSION_DIGITS_MAX = 12  # a record's version, as the page showed it
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)
 
 
 class Answer(Exception):  # noqa: N818  # not an error: a response, sent early
@@ -83,6 +87,24 @@ async def read_form(request: Request) -> Mapping[str, str]:
     for name, value in pairs:
         fields.setdefault(name, value)
     return fields
+
+
+def form_version(form: Mapping[str, str]) -> int:
+    """The `version` field the page showed, or a 400 page: only ASCII digits, bounded."""
+    raw = form.get("version", "")
+    if not raw.isascii() or not raw.isdigit() or len(raw) > VERSION_DIGITS_MAX:
+        raise PageError(400)
+    return int(raw)
+
+
+def parse_date(raw: str | None) -> date | None:
+    """`YYYY-MM-DD` as a date, or None for anything else (the page says so or ignores it)."""
+    if raw is None or not _DATE.fullmatch(raw):
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
 
 
 def drop_off_id(request: Request) -> DropOffId:

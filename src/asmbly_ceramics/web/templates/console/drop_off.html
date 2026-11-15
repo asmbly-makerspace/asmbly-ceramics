@@ -74,7 +74,7 @@
 
 {% if can_reject %}
 <section class="actions">
-  <a class="button" href="/console/loads">Add to a load</a>
+  <a class="button" href="/console/loads?add={{ drop_off.id }}">Add to a load</a>
   {% if not panel.open %}
   <a class="button button-quiet" href="/console/drop-offs/{{ drop_off.id }}?reject=1#reject">Reject…</a>
   {% endif %}
