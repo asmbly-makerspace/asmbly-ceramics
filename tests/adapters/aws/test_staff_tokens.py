@@ -221,7 +221,7 @@ def test_sign_in_url_has_pkce_state_and_openid() -> None:
         "response_type": ["code"],
         "client_id": [CLIENT_ID],
         "redirect_uri": [REDIRECT],
-        "scope": ["openid email"],
+        "scope": ["openid"],
         "state": [STATE],
         "code_challenge": [s256(VERIFIER)],
         "code_challenge_method": ["S256"],

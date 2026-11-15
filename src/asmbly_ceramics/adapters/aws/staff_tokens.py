@@ -5,7 +5,10 @@
   (amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html), then the username's
   shape and the `ceramics` group in `cognito:groups`. The email is taken only from a
   verified claim (`email_verified` is the boolean true), since the test email is sent to
-  it as given.
+  it as given. `sign_in_url` asks for the scope `openid` alone: Cognito then puts every
+  attribute the client may read in the ID token, `email` and `email_verified` among them
+  (cognito-user-pools-define-resource-servers.html, "OpenID Connect (OIDC) scopes"), and
+  asmbly-staff-login's web clients allow only `openid`.
 - `sign_in_url`, `sign_out_url` and `exchange` are the managed login's
   `/oauth2/authorize`, `/logout` and `/oauth2/token` endpoints, with PKCE (S256) and no
   client secret (a public client).
@@ -192,7 +195,7 @@ class CognitoStaffTokens:
                 "response_type": "code",
                 "client_id": self._client_id,
                 "redirect_uri": redirect_uri,
-                "scope": "openid email",
+                "scope": "openid",  # alone, the ID token holds every claim the client may read: email too
                 "state": state,
                 "code_challenge": code_challenge,
                 "code_challenge_method": "S256",

@@ -135,13 +135,13 @@ def test_a_valid_token_sealed_with_another_environment_s_key_is_no_session(
     assert answer(client, world, token) == 200
 
 
-def test_the_real_sign_in_address_asks_for_openid_and_email_with_pkce(client: TestClient) -> None:
+def test_the_real_sign_in_address_asks_for_openid_only_with_pkce(client: TestClient) -> None:
     response = client.get("/console/auth/sign-in", follow_redirects=False)
     location = response.headers["location"]
     assert location.startswith(f"{ORIGIN}/oauth2/authorize?")
     query = parse_qs(urlsplit(location).query)
     assert query["response_type"] == ["code"]
-    assert query["scope"] == ["openid email"]
+    assert query["scope"] == ["openid"]
     assert query["code_challenge_method"] == ["S256"]
     assert query["client_id"] == [CLIENT_ID]
     assert query["redirect_uri"] == [f"{SITE}/console/auth/callback"]

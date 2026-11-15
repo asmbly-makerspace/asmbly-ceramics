@@ -44,7 +44,7 @@ After the phases: the final cold review fix is `10563be`, the docs are `1fb2307`
 - [ ] **Bootstrap stack (done):** `asmbly-ceramics-bootstrap` was created by the maintainer on 15 November 2026 (19 resources, certificates issued, termination protection on). Done when the stack shows as created.
 - [ ] **GitHub environments (done):** `stage` and `prod` exist, limited to `main`.
 - [ ] **Runbook steps 5 to 8 (not done):** step 5's scripts were prepared for the maintainer; the guardrail blocked the run from setting GitHub secrets itself. Do steps 5 to 8 in `docs/runbooks/` before merging, because a merge deploys.
-- [ ] **Staff sign-in (asmbly-staff-login):** the `ceramics` group and the `ceramics-staff` client (scopes `openid`, `email`) must exist there. Done when the console sign-in works on stage.
+- [ ] **Staff sign-in (asmbly-staff-login):** the `ceramics` group and the `ceramics-staff` client (scope `openid`, which its web clients get by default) must exist there. Done when the console sign-in works on stage.
 - [ ] **Session key:** set the console's `session-key` parameter by hand.
 - [ ] **Prod reviewer:** switch a required reviewer on for the `prod` environment, or plan to do the sign-in checks right after the prod deploy.
 - [ ] **Sending right:** the maintainer agreed the app sends from `asmbly.org`. The SES identity lives in AsmblyMCPs' `mcp-bootstrap`; moving it (for example to staff-login) is the maintainer's separate task and needs no change here, since the identity is named, not an ARN.

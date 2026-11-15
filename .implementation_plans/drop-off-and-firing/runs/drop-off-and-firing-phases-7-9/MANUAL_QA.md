@@ -19,7 +19,7 @@ stage (`ceramics-stage.asmbly.org`) or prod (`ceramics.asmbly.org`).
   - [the AWS bootstrap runbook](../../../../docs/runbooks/aws-bootstrap.md), steps 5 to 8:
     the GitHub environment secrets and variables (5), the app's keys (6), the two
     addresses (7), the boundary check (8).
-  - In asmbly-staff-login: the `ceramics-staff` client (scopes `openid` and `email`) and
+  - In asmbly-staff-login: the `ceramics-staff` client (scope `openid`) and
     its client-id parameter.
   - The answer to question 2 in issue #20.
 - **Admin actions after the first deploy:** confirm the alarm topic's email subscription

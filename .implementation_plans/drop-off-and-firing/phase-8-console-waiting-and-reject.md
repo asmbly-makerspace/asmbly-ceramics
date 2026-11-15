@@ -640,9 +640,10 @@ undoing.
 ## Admin actions
 
 - **Before the merge**, in asmbly-staff-login: the `ceramics` group exists
-  (asmbly-staff-login#4); the `ceramics-staff` client exists, allowing the OAuth scopes
-  `openid` and `email` (`sign_in_url` asks for both, and the test email needs the
-  verified `email` claim; a client allowing `openid` only answers `invalid_scope`), with
+  (asmbly-staff-login#4); the `ceramics-staff` client exists, allowing the OAuth scope
+  `openid` (`sign_in_url` asks for `openid` alone, and Cognito then puts the verified
+  `email` claim the test email needs in the ID token; changed after the build, since
+  asmbly-staff-login's web clients allow only `openid`), with
   return URLs
   `https://ceramics.asmbly.org/console/auth/callback` and
   `https://ceramics-stage.asmbly.org/console/auth/callback` and sign-out URLs
