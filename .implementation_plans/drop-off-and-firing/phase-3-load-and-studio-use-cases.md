@@ -430,9 +430,10 @@ class CloseFinished:
    never deletes on that day. For a fired drop-off the window passed is the one kept
    with its sent ready email (below), never the studio's current window: staff
    shortening it afterwards must not delete details before an emailed date. A fired
-   drop-off whose ready email never sent is skipped; the
+   drop-off whose ready email never sent has no window; the
    console's load and drop-off pages show its failed email (phase 9), and it closes
-   once the email is sent and the window has passed.
+   once the email is sent and the window has passed, or 30 days after its firing,
+   whichever comes first (#20, settled by the maintainer on 15 November 2026).
 3. For each closable one: first `photos.delete_drop_off(id)` (idempotent), then commit
    `Update(close(drop_off, now))` with the version read. Photos first, so a failure
    between the two leaves a drop-off that the next run closes again, never a closed
@@ -728,8 +729,10 @@ on, as built:
 Decided at this phase's `/prep` and reviews (an unattended run, 2026-11-13), with the
 questions left for the maintainer:
 
-- Retention: a fired drop-off whose ready email never sends stays open, and its email
-  shows as needing attention (failed, or stuck sending or pending). A rejected
+- Retention: a fired drop-off whose ready email never sends stayed open, and its email
+  shows as needing attention (failed, or stuck sending or pending). The maintainer
+  settled this on 15 November 2026 (#20): it closes 30 days after its firing
+  (`UNSENT_READY_CLOSE_AFTER`). A rejected
   drop-off closes by the rejection's time whatever its email's status. Both are open
   questions for the maintainer in #20, to settle before phase 9 merges. A limit for
   fired drop-offs touches `domain/closing.py` alone. Making a rejected drop-off wait for
