@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "console/page.html" if request.url.path.startswith("/console") else "base.html" %}
 {% block title %}Something went wrong{% endblock %}
 {% block content %}
 <div class="notice notice-error" role="alert">
