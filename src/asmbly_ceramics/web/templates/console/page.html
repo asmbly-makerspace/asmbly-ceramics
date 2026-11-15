@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{# Every console page: one band with the Asmbly mark, the ceramics icon and the
+   console's name, and on the right who is signed in (layout.html fills `staff`). #}
+{% block bands %}
+<div class="console-band">
+  <div class="band-inner console-band-inner">
+    <div class="console-brand">
+      {% include "partials/asmbly-mark.svg" %}
+      {% include "partials/ceramics-icon.svg" %}
+      <h1>{% block heading %}Ceramics console{% endblock %}</h1>
+    </div>
+    {% block staff %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

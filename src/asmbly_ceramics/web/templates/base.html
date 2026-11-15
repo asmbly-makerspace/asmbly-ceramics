@@ -12,6 +12,7 @@
 </head>
 <body>
 <header>
+  {% block bands %}
   <div class="asmbly-band">
     <div class="band-inner">
       {% include "partials/logo.svg" %}
@@ -23,6 +24,7 @@
       <h1>{% block heading %}Drop off for firing{% endblock %}</h1>
     </div>
   </div>
+  {% endblock %}
   {% block header_extra %}{% endblock %}
 </header>
 <main class="{% block main_class %}page{% endblock %}">

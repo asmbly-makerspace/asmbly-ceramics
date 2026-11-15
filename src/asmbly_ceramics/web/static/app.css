@@ -224,8 +224,17 @@ a { color: var(--accent-strong); }
 
 /* The staff console (phase 8) */
 .page-console { max-width: var(--console-max-width); }
-.staff-bar { background: var(--ceramics-10); color: var(--text); border-bottom: var(--border-width) solid var(--line); }
-.staff-bar-inner { flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); }
+/* One band: the Asmbly mark, the ceramics icon and the name on the left, who is signed
+   in on the right. It is the darker ceramics shade, not the ceramics colour, because
+   white on the ceramics colour (4.35:1) is too faint for the small "Signed in as". */
+.console-band { background: var(--accent-strong); color: var(--on-accent); }
+.console-band-inner, .tabs-inner, .attention .band-inner { max-width: var(--console-max-width); }
+.console-band-inner { flex-wrap: wrap; justify-content: space-between; gap: var(--space-2) var(--space-4); }
+.console-brand { display: flex; align-items: center; gap: var(--space-3); }
+.asmbly-mark { display: block; flex: none; height: var(--icon-height); width: auto; fill: currentColor; }
+.console-brand h1 { margin: var(--none); font-size: var(--font-size-h1); color: var(--on-accent); }
+.staff { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.console-band :focus-visible { outline-color: var(--on-accent); }
 .signed-in { margin: var(--none); overflow-wrap: anywhere; }
 .inline-form { display: inline-flex; margin: var(--none); }
 .button-quiet { color: var(--accent-strong); background: var(--page-bg); border: var(--border-width) solid var(--accent-strong); }

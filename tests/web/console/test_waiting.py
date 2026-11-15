@@ -23,6 +23,19 @@ def signed_in(console: Console) -> Console:
     return console
 
 
+def test_the_header_is_one_band_with_both_marks_and_who_is_signed_in(signed_in: Console) -> None:
+    page = signed_in.get("/console").text
+    band = page[page.index('<div class="console-band">') : page.index('<nav class="tabs"')]
+    assert 'class="asmbly-mark" role="img" aria-label="Asmbly Makerspace"' in band
+    assert 'class="ceramics-icon"' in band
+    assert "<h1>Ceramics console</h1>" in band
+    assert "Signed in as <strong>" in band
+    assert ">Sign out</button>" in band
+    assert 'class="asmbly-band"' not in page  # not the wordmark band
+    assert 'class="ceramics-band"' not in page
+    assert page.count("<h1>") == 1
+
+
 def test_waiting_drop_offs_are_listed_oldest_first_with_days_waiting(signed_in: Console) -> None:
     console = signed_in
     first = console.drop_off(1, name="Wren Okafor")
