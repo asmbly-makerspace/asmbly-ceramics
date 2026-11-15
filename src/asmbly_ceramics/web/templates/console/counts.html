@@ -1,15 +1,20 @@
 {% extends "console/layout.html" %}
 {% block title %}Weekly counts{% endblock %}
 {% block content %}
-<h2>Weekly counts</h2>
-<p class="lead">{{ week_label }}</p>
-<nav class="actions" aria-label="Weeks">
-  <a href="/console/counts?week={{ previous }}">Previous week</a>
-  <a href="/console/counts">This week</a>
-  <a href="/console/counts?week={{ next }}">Next week</a>
-</nav>
+<div class="page-head">
+  <div>
+    <h2>Weekly counts</h2>
+    <p class="lead">{{ week_label }}</p>
+  </div>
+  <nav class="actions" aria-label="Weeks">
+    <a href="/console/counts?week={{ previous }}">Previous week</a>
+    <a href="/console/counts">This week</a>
+    <a href="/console/counts?week={{ next }}">Next week</a>
+  </nav>
+</div>
 
-<section id="overdue">
+<div class="counts-grid">
+<section class="panel" id="overdue">
   <h3>Overdue: waiting {{ limits.OVERDUE_AFTER.days }} days or more</h3>
   {% if view.overdue %}
   <div class="table-box">
@@ -31,7 +36,7 @@
   {% endif %}
 </section>
 
-<section id="received">
+<section class="panel" id="received">
   <h3>Drop-offs received</h3>
   {% if firing %}
   <div class="table-box">
@@ -50,23 +55,25 @@
   {% endif %}
 </section>
 
-<section id="loads">
+<section class="panel" id="loads">
   <h3>Loads fired, by kiln</h3>
   {% if kilns %}
-  <ul>{% for name, n in kilns %}<li>{{ name }}: {{ n }}</li>{% endfor %}</ul>
+  <ul class="tally">{% for name, n in kilns %}<li><span>{{ name }}:</span> <span class="tally-n">{{ n }}</span></li>{% endfor %}</ul>
   {% else %}
   <p class="notice" role="status">No loads fired this week.</p>
   {% endif %}
 </section>
 
-<section id="rejections">
+<section class="panel" id="rejections">
   <h3>Rejections, by reason</h3>
   {% if reasons %}
-  <ul>{% for name, n in reasons %}<li>{{ name }}: {{ n }}</li>{% endfor %}</ul>
+  <ul class="tally">{% for name, n in reasons %}<li><span>{{ name }}:</span> <span class="tally-n">{{ n }}</span></li>{% endfor %}</ul>
   {% else %}
   <p class="notice" role="status">No rejections this week.</p>
   {% endif %}
 </section>
 
-<p class="hint">Closing a drop-off deletes its name, email, phone, rejection message and photos. Its ID, dates, firing type, pieces, load and reason are kept for these counts.</p>
+</div>
+
+<p class="hint footnote">Closing a drop-off deletes its name, email, phone, rejection message and photos. Its ID, dates, firing type, pieces, load and reason are kept for these counts.</p>
 {% endblock %}

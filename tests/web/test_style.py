@@ -116,6 +116,12 @@ def test_summaries_and_action_links_are_at_least_44px() -> None:
         ("error-edge", "error-bg", 3.0),
         ("focus", "page-bg", 3.0),
         ("line", "page-bg", 3.0),  # input edges
+        ("text", "canvas", 7.0),  # the console's canvas
+        ("muted", "canvas", 4.5),  # the console's secondary text
+        ("muted", "surface", 4.5),
+        ("accent-strong", "canvas", 4.5),  # links on the canvas
+        ("tag-text", "tag-bg", 4.5),
+        ("line", "canvas", 3.0),
     ],
 )
 def test_text_colour_pairs_meet_wcag_aa(foreground: str, background: str, minimum: float) -> None:
