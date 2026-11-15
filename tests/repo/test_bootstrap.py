@@ -738,11 +738,15 @@ def test_no_api_gateway_tagging_and_mapping_tags_only_with_the_five() -> None:
     # the bootstrap's two APIs may be tagged, and only with this Project (0005).
     for statement in allows("CloudFormationExecutionRole"):
         for resource in resources(statement):
-            if "/tags/" in resource:
-                assert statement["Sid"] == "StageTagsById", statement["Sid"]
-                assert re.search(r"%2Fapis%2F\$\{(Stage|Prod)Api\}%2Fstages%2F\*$", resource), resource
+            assert "/tags/" not in resource, statement["Sid"]
+        if "apigateway:TagResource" in actions(statement):
+            assert statement["Sid"] == "StageTagsById", statement["Sid"]
     stage_tags = EXEC["StageTagsById"]
-    assert actions(stage_tags) == ["apigateway:POST"]
+    assert actions(stage_tags) == ["apigateway:TagResource"]
+    apis = "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/"
+    assert resources(stage_tags) == [
+        f"{apis}${{{api}}}/stages{rest}" for api in ("StageApi", "ProdApi") for rest in ("", "/*")
+    ]
     assert stage_tags["Condition"] == {"StringEquals": {"aws:RequestTag/Project": {"Ref": "ProjectSlug"}}}
     tagging = EXEC["TagOnCreate"]
     assert not any(action.startswith("apigateway:") for action in actions(tagging))
@@ -766,7 +770,7 @@ def test_no_api_gateway_tagging_and_mapping_tags_only_with_the_five() -> None:
     apis = "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/"
     for statement in allows("CloudFormationExecutionRole"):
         for resource in resources(statement):
-            if resource.startswith(apis):
+            if resource.startswith(apis) and statement["Sid"] != "StageTagsById":
                 assert statement["Sid"] == "ApisById", statement["Sid"]
                 assert re.fullmatch(r"\$\{(Stage|Prod)Api\}(/\*)?", resource[len(apis) :]), resource
     read_only = EXEC["TheApisAreReadOnly"]

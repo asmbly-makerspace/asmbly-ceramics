@@ -759,6 +759,11 @@ Resources:
 
   ApisAndNamesPolicy:
     Type: AWS::IAM::ManagedPolicy
+    # cfn-lint 1.57.1 doesn't list apigateway:TagResource; AWS's refusal named it.
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W3037]
     Properties:
       ManagedPolicyName: !Sub '${ProjectSlug}-cfn-exec-apis'
       Path: !Sub '/${ProjectSlug}-bootstrap/'
@@ -786,14 +791,16 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings/*'
               - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings'
               - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings/*'
+          # The stage's tags: apigateway:TagResource on the stages, seen on the
+          # second stage deploy (0005).
           - Sid: StageTagsById
             Effect: Allow
-            Action: apigateway:POST
+            Action: apigateway:TagResource
             Resource:
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fapis%2F${StageApi}%2Fstages%2F*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fapis%2F${ProdApi}%2Fstages%2F*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F${StageApi}%2Fstages%2F*'
-              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3A${AWS::Partition}%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F${ProdApi}%2Fstages%2F*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${StageApi}/stages'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${StageApi}/stages/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ProdApi}/stages'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${ProdApi}/stages/*'
             Condition:
               StringEquals:
                 aws:RequestTag/Project: !Ref ProjectSlug
