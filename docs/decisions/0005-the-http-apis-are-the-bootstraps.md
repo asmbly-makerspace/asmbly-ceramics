@@ -33,7 +33,7 @@ invoke permissions and API mapping to it. The execution role gets `ApisById`: al
 `apigateway:` methods on `/apis/<that ID>` and `/apis/<that ID>/*`, and on the two
 domains' `apimappings`, with no tag condition. `TheApisAreReadOnly` denies everything
 but `GET` on the two APIs themselves, so a deploy can't change or delete them.
-`StageTagsById` allows `apigateway:POST` on the tags path of those two APIs' stages
+`StageTagsById` allows `apigateway:TagResource` on those two APIs' stages
 only, with `aws:RequestTag/Project=asmbly-ceramics`. `CreateTagged` and `ChangeOwn`
 no longer name any API Gateway resource.
 
@@ -84,6 +84,10 @@ On 15 November 2026 the failures above were read from the stage stack's events, 
 the leftover log groups were checked (read-only) to not exist. AWS's resource type
 registry gave each resource type's handler permissions, and the IAM policy simulator
 (read-only) showed which ones the role refused. The simulator can't show what a
-handler actually calls, or how API Gateway names the tags path for a stage, so only the
-next stage deploy proves this. The two forms of the tags path, with and without `/v2/`,
-are both allowed for that reason.
+handler actually calls, so only a stage deploy proves it.
+
+The second stage deploy (15 November 2026) created everything but the API's stage: the
+stage's tags are authorized as `apigateway:TagResource` on `/apis/<ID>/stages`, not as
+`POST` on a tags path as first guessed, so `StageTagsById` allows that action on the
+two APIs' stages instead. The table and photo bucket (`DeletionPolicy: Retain`) were
+kept by that rollback, empty, and deleted by hand before the next deploy.
