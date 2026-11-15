@@ -26,6 +26,7 @@ from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
@@ -87,6 +88,7 @@ class World:
     remove_from_load: RemoveFromLoad
     start_firing: StartFiring
     mark_fired: MarkFired
+    delete_load: DeleteLoad
     view_load: ViewLoad
     list_loads: ListLoads
     send_email: SendPendingEmail
@@ -153,6 +155,7 @@ def world() -> World:
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records),
         mark_fired=MarkFired(records, clock),
+        delete_load=DeleteLoad(records, clock),
         view_load=ViewLoad(records, clock, studio),
         list_loads=ListLoads(records, clock),
         send_email=SendPendingEmail(records, photos, mailer, clock, studio, composer),

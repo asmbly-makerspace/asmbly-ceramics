@@ -11,11 +11,13 @@ from asmbly_ceramics.domain.errors import (
     AlreadyInLoad,
     DomainError,
     EmptyLoad,
+    FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
     ItemRetired,
     LoadFull,
     LoadNotLoading,
+    NotFound,
     NotInLoad,
     NotWaiting,
     UnknownItem,
@@ -24,15 +26,19 @@ from asmbly_ceramics.domain.errors import (
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import LOAD_CAPACITY
 from asmbly_ceramics.domain.load import (
+    LIVE_STATUSES,
     Load,
     LoadStatus,
     accepts_drop_offs,
     add_to_load,
+    can_delete,
     can_start_firing,
     change_load,
+    delete_load,
     fire,
     firing_type_locked,
     remove_from_load,
+    require_deletable,
     require_firing,
     require_loading,
     start_firing,
@@ -362,6 +368,71 @@ def test_fire_with_the_wrong_members_is_a_bug() -> None:
         fire(load, [in_load(1), in_load(2, load=9)], LATER)
     with pytest.raises(ValueError, match="AC-2 isn't in load L-1"):
         fire(load, [in_load(1), a_drop_off(2)], LATER)
+
+
+# delete_load
+
+
+@pytest.mark.parametrize("status", [LoadStatus.LOADING, LoadStatus.FIRING])
+def test_delete_load_marks_it_deleted_and_sends_its_drop_offs_back_to_waiting(status: LoadStatus) -> None:
+    load = a_load(status=status, members=[1, 2])
+
+    deleted, waiting = delete_load(load, [in_load(2), in_load(1)], "alex", LATER)
+
+    assert deleted.status is LoadStatus.DELETED
+    assert deleted.members == ()
+    assert (deleted.deleted_by, deleted.deleted_at) == ("alex", LATER)
+    assert [d.id for d in waiting] == [DropOffId(1), DropOffId(2)]  # in the load's order
+    assert all(d.state is DropOffState.WAITING and d.load_id is None for d in waiting)
+
+
+def test_delete_an_empty_load() -> None:
+    deleted, waiting = delete_load(a_load(), [], STAFF, LATER)
+    assert deleted.status is LoadStatus.DELETED
+    assert waiting == ()
+
+
+def test_a_fired_load_cant_be_deleted() -> None:
+    load = a_load(status=LoadStatus.FIRED, members=[1])
+    with pytest.raises(FiredLoadNotDeletable, match="L-1 is fired: a fired load can't be deleted"):
+        delete_load(load, [a_drop_off(1, DropOffState.FIRED)], STAFF, LATER)
+
+
+def test_a_deleted_load_is_not_found() -> None:
+    with pytest.raises(NotFound, match="Load L-1 doesn't exist"):
+        delete_load(a_load(status=LoadStatus.DELETED), [], STAFF, LATER)
+
+
+def test_delete_load_needs_the_staff_username_and_an_aware_time() -> None:
+    with pytest.raises(ValueError, match="staff username"):
+        delete_load(a_load(), [], "", LATER)
+    with pytest.raises(ValueError, match="aware"):
+        delete_load(a_load(), [], STAFF, LATER.replace(tzinfo=None))
+
+
+def test_delete_load_with_the_wrong_members_is_a_bug() -> None:
+    load = a_load(members=[1, 2])
+    with pytest.raises(ValueError, match="exactly load L-1's members"):
+        delete_load(load, [in_load(1)], STAFF, LATER)
+    with pytest.raises(ValueError, match="exactly load L-1's members"):
+        delete_load(load, [in_load(1), in_load(1), in_load(2)], STAFF, LATER)
+    with pytest.raises(ValueError, match="AC-2 isn't in load L-1"):
+        delete_load(load, [in_load(1), in_load(2, load=9)], STAFF, LATER)
+
+
+@pytest.mark.parametrize("status", list(LoadStatus))
+def test_can_delete_agrees_with_require_deletable(status: LoadStatus) -> None:
+    load = a_load(status=status)
+    try:
+        require_deletable(load)
+    except FiredLoadNotDeletable, NotFound:
+        assert not can_delete(load)
+    else:
+        assert can_delete(load)
+
+
+def test_every_status_but_deleted_is_live() -> None:
+    assert set(LoadStatus) - LIVE_STATUSES == {LoadStatus.DELETED}
 
 
 REFUSALS: list[Callable[[], object]] = [

@@ -38,6 +38,7 @@
   --focus: var(--ceramics-shade-60);
   --error-bg: var(--lasers-20);
   --error-edge: var(--lasers-shade);
+  --danger: var(--lasers-shade); /* the one button that deletes: a load (#4) */
   --notice-bg: var(--ceramics-10);
   --glyph-error: "✕";
 
@@ -247,6 +248,7 @@ a { color: var(--accent-strong); }
   button:hover:not(:disabled), .button:hover { background: var(--accent-hover); }
   /* A quiet button turns solid on hover, so its text turns white with it. */
   button.button-quiet:hover:not(:disabled), .button.button-quiet:hover { color: var(--on-accent); }
+  .button-danger:hover:not(:disabled) { background: var(--danger); text-decoration: underline; }
 }
 
 [hidden] { display: none; }
@@ -324,6 +326,9 @@ a { color: var(--accent-strong); }
   border-radius: var(--radius-card);
 }
 .panel { padding: var(--space-5); margin: var(--none) var(--none) var(--space-5); }
+/* Deleting a load: a red-edged panel and a solid red button (after .panel, so it wins). */
+.panel-danger { border: var(--border-width-accent) solid var(--error-edge); background: var(--error-bg); }
+.button-danger { color: var(--on-accent); background: var(--danger); }
 .page-console .panel > h3:first-child, .page-console .card > h3:first-child { margin-top: var(--none); }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--card-min-width), 1fr)); gap: var(--space-4); margin: var(--none) var(--none) var(--space-5); }

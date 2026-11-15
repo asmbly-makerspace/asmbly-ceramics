@@ -132,6 +132,8 @@ def a_load(
         started_by=STAFF,
         started_at=at,
         fired_at=at if status is LoadStatus.FIRED else None,
+        deleted_by=STAFF if status is LoadStatus.DELETED else None,
+        deleted_at=at if status is LoadStatus.DELETED else None,
     )
 
 

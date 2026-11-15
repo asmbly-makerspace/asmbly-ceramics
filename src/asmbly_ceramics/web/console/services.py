@@ -11,6 +11,7 @@ from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
@@ -61,6 +62,7 @@ class ConsoleServices:
     remove_from_load: RemoveFromLoad
     start_firing: StartFiring
     mark_fired: MarkFired
+    delete_load: DeleteLoad
     # Settings (#6)
     view_studio: ViewStudio
     change_email_settings: ChangeEmailSettings

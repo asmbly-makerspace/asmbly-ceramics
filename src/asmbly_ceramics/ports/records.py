@@ -151,6 +151,6 @@ class Records(Protocol):
         ...
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
-        """A kiln by any load; a firing type by any drop-off or load; a glaze type by any
-        drop-off; a reason by any drop-off's rejection, closed ones included."""
+        """A kiln by any load not deleted; a firing type by any drop-off or load not deleted;
+        a glaze type by any drop-off; a reason by any drop-off's rejection, closed ones included."""
         ...

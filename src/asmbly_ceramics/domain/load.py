@@ -1,8 +1,11 @@
-"""A kiln load (story #4): `loading → firing → fired`.
+"""A kiln load (story #4): `loading → firing → fired`, or `deleted` from loading or firing.
 
 Drop-offs are added and removed only while the load is loading; a fired load and its
-drop-offs never change. A load holds at most `LOAD_CAPACITY` drop-offs, because firing
-commits the load, each drop-off and each ready email in one transaction (decision 0002).
+drop-offs never change. A load started by mistake (or for a test) can be deleted while
+it is loading or firing: its drop-offs go back to waiting, and the load is kept, marked
+deleted with who deleted it and when, but no list or page shows it again. A load holds
+at most `LOAD_CAPACITY` drop-offs, because firing commits the load, each drop-off and
+each ready email in one transaction (decision 0002).
 """
 
 import datetime as dt
@@ -16,10 +19,12 @@ from asmbly_ceramics.domain.errors import (
     AlreadyFired,
     AlreadyInLoad,
     EmptyLoad,
+    FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
     LoadFull,
     LoadNotLoading,
+    NotFound,
     NotInLoad,
     NotWaiting,
     WrongLoadStatus,
@@ -33,6 +38,11 @@ class LoadStatus(StrEnum):
     LOADING = "loading"
     FIRING = "firing"
     FIRED = "fired"
+    DELETED = "deleted"
+
+
+LIVE_STATUSES = frozenset({LoadStatus.LOADING, LoadStatus.FIRING, LoadStatus.FIRED})
+"""Every status but `DELETED`: a deleted load uses no kiln or firing type and is listed nowhere."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +56,8 @@ class Load:
     started_by: str  # staff username
     started_at: dt.datetime
     fired_at: dt.datetime | None = None
+    deleted_by: str | None = None  # staff username
+    deleted_at: dt.datetime | None = None
     version: int = 0
 
 
@@ -176,6 +188,44 @@ def fire(load: Load, members: Sequence[DropOff], at: dt.datetime) -> FireResult:
         drop_offs=fired,
         emails=tuple(new_email(drop_off.id, EmailKind.READY, at) for drop_off in fired),
     )
+
+
+def delete_load(
+    load: Load, members: Sequence[DropOff], by: str, at: dt.datetime
+) -> tuple[Load, tuple[DropOff, ...]]:
+    """Delete a loading or firing load: it is marked deleted and emptied, and each of its
+    drop-offs goes back to waiting. A fired load can't be deleted (`FiredLoadNotDeletable`):
+    its drop-offs are fired and their ready emails queued. Deleting twice is `NotFound`,
+    as a deleted load is gone for every page. `members` must be exactly the load's
+    drop-offs, each in this load: anything else is a bug in the caller, not a refusal.
+    """
+    _check_aware(at)
+    if not by:
+        raise ValueError("deleting a load needs the staff username")
+    require_deletable(load)
+    by_id = {drop_off.id: drop_off for drop_off in members}
+    if len(by_id) != len(members) or set(by_id) != set(load.members):
+        raise ValueError(f"the drop-offs given aren't exactly load {load.id}'s members")
+    for drop_off in members:
+        if drop_off.state is not DropOffState.IN_LOAD or drop_off.load_id != load.id:
+            raise ValueError(f"{drop_off.id} isn't in load {load.id}")
+    waiting = tuple(replace(by_id[id], state=DropOffState.WAITING, load_id=None) for id in load.members)
+    deleted = replace(load, status=LoadStatus.DELETED, members=(), deleted_by=by, deleted_at=at)
+    return deleted, waiting
+
+
+def can_delete(load: Load) -> bool:
+    """`delete_load` accepts `load`: it is loading or firing."""
+    return load.status in (LoadStatus.LOADING, LoadStatus.FIRING)
+
+
+def require_deletable(load: Load) -> None:
+    """`FiredLoadNotDeletable` or `NotFound` unless `load` can be deleted now; a page asks
+    before it shows "Delete L-4?"."""
+    if load.status is LoadStatus.DELETED:
+        raise NotFound(load.id)
+    if load.status is LoadStatus.FIRED:
+        raise FiredLoadNotDeletable(load.id)
 
 
 def require_loading(load: Load) -> None:

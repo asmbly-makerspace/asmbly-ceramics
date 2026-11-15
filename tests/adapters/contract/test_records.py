@@ -286,8 +286,10 @@ def test_records_is_item_used_for_each_list(records: Records) -> None:
             Put(a_drop_off(2, DropOffState.CLOSED, reason="cracked")),
             Put(a_drop_off(3, DropOffState.REJECTED, reason="too-wet")),
             Put(a_load(1, LoadStatus.FIRED, kiln="helios", firing_type="raku")),
+            Put(a_load(2, LoadStatus.DELETED, kiln="vulcan", firing_type="pit")),
         ]
     )
+    assert not records.is_item_used(CatalogList.KILNS, ItemId("vulcan"))  # only a deleted load's
     assert records.is_item_used(CatalogList.KILNS, ItemId("helios"))
     assert not records.is_item_used(CatalogList.KILNS, ItemId("athena"))
     assert records.is_item_used(CatalogList.FIRING_TYPES, ItemId("glaze"))  # by a drop-off
