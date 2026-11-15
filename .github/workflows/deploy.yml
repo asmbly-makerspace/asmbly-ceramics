@@ -1,0 +1,201 @@
+# Deploys a merge to main: stage, its smoke test, then prod and its smoke test. The
+# only workflow with AWS credentials, and only in these two jobs, through each GitHub
+# environment (deployments from main only) and its OIDC deploy role (infra/bootstrap.yaml).
+# Never on a pull request: a pull request from a fork is untrusted code.
+#
+# The Actions log is public. Nothing here prints a stack's description or a role ARN.
+# `sam deploy` prints its parameter overrides, so none of them is a secret or an
+# address: the addresses are SSM parameters CloudFormation resolves (only their names
+# are passed), the role ARNs are environment secrets, and the account ID is masked
+# before anything that could print it. tests/repo/test_deploy_workflow.py pins this.
+# The actions are on major tags, as in pr-checks.yml; pinning them to commit SHAs is
+# issue #31 (they run with id-token: write).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Tool versions, spelled out only here and in pr-checks.yml (tests/repo/test_checks.py).
+env:
+  SAM_CLI_VERSION: '1.172.1'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  stage:
+    name: Deploy stage
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment:
+      name: stage
+      url: https://ceramics-stage.asmbly.org
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-stage
+      cancel-in-progress: false
+    outputs:
+      tip: ${{ steps.tip.outputs.tip }}
+    env:
+      CONFIG_ENV: stage
+      SITE_URL: https://ceramics-stage.asmbly.org
+    steps:
+      - name: Deploy only the tip of main
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::A newer commit is on main; it deploys itself."
+            echo "tip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tip.outputs.tip == 'true'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          python-version-file: .python-version
+      - uses: aws-actions/setup-sam@341eee193f458fa5aae5d52c94b0c5cf3a1c5a52 # v3
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          version: ${{ env.SAM_CLI_VERSION }}
+          use-installer: true
+      - name: Build
+        if: steps.tip.outputs.tip == 'true'
+        run: sam build --config-env "$CONFIG_ENV"
+      - name: Compose check
+        if: steps.tip.outputs.tip == 'true'
+        run: python3 scripts/compose_check.py .aws-sam/build/MailerFunction
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+      - name: Mask the account ID
+        if: steps.tip.outputs.tip == 'true'
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
+      - name: Deploy
+        if: steps.tip.outputs.tip == 'true'
+        env:
+          EXECUTION_ROLE: ${{ secrets.AWS_CFN_EXECUTION_ROLE_ARN }}
+          ARTIFACTS_BUCKET: ${{ vars.SAM_ARTIFACTS_BUCKET }}
+          WEB_ADAPTER_LAYER_ARN: ${{ vars.WEB_ADAPTER_LAYER_ARN }}
+        run: |
+          parameters="$(python3 scripts/sam_parameters.py "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN")"
+          sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE" \
+            --s3-bucket "$ARTIFACTS_BUCKET" --s3-prefix "asmbly-ceramics-$CONFIG_ENV" \
+            --parameter-overrides "$parameters"
+      - name: Smoke test
+        id: smoke
+        if: steps.tip.outputs.tip == 'true'
+        run: python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}"
+      - name: Summary
+        if: always() && steps.tip.outputs.tip == 'true'
+        env:
+          SMOKE: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "### $CONFIG_ENV"
+            echo "- Site: $SITE_URL"
+            echo "- Version: ${GITHUB_SHA::7}"
+            echo "- Smoke test: $SMOKE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  prod:
+    name: Deploy prod
+    needs: stage
+    if: github.ref == 'refs/heads/main' && needs.stage.outputs.tip == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment:
+      name: prod
+      url: https://ceramics.asmbly.org
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    outputs:
+      tip: ${{ steps.tip.outputs.tip }}
+    env:
+      CONFIG_ENV: prod
+      SITE_URL: https://ceramics.asmbly.org
+    steps:
+      - name: Deploy only the tip of main
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::A newer commit is on main; it deploys itself."
+            echo "tip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tip.outputs.tip == 'true'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          python-version-file: .python-version
+      - uses: aws-actions/setup-sam@341eee193f458fa5aae5d52c94b0c5cf3a1c5a52 # v3
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          version: ${{ env.SAM_CLI_VERSION }}
+          use-installer: true
+      - name: Build
+        if: steps.tip.outputs.tip == 'true'
+        run: sam build --config-env "$CONFIG_ENV"
+      - name: Compose check
+        if: steps.tip.outputs.tip == 'true'
+        run: python3 scripts/compose_check.py .aws-sam/build/MailerFunction
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.tip.outputs.tip == 'true'
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+      - name: Mask the account ID
+        if: steps.tip.outputs.tip == 'true'
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
+      - name: Deploy
+        if: steps.tip.outputs.tip == 'true'
+        env:
+          EXECUTION_ROLE: ${{ secrets.AWS_CFN_EXECUTION_ROLE_ARN }}
+          ARTIFACTS_BUCKET: ${{ vars.SAM_ARTIFACTS_BUCKET }}
+          WEB_ADAPTER_LAYER_ARN: ${{ vars.WEB_ADAPTER_LAYER_ARN }}
+        run: |
+          parameters="$(python3 scripts/sam_parameters.py "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN")"
+          sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE" \
+            --s3-bucket "$ARTIFACTS_BUCKET" --s3-prefix "asmbly-ceramics-$CONFIG_ENV" \
+            --parameter-overrides "$parameters"
+      - name: Smoke test
+        id: smoke
+        if: steps.tip.outputs.tip == 'true'
+        run: python3 scripts/smoke.py "$SITE_URL" "${GITHUB_SHA::7}"
+      - name: Summary
+        if: always() && steps.tip.outputs.tip == 'true'
+        env:
+          SMOKE: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "### $CONFIG_ENV"
+            echo "- Site: $SITE_URL"
+            echo "- Version: ${GITHUB_SHA::7}"
+            echo "- Smoke test: $SMOKE"
+          } >> "$GITHUB_STEP_SUMMARY"

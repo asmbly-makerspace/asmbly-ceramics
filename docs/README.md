@@ -19,6 +19,7 @@ number.
 | [0001](decisions/0001-the-ceramics-studio-has-its-own-repository.md) | The ceramics studio has its own repository: public, Python with uv, set up like the sibling repositories, staff sign in through asmbly-staff-login, a clean start with no ClickUp migration, no fees |
 | [0002](decisions/0002-how-the-app-is-built-and-deployed.md) | Proposed: Starlette pages on Lambda behind an HTTP API, one DynamoDB table, photos uploaded straight to a private S3 bucket, email through an outbox and SES, sign-in checked by the app, SAM with a bootstrap stack, stage then prod |
 | [0003](decisions/0003-one-function-boundary-per-environment.md) | Accepted: one function boundary per environment, each on its own names; the HTTP API and event-source mappings take their tags in the create request (mappings' tags only on create, no import); the bootstrap owns the access-log policy |
+| [0004](decisions/0004-the-form-role-and-the-photo-bucket-name.md) | Proposed: amends 0002: the form's role may delete photos under `dropoffs/` (the submit's cleanup) and put the studio's first settings; its `PutItem` on drop-offs and emails can't require a new item; the photo bucket is named with a random suffix, not the account ID |
 
 ## Runbooks
 
@@ -28,6 +29,7 @@ asks for it.
 | Runbook | What it does |
 | --- | --- |
 | [aws-bootstrap](runbooks/aws-bootstrap.md) | Deploy the bootstrap stack (deploy roles, boundary, addresses) and set up the GitHub environments. Once, by hand. |
+| [operations](runbooks/operations.md) | The app stacks: what a merge deploys, the rollback (a revert pull request), taking the form offline, a failed first create, removing an environment. |
 
 ## Plans
 

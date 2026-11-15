@@ -20,9 +20,15 @@ script, the Content-Security-Policy and other headers, same-origin checks and si
 cookies; `web/local.py` runs it on the fakes on a laptop). The brand colours the pages
 and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap stack
 (deploy roles, boundaries, addresses), deployed by hand with
-[its runbook](runbooks/aws-bootstrap.md). Not built: the staff console's pages, the
-scheduled close's handler, the app's SAM template and the deploy. Nothing is in AWS
-yet. The rest is planned in
+[its runbook](runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's SAM template
+for one environment (the records table, the private photo bucket, the form behind an
+HTTP API, the mailer on the table's stream, the alarms); a merge to `main` deploys it to
+stage and then prod (`.github/workflows/deploy.yml`, [the operations runbook](runbooks/operations.md)).
+The deployed functions start from `entry/` (`run.sh` for the form through the Lambda
+Web Adapter, `mailer.py` for the stream), read their environment once in
+`settings.py`, are built on the AWS adapters in `composition.py`, log JSON lines through
+`logs.py`, and bound each web request with `deadline.py`. Not built: the staff
+console's pages and the scheduled close's handler. The rest is planned in
 [.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
 

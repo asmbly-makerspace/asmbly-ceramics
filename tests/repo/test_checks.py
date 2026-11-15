@@ -137,3 +137,44 @@ def test_the_checks_cover_every_python_folder() -> None:
         if path.is_dir() and not path.name.startswith(".") and any(path.rglob("*.py"))
     }
     assert folders <= set(PYPROJECT["tool"]["mypy"]["files"]), "a folder of Python isn't type checked"
+
+
+def test_the_sam_cli_version_is_spelled_once_in_each_workflow_and_they_agree() -> None:
+    pr_checks = workflow_version("pr-checks.yml", "SAM_CLI_VERSION")
+    assert workflow_version("deploy.yml", "SAM_CLI_VERSION") == pr_checks
+    for workflow in sorted(WORKFLOWS.glob("*.yml")):
+        steps = workflow.read_text().split("\njobs:\n", maxsplit=1)[1]
+        assert pr_checks not in steps, f"{workflow.name} spells the SAM CLI version outside env"
+        if "setup-sam" in steps:
+            assert "version: ${{ env.SAM_CLI_VERSION }}" in steps, workflow.name
+
+
+def test_claude_md_and_ci_check_the_app_template_and_the_requirements() -> None:
+    commands = claude_md_commands()
+    assert "sam validate --lint -t infra/app.yaml" in commands
+    assert "sam build -t infra/app.yaml" in commands
+    assert "uv export --frozen --no-dev --no-emit-project -o src/requirements.txt" in commands
+    assert "run: sam validate --lint -t infra/app.yaml --region us-east-2" in PR_CHECKS
+    assert "run: sam build -t infra/app.yaml" in PR_CHECKS
+    assert (
+        "uv export --frozen --no-dev --no-emit-project -o src/requirements.txt"
+        " && git diff --exit-code src/requirements.txt"
+    ) in PR_CHECKS
+
+
+def test_a_stale_requirements_file_fails_with_the_command_that_fixes_it() -> None:
+    # Dependabot's uv updates change only uv.lock; the failure must say what to run.
+    assert (
+        "::error file=src/requirements.txt::src/requirements.txt does not match uv.lock."
+        " Run 'uv export --frozen --no-dev --no-emit-project -o src/requirements.txt'"
+    ) in PR_CHECKS
+    assert (
+        "uv export --frozen --no-dev --no-emit-project -o src/requirements.txt"
+        in (REPO / "CONTRIBUTING.md").read_text()
+    )
+
+
+def test_the_dependency_audit_runs_when_the_runtime_requirements_change() -> None:
+    audit = (WORKFLOWS / "dependency-audit.yml").read_text()
+    assert "paths: ['pyproject.toml', 'uv.lock', 'src/requirements.txt']" in audit
+    assert "no runtime dependencies" not in audit

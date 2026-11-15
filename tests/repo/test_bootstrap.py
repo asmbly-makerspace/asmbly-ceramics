@@ -624,9 +624,13 @@ def test_no_account_id_or_address_in_the_template() -> None:
 
 
 def test_only_the_deploy_workflow_may_get_credentials() -> None:
-    # No deploy yet: no workflow asks for AWS credentials. Phase 7 names deploy.yml's jobs here.
+    # The deploy roles trust only the stage and prod environments, which only
+    # deploy.yml's jobs name (tests/repo/test_workflows.py pins those jobs).
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
-        assert "configure-aws-credentials" not in workflow.read_text(), workflow.name
+        if workflow.name == "deploy.yml":
+            assert workflow.read_text().count("configure-aws-credentials@") == 2
+        else:
+            assert "configure-aws-credentials" not in workflow.read_text(), workflow.name
 
 
 # What a policy document looks like once CloudFormation has filled it in, near enough

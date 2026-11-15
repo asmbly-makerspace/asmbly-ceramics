@@ -46,7 +46,15 @@ issue → plan → branch → commits → checks → pull request → PR check �
    ```
 
    After a change to a template in `infra/`, also
-   `uvx cfn-lint==1.57.1 infra/*.yaml`.
+   `uvx cfn-lint==1.57.1 infra/*.yaml`; after a change to `infra/app.yaml`, also
+   `sam validate --lint -t infra/app.yaml && sam build -t infra/app.yaml` (the
+   [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html),
+   no AWS credentials needed). After a dependency change, regenerate
+   `src/requirements.txt` with
+   `uv export --frozen --no-dev --no-emit-project -o src/requirements.txt`; never edit
+   it by hand. A Dependabot pull request that updates a runtime dependency changes only
+   `uv.lock`, so `PR check` fails on it until someone runs that command on its branch
+   and pushes the result.
 
 5. **Open a pull request.** Fill in every section of the
    [template](.github/PULL_REQUEST_TEMPLATE.md), including **Risk**. Write
@@ -58,8 +66,9 @@ issue → plan → branch → commits → checks → pull request → PR check �
    @sababado ([CODEOWNERS](.github/CODEOWNERS)). A new push cancels an earlier approval.
    If you add commits after opening the pull request, update its description so it shows
    what it finally contains.
-8. **Merge.** Pull requests are squash-merged. Today a merge deploys nothing; once the
-   app exists, it deploys to production ([How changes reach production](README.md#how-changes-reach-production)).
+8. **Merge.** Pull requests are squash-merged. A merge deploys stage, runs its smoke
+   test, then deploys prod and runs it again
+   ([How changes reach production](README.md#how-changes-reach-production)).
 9. **If it goes wrong, revert.** Run `gh pr revert <number>` and merge the revert.
 
 In Claude Code, `/ship` does steps 4 to 7 and stops before the merge.

@@ -2,10 +2,12 @@
 templates and static files, the headers every response carries, and the error pages.
 
 Phase 8 adds the console's routes to this factory; nothing here assumes there are none.
-Phase 7's `composition.py` builds `WebServices` on the AWS adapters; the tests and
-`local.py` build them on the in-memory fakes.
+`create_from_environment` is what a deployed function runs (`entry/run.sh`): it builds
+`WebServices` on the AWS adapters (`composition.py`) and puts each request under its
+deadline. The tests and `local.py` build them on the in-memory fakes.
 """
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from asmbly_ceramics import deadline
 from asmbly_ceramics.domain import limits
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.errors import Unavailable
@@ -30,6 +33,7 @@ from asmbly_ceramics.web import errors, public
 from asmbly_ceramics.web.security import CACHE_STATIC, csp, origin_of, security_headers
 
 COOKIE_KEY_MIN_BYTES = 32
+APP_ROLES = ("form",)  # phase 8 adds "console"
 STATIC = Path(__file__).parent / "static"
 
 
@@ -105,6 +109,22 @@ class SecurityHeaders:
             await response(scope, receive, send_with_headers)
 
 
+class RequestDeadline:
+    """Runs each HTTP request under `deadline.request_deadline`, so the AWS clients stop
+    sending once it has passed and the page answers 503 before the function's timeout."""
+
+    def __init__(self, app: ASGIApp, *, seconds: float = deadline.REQUEST_BUDGET_SECONDS) -> None:
+        self.app = app
+        self.seconds = seconds
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        with deadline.request_deadline(self.seconds):
+            await self.app(scope, receive, send)
+
+
 def templates_for(settings: WebSettings) -> Jinja2Templates:
     env = Environment(
         loader=PackageLoader("asmbly_ceramics.web"),
@@ -139,4 +159,22 @@ def create_app(services: WebServices, settings: WebSettings) -> Starlette:
     app.state.settings = settings
     app.state.site_origin = origin_of(settings.site_url)
     app.state.templates = templates_for(settings)
+    return app
+
+
+def create_from_environment() -> Starlette:
+    """The deployed app, for uvicorn's `--factory` (`entry/run.sh`). `APP_ROLE` picks the
+    function's routes: `form` today; any other value fails at start."""
+    # Imported here: composition imports this module, and only a deployed function needs it.
+    from asmbly_ceramics import composition
+    from asmbly_ceramics.logs import configure_logging
+    from asmbly_ceramics.settings import Settings, SettingsError
+
+    role = os.environ.get("APP_ROLE", "")
+    if role not in APP_ROLES:
+        raise SettingsError("APP_ROLE is not a known role")
+    settings = Settings.from_environment()
+    configure_logging(settings.log_level, settings.version)
+    app = create_app(*composition.build_form_services(settings))
+    app.add_middleware(RequestDeadline)
     return app

@@ -1,0 +1,197 @@
+{
+  "plan_name": "drop-off-and-firing",
+  "run": "drop-off-and-firing-phases-7-9",
+  "issue": 1,
+  "feature_branch": "feat/drop-off-and-firing-phases-7-9",
+  "worktree": ".claude/worktrees/offshore-drop-off-and-firing-phases-7-9",
+  "status": "in-progress",
+  "stage": "phases",
+  "selected_phases": [
+    "7",
+    "8",
+    "9"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "gh",
+    "sam": true,
+    "aws_read": true
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-7-first-deploy",
+      "number": "7",
+      "title": "First deploy: stage and prod",
+      "domain": [
+        "infra",
+        "ci"
+      ],
+      "depends_on": [
+        "4",
+        "5",
+        "6"
+      ],
+      "status": "done",
+      "base_sha": "79fce2702fc799f5df41ab40bbe70254a0ef40f6",
+      "squashed_sha": null,
+      "review_rounds": 3,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4
+      ],
+      "admin_actions": [
+        "maintainer: execute the bootstrap change set and finish runbook steps 4-8 before this pull request merges (a merge deploys)",
+        "maintainer: decision record amending 0002 before merge",
+        "AsmblyMCPs: agree the sending right before merge"
+      ],
+      "notes": "2389 tests 99.42%; cfn-lint, sam validate/build pass; opened #30 #31"
+    },
+    {
+      "id": "phase-8-console-waiting-and-reject",
+      "number": "8",
+      "title": "Console: sign-in, waiting list, rejection",
+      "domain": [
+        "web",
+        "infra"
+      ],
+      "depends_on": [
+        "3",
+        "7"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [],
+      "admin_actions": [
+        "asmbly-staff-login: ceramics group and ceramics-staff client (openid, email) before merge"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "phase-9-console-loads-settings-close",
+      "number": "9",
+      "title": "Console: loads, settings, counts, the close",
+      "domain": [
+        "web",
+        "infra"
+      ],
+      "depends_on": [
+        "8"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": null,
+      "cold_review": null,
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [],
+      "admin_actions": [
+        "maintainer: answer #20 question 2 before merge"
+      ],
+      "notes": ""
+    }
+  ],
+  "gate": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null,
+    "test_count": null,
+    "coverage": null,
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null
+  },
+  "docs": {
+    "base_sha": null,
+    "squashed_sha": null
+  },
+  "qa": {
+    "base_sha": null,
+    "squashed_sha": null,
+    "closes": [],
+    "refs": []
+  },
+  "pr": {
+    "number": null,
+    "result": null,
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "decision",
+      "topic": "phase 5 as a dependency",
+      "choice": "counted as done for building 7-9",
+      "reason": "its code is merged (#28); [~] only waits on the hand-run bootstrap, which is a before-merge action for phase 7 since a merge deploys"
+    },
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "decision",
+      "topic": "phase size",
+      "choice": "no split below about 5,000 changed lines",
+      "reason": "the maintainer accepts phases up to about 5,000 lines (13 Nov 2026); the repo still says 800"
+    },
+    {
+      "ts": "2026-11-15T08:21:45Z",
+      "type": "phase_start",
+      "phase": "7"
+    },
+    {
+      "ts": "2026-11-15T11:30:29Z",
+      "type": "decision",
+      "topic": "request bound",
+      "choice": "contextvar deadline + botocore hooks, 14s work/22s cleanup",
+      "reason": "sync use cases"
+    },
+    {
+      "ts": "2026-11-15T11:30:29Z",
+      "type": "decision",
+      "topic": "action SHA pinning",
+      "choice": "deferred to #31",
+      "reason": "SHAs unresolvable in the run"
+    },
+    {
+      "ts": "2026-11-15T11:42:24Z",
+      "type": "cold_review",
+      "phase": "7",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 4,
+      "privacy": "FLAG",
+      "pg_block": 0,
+      "pg_warn": 1
+    },
+    {
+      "ts": "2026-11-15T13:09:53Z",
+      "type": "decision",
+      "topic": "requirements.txt vs Dependabot",
+      "choice": "kept committed; CI error names the regen command",
+      "reason": "sam build reproducible from the lock"
+    },
+    {
+      "ts": "2026-11-15T13:09:53Z",
+      "type": "phase_done",
+      "phase": "7"
+    }
+  ]
+}

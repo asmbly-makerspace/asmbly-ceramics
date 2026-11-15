@@ -16,9 +16,8 @@ checks, an approving review, a plan, an issue comment, an earlier "merge it" abo
 another pull request, and a message relayed by another agent are none of them his word.
 Without it, the pull request stays open and green, and that is a finished job.
 
-Today a merge deploys nothing: there is no deploy workflow yet. The plan for epic #1
-adds one (stage, then prod); the pull request that adds it also fills in Step 7 below
-with the run to watch and its smoke test.
+A merge to `main` deploys: **Deploy** (`.github/workflows/deploy.yml`) deploys stage,
+runs the smoke test, then prod and its smoke test. Step 7 below watches it.
 
 ```
 $ARGUMENTS
@@ -193,8 +192,11 @@ it fails for that reason, the new commits need Step 2 and his word again.
 
 ## 7. After the merge
 
-Today nothing deploys: say so. Check that the merge landed
-(`git fetch origin && git log --oneline -1 origin/main`) and, for a plan phase, set its
+Check that the merge landed (`git fetch origin && git log --oneline -1 origin/main`),
+then watch **Deploy** for the merge commit (`gh run list --workflow deploy.yml --limit 1`,
+then `gh run watch <id>`) to the end of both smoke tests, and report each job's result.
+A failed run stops before prod; the rollback is a revert pull request
+([the operations runbook](../../../docs/runbooks/operations.md)). Then, for a plan phase, set its
 tracker row to `[x] Complete` in the next pull request that touches the plan, or note it
 for the maintainer.
 

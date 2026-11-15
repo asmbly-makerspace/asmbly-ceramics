@@ -68,7 +68,7 @@ python_version = "3.14"
 strict = true
 explicit_package_bases = true
 # tests/repo/test_checks.py fails if a folder of Python isn't listed.
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 mypy_path = "src"
 
 [tool.pytest.ini_options]

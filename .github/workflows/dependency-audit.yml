@@ -2,14 +2,13 @@
 # dependencies change and weekly. Not a required check: with path filters, a PR
 # that touches no manifest never starts it.
 #
-# There are no runtime dependencies yet, so today this scans the development
-# tools CI runs. The app adds what it needs to pyproject.toml when its first
-# phase lands, and from then on this scans those too.
+# It scans the app's runtime dependencies (the ones src/requirements.txt pins for
+# the Lambda functions) and the development tools CI runs.
 name: Dependency audit
 
 on:
   pull_request:
-    paths: ['pyproject.toml', 'uv.lock']
+    paths: ['pyproject.toml', 'uv.lock', 'src/requirements.txt']
   schedule:
     - cron: '41 6 * * 1'
   workflow_dispatch:
@@ -29,8 +28,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Write the locked requirements
         run: uv export --frozen --all-groups --no-emit-project --quiet -o "$RUNNER_TEMP/requirements.txt"
       # To accept an advisory, add `--ignore-vuln <ID>` with a comment and a revisit date.

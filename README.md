@@ -13,17 +13,19 @@ If you find a security problem, please report it privately ([SECURITY.md](SECURI
 
 ## Status
 
-**The domain, the use cases, the AWS adapters and the drop-off form's pages are built;
-nothing is deployed.** `src/asmbly_ceramics/` holds the domain model, the ports with
+**The domain, the use cases, the AWS adapters, the drop-off form and its deploy are
+built; the staff console isn't.** `src/asmbly_ceramics/` holds the domain model, the ports with
 in-memory fakes, the use cases (submit a drop-off, the email composer and outbox, the
 waiting list, search, rejection, kiln loads, settings, the daily close, counts), AWS
 adapters (DynamoDB, S3, SES, Cognito tokens, Parameter Store) and the public drop-off
 form (`web/`: Starlette pages, the photo upload script and the security headers). They
 are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
 permissions boundary, the two addresses), which the maintainer deploys by hand with
-[its runbook](docs/runbooks/aws-bootstrap.md). The staff console's pages, the app
-template and the deploy aren't built yet, so no story is delivered and nothing is in
-AWS. The plan's next phases are in
+[its runbook](docs/runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's stack (the
+records table, the private photo bucket, the form behind an HTTP API, the mailer and
+its alarms), which a merge to `main` deploys to stage and then prod once the bootstrap
+is in place. The prod form's address isn't published until the switch from ClickUp
+(#8). The staff console's pages aren't built yet. The plan's next phases are in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
 | Story | What changes for people |
@@ -48,13 +50,16 @@ CLAUDE.md               the rules, for people and AI agents
 CONTRIBUTING.md         how a change gets to main
 SECURITY.md             how to report a security problem
 docs/                   architecture, decisions, runbooks (docs/README.md is the index)
-infra/                  CloudFormation templates: bootstrap.yaml, deployed by hand
+infra/                  CloudFormation templates: bootstrap.yaml (deployed by hand) and
+                        app.yaml (SAM, deployed by a merge; samconfig.toml at the root)
+scripts/                the deploy's smoke test, parameter list and compose check
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
 src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/, adapters/ (memory/, aws/, the
                         system clock and the photo inspector) and web/ (the drop-off form's
-                        pages); no console page or AWS template yet
+                        pages), composition.py and entry/ (what Lambda starts); no
+                        console page yet
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 
@@ -73,6 +78,8 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov
 uvx cfn-lint==1.57.1 infra/*.yaml   # after a template change
+sam validate --lint -t infra/app.yaml && sam build -t infra/app.yaml   # after an app template change
+uv export --frozen --no-dev --no-emit-project -o src/requirements.txt  # after a dependency change
 ```
 
 None of them needs AWS credentials.
@@ -97,9 +104,19 @@ Every change is a pull request to `main`. `PR check` is the required check, and 
 pull request needs an approving review from the code owner
 ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
-Today a merge deploys nothing: there is no deployable app yet. The plan that adds the first deploy
-says what a merge deploys, where, and the smoke test that ends it, and updates this
-section.
+A merge to `main` deploys:
+
+```
+merge → Deploy: stage → smoke test → prod → smoke test
+```
+
+**Deploy** (`.github/workflows/deploy.yml`) deploys `asmbly-ceramics-stage` with SAM,
+runs `scripts/smoke.py` against `https://ceramics-stage.asmbly.org`, then deploys
+`asmbly-ceramics-prod` and runs it against `https://ceramics.asmbly.org`; a failed step
+stops what follows. Watch the run in the repository's Actions tab to the end of both
+smoke tests. Only the newest commit on `main` deploys. The rollback is a revert pull
+request; taking the form offline at once is in
+[the operations runbook](docs/runbooks/operations.md).
 
 ## Where to read more
 

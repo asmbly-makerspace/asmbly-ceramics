@@ -33,3 +33,6 @@ coverage.xml
 
 # /offshore run state: the guardrail sentinel, its log, scratch files
 .offshore/
+
+# sam build output
+.aws-sam/

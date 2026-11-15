@@ -18,7 +18,6 @@ A retried `PutObject` that landed the first time answers 412 for its own object,
 outcome: that photo is left for the backstop (#19) and logged as `photos_not_deleted`.
 """
 
-import contextlib
 import logging
 import secrets
 from collections.abc import Iterable, Sequence
@@ -27,6 +26,8 @@ from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+from asmbly_ceramics import deadline
+from asmbly_ceramics.adapters.aws.deadline import DeadlinePassed
 from asmbly_ceramics.adapters.aws.errors import aws_error_code, log_aws_error, retry_attempts
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import PHOTO_MAX_BYTES, UPLOAD_SLOT_LIFETIME
@@ -63,12 +64,18 @@ fails if `PHOTOS_MAX` grows past it (raise it then, keeping `DeleteObjects` unde
 1,000 keys)."""
 
 
+UPLOADS_PREFIX = "uploads/"
+"""Where browsers upload; the template's lifecycle rule and IAM prefixes name it too."""
+KEPT_PREFIX = "dropoffs/"
+"""Where kept photos live; the template's IAM resources and `s3:prefix` name it too."""
+
+
 def upload_key(slot_id: str) -> str:
-    return f"uploads/{slot_id}/0"
+    return f"{UPLOADS_PREFIX}{slot_id}/0"
 
 
 def used_key(slot_id: str) -> str:
-    return f"uploads/{slot_id}/used"
+    return f"{UPLOADS_PREFIX}{slot_id}/used"
 
 
 def photo_key(ref: PhotoRef, size: PhotoSize) -> str:
@@ -77,7 +84,7 @@ def photo_key(ref: PhotoRef, size: PhotoSize) -> str:
 
 def _key(drop_off_id: DropOffId, index: int, size: PhotoSize) -> str:
     suffix = "-thumb" if size is PhotoSize.THUMB else ""
-    return f"dropoffs/{drop_off_id}/{index}{suffix}.jpg"
+    return f"{KEPT_PREFIX}{drop_off_id}/{index}{suffix}.jpg"
 
 
 def all_photo_keys(drop_off_id: DropOffId) -> list[str]:
@@ -138,7 +145,7 @@ class S3PhotoStore:
         # 403 under a prefix-conditioned `s3:ListBucket` grant.
         try:
             listed = self._client.list_objects_v2(
-                Bucket=self._bucket, Prefix=f"uploads/{slot_id}/", MaxKeys=10
+                Bucket=self._bucket, Prefix=f"{UPLOADS_PREFIX}{slot_id}/", MaxKeys=10
             )
         except (ClientError, BotoCoreError) as error:
             raise PhotosUnavailable(log_aws_error("list_objects_v2", error)) from None
@@ -195,10 +202,10 @@ class S3PhotoStore:
                     written.append(key)
         except ClientError as error:
             code = log_aws_error("put_object", error, drop_off_id=str(drop_off_id))
-            self._delete_quietly(drop_off_id, written)
-            if retry_attempts(error) > 0:
+            deleted = self._delete_quietly(drop_off_id, written)
+            if retry_attempts(error) > 0 or not deleted:
                 # An earlier try may have landed this very key: it can't be told from a
-                # photo kept before, so it is left for the backstop.
+                # photo kept before; or the cleanup failed. Left for the backstop.
                 _left_for_backstop(drop_off_id, code)
                 raise PhotosUnavailable(code) from None
             if code in _ALREADY_KEPT:
@@ -206,8 +213,11 @@ class S3PhotoStore:
             raise PhotosUnavailable(code) from None
         except BotoCoreError as error:
             code = log_aws_error("put_object", error, drop_off_id=str(drop_off_id))
-            self._delete_quietly(drop_off_id, written)
-            _left_for_backstop(drop_off_id, code)  # the put in flight may have landed
+            deleted = self._delete_quietly(drop_off_id, written)
+            # A first attempt refused by the deadline had nothing in flight; any other
+            # failure's put may have landed, and a failed cleanup left what was written.
+            if type(error) is not DeadlinePassed or not deleted:
+                _left_for_backstop(drop_off_id, code)
             raise PhotosUnavailable(code) from None
         return refs
 
@@ -247,9 +257,11 @@ class S3PhotoStore:
         if not objects:
             return
         try:
-            response = self._client.delete_objects(
-                Bucket=self._bucket, Delete={"Objects": objects, "Quiet": True}
-            )
+            # A cleanup: still sent after a web request's work deadline (decision 0004).
+            with deadline.cleanup():
+                response = self._client.delete_objects(
+                    Bucket=self._bucket, Delete={"Objects": objects, "Quiet": True}
+                )
         except (ClientError, BotoCoreError) as error:
             raise PhotosUnavailable(
                 log_aws_error("delete_objects", error, drop_off_id=str(drop_off_id))
@@ -267,10 +279,14 @@ class S3PhotoStore:
             )
             raise unavailable
 
-    def _delete_quietly(self, drop_off_id: DropOffId, object_keys: list[str]) -> None:
-        """`keep`'s cleanup of what it wrote, before it raises its own error."""
-        with contextlib.suppress(PhotosUnavailable):  # logged; the backstop (#19) removes them
+    def _delete_quietly(self, drop_off_id: DropOffId, object_keys: list[str]) -> bool:
+        """`keep`'s cleanup of what it wrote, before it raises its own error. False when
+        the delete failed (logged): the caller leaves the photos for the backstop (#19)."""
+        try:
             self._delete(drop_off_id, object_keys)
+        except PhotosUnavailable:
+            return False
+        return True
 
 
 def _left_for_backstop(drop_off_id: DropOffId, code: str) -> None:

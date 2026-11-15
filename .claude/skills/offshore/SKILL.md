@@ -934,7 +934,7 @@ Agent(
 
     Fill in every section of the template. Made-up details only: names like
     "Test Potter", addresses at example.org, never a real person or a real photo.
-    Today a merge deploys nothing unless <merge_deploys>; say which environment each
+    A merge deploys stage then prod (deploy.yml) when <merge_deploys>; say which environment each
     step runs in (locally, stage, or prod), and put a step that needs an admin action
     after that action, naming it.
 

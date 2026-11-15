@@ -1,0 +1,658 @@
+# One environment of the ceramics studio app (stage or prod): the records table, the
+# private photo bucket, the public form behind an HTTP API at the environment's address,
+# the mailer that sends the outbox's emails, and the alarms that tell the maintainers
+# when sending fails. Deployed by .github/workflows/deploy.yml with the bootstrap's
+# execution role (infra/bootstrap.yaml, decisions 0002 and 0003); never by hand.
+#
+# Every name comes from ProjectSlug and AppEnv. Nothing here is an account ID, an
+# address or a secret: the two addresses are SSM parameters CloudFormation resolves, and
+# the Web Adapter layer's ARN comes from a GitHub variable. tests/repo/test_app_template.py
+# pins what no IAM condition can see (the bucket's public access block, the trust
+# policies, the roles' statements).
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: asmbly-ceramics app (one environment)
+
+Parameters:
+  ProjectSlug:
+    Type: String
+    Default: asmbly-ceramics
+    AllowedPattern: ^asmbly-ceramics$
+    Description: The prefix of every name; SsmSecrets reads /asmbly-ceramics/<env>/... so it never changes.
+  AppEnv:
+    Type: String
+    AllowedValues: [stage, prod]
+  AppVersion:
+    Type: String
+    AllowedPattern: ^[0-9a-f]{7,40}$
+    Description: The commit's short SHA, shown by /health.
+  SiteHost:
+    Type: String
+    AllowedPattern: ^[a-z0-9-]+\.asmbly\.org$
+    Description: The environment's address, mapped by the bootstrap's custom domain.
+  EmailDomain:
+    Type: String
+    Default: asmbly.org
+    AllowedValues: [asmbly.org]
+  PhotoBucketSuffix:
+    Type: String
+    AllowedPattern: ^[a-z0-9]{8}$
+    Description: Random, per environment, in samconfig.toml; keeps the bucket's global name unique without the account ID. Changing it replaces the bucket.
+  WebAdapterLayerArn:
+    Type: String
+    AllowedPattern: ^arn:aws:lambda:us-east-2:[0-9]+:layer:LambdaAdapterLayerArm64:[0-9]+$
+    Description: The Lambda Web Adapter's arm64 layer, from the GitHub variable WEB_ADAPTER_LAYER_ARN.
+  AlertEmail:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: The name of the String parameter holding the maintainers' address.
+  InitialSendingAddress:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: The name of the String parameter holding the studio's first sending address at asmbly.org.
+
+Conditions:
+  IsProd: !Equals [!Ref AppEnv, prod]
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Architectures: [arm64]
+    CodeUri: ../src/
+    PermissionsBoundary:
+      Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'
+    RolePath: /asmbly-ceramics-app/
+    # The five tags on each function; PropagateTags copies them to its role and its
+    # event-source mapping, which the execution role creates only with them.
+    Tags:
+      Project: !Ref ProjectSlug
+      Component: App
+      Environment: !Ref AppEnv
+      Owner: it-volunteers
+      ManagedBy: sam
+    PropagateTags: true
+    Tracing: PassThrough
+    Environment:
+      Variables:
+        APP_ENV: !Ref AppEnv
+        APP_VERSION: !Ref AppVersion
+        TABLE_NAME: !Ref RecordsTable
+        PHOTO_BUCKET: !Ref PhotoBucket
+        SITE_URL: !Sub 'https://${SiteHost}'
+        INITIAL_SENDING_ADDRESS: !Ref InitialSendingAddress
+        LOG_LEVEL: INFO
+
+Resources:
+  # Data ------------------------------------------------------------------------------
+
+  # Changing TableName, KeySchema or a key's type replaces the table: the retain
+  # policies keep the data if it ever happens, and the template test pins them.
+  RecordsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectSlug}-${AppEnv}-records'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: PK, AttributeType: S}
+        - {AttributeName: SK, AttributeType: S}
+        - {AttributeName: GSI1PK, AttributeType: S}
+        - {AttributeName: GSI1SK, AttributeType: S}
+        - {AttributeName: GSI2PK, AttributeType: S}
+        - {AttributeName: GSI2SK, AttributeType: S}
+      KeySchema:
+        - {AttributeName: PK, KeyType: HASH}
+        - {AttributeName: SK, KeyType: RANGE}
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - {AttributeName: GSI1PK, KeyType: HASH}
+            - {AttributeName: GSI1SK, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: GSI2
+          KeySchema:
+            - {AttributeName: GSI2PK, KeyType: HASH}
+            - {AttributeName: GSI2SK, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+      TimeToLiveSpecification: {AttributeName: ttl, Enabled: true}
+      StreamSpecification: {StreamViewType: NEW_IMAGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true, RecoveryPeriodInDays: 7}
+      DeletionProtectionEnabled: true
+
+  # Private. No VersioningConfiguration: S3PhotoStore deletes without version IDs, so on
+  # a versioned bucket photos would outlive the drop-off's close (#7).
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectSlug}-${AppEnv}-photos-${PhotoBucketSuffix}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-uploads
+            Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 1
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Sub 'https://${SiteHost}']
+            AllowedMethods: [POST]
+            AllowedHeaders: ['*']
+            MaxAge: 3000
+
+  # TLS only. No Allow: access comes only from the functions' roles.
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt PhotoBucket.Arn
+              - !Sub '${PhotoBucket.Arn}/*'
+            Condition:
+              Bool: {aws:SecureTransport: 'false'}
+
+  # The HTTP API, in plain CloudFormation (decision 0003): SAM's HttpApi imports an
+  # OpenAPI body and tags the API afterwards, which the execution role can't do.
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectSlug}-${AppEnv}'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: true
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: App
+        Environment: !Ref AppEnv
+        Owner: it-volunteers
+        ManagedBy: sam
+
+  FormIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt FormFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: $default
+      Target: !Sub 'integrations/${FormIntegration}'
+
+  # Access logs hold no source address, user agent or query string.
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 5
+      AccessLogSettings:
+        DestinationArn: !GetAtt HttpApiLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength","integrationLatency":"$context.integrationLatency"}'
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: App
+        Environment: !Ref AppEnv
+        Owner: it-volunteers
+        ManagedBy: sam
+
+  FormInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref FormFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+  HttpApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      DomainName:
+        Fn::ImportValue: !Sub '${ProjectSlug}-${AppEnv}-domain-name'
+      ApiId: !Ref HttpApi
+      Stage: !Ref HttpApiStage
+
+  # Functions ---------------------------------------------------------------------------
+
+  FormFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectSlug}-${AppEnv}-form'
+      Description: The public drop-off form, through the Lambda Web Adapter.
+      Handler: asmbly_ceramics/entry/run.sh
+      MemorySize: 2048 # Pillow decodes up to six 10 MB photos on submit
+      Timeout: 29
+      ReservedConcurrentExecutions: 5
+      Layers: [!Ref WebAdapterLayerArn]
+      Environment:
+        Variables:
+          APP_ROLE: form
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          PORT: '8080'
+          AWS_LWA_READINESS_CHECK_PATH: /health
+      # No Events: the API reaches it through FormIntegration and FormInvokePermission.
+      LoggingConfig:
+        LogGroup: !Ref FormLogGroup
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Never a drop-off: the ID page reads the submission's summary. GetItem
+            # only: the form's use cases read by key, never query.
+            - Sid: ReadStudioAndSubmissions
+              Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [STUDIO, SUBMISSION#*]
+            # New items through the submit's transaction, and the studio's first-use
+            # seeding (STUDIO/CURRENT and STUDIO/HISTORY#...). A transaction is
+            # authorized item by item as these PutItem calls (DynamoDB's "Using IAM with
+            # DynamoDB transactions"); commit sends only Put actions (phase 4).
+            # Decision 0004 records why the form may put STUDIO, DROPOFF# and EMAIL#.
+            - Sid: CreateDropOffs
+              Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, SUBMISSION#*, STUDIO]
+                # Only inside Records.commit's transaction, never a plain put
+                # ("Using IAM with DynamoDB transactions", example 2).
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation: [TransactWriteItems]
+                # Never the item it replaces, nor the one a failed condition met:
+                # dynamodb:ReturnValues covers ReturnValuesOnConditionCheckFailure too.
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues: NONE
+            - Sid: CountIds
+              Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [COUNTER#dropoff] # the form takes drop-off numbers only
+            # A rolling window: read the hits, put them back (phase 4).
+            - Sid: CountRates
+              Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [RATE#*]
+                # Never the item it replaces, nor the one a failed condition met:
+                # dynamodb:ReturnValues covers ReturnValuesOnConditionCheckFailure too.
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues: NONE
+            # PutObject: the role that signs the POST must hold it; GetObject:
+            # read_upload; Put and Delete: discard_uploads.
+            - Sid: Uploads
+              Effect: Allow
+              Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+              Resource: !Sub '${PhotoBucket.Arn}/uploads/*'
+            # DeleteObject: keep's own rollback and the submit's cleanup after a failed
+            # commit (decision 0004); never GetObject on kept photos.
+            - Sid: KeepPhotos
+              Effect: Allow
+              Action: [s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            # read_upload lists uploads/<slot id>/ (the upload and its `used` marker).
+            - Sid: ListUploads
+              Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt PhotoBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: uploads/*
+            - Sid: ReadOwnKeys
+              Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/hash-key'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/form-key'
+
+  MailerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectSlug}-${AppEnv}-mailer'
+      Description: Sends the outbox's pending emails from the table's stream.
+      Handler: asmbly_ceramics.entry.mailer.handler
+      MemorySize: 512
+      # Up to ten reads (the email, its drop-off, the studio, six photos) at a worst
+      # 18 s each, then one 30 s send: a timeout would leave the email `sending` unlogged.
+      Timeout: 300
+      ReservedConcurrentExecutions: 2 # SES's rate stays far below the account's limit
+      Events:
+        Outbox:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt RecordsTable.StreamArn
+            StartingPosition: TRIM_HORIZON # the claim skips anything no longer pending
+            BatchSize: 1
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            # Filters see only the `dynamodb` key: the outbox item's type and status.
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"dynamodb": {"NewImage": {"type": {"S": ["email"]}, "status": {"S": ["pending"]}}}}'
+            DestinationConfig:
+              OnFailure:
+                Type: SQS
+                Destination: !GetAtt MailerDeadLetterQueue.Arn
+      LoggingConfig:
+        LogGroup: !Ref MailerLogGroup
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # The email, its drop-off and the studio; SendPendingEmail reads no load.
+            - Sid: ReadWhatAnEmailNeeds
+              Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [EMAIL#*, DROPOFF#*, STUDIO]
+            # Claim, sent, failed, cancelled: each an Update that commit sends as a
+            # transactional Put of the whole item under its version check.
+            - Sid: MarkEmails
+              Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [EMAIL#*]
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation: [TransactWriteItems]
+                # Never the item it replaces, nor the one a failed condition met:
+                # dynamodb:ReturnValues covers ReturnValuesOnConditionCheckFailure too.
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues: NONE
+            # No ListStreams: it takes no resource, and the boundary leaves it out.
+            - Sid: ReadTheStream
+              Effect: Allow
+              Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator]
+              Resource: !GetAtt RecordsTable.StreamArn
+            - Sid: ReadKeptPhotos
+              Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            # read lists dropoffs/AC-n/ after a 403, so a gone photo is UploadMissing.
+            - Sid: ListKeptPhotos
+              Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt PhotoBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: dropoffs/*
+            # SES authorizes against the most specific identity covering the From
+            # address: the domain, or an address identity at it if one is verified.
+            - Sid: SendFromAsmblyOrg
+              Effect: Allow
+              Action: ses:SendEmail
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}'
+                - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailDomain}'
+              Condition:
+                StringLike:
+                  ses:FromAddress: !Sub '*@${EmailDomain}'
+            - Sid: DeadLetters
+              Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt MailerDeadLetterQueue.Arn
+
+  # Holds the stream record's metadata (shard and sequence numbers), not the item.
+  MailerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectSlug}-${AppEnv}-mailer-dlq'
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  # Logs --------------------------------------------------------------------------------
+
+  FormLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-form'
+      RetentionInDays: !If [IsProd, 90, 14]
+
+  MailerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-mailer'
+      RetentionInDays: !If [IsProd, 90, 14]
+
+  # The bootstrap's asmbly-ceramics-log-delivery policy lets log delivery write here.
+  HttpApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${ProjectSlug}-${AppEnv}'
+      RetentionInDays: !If [IsProd, 90, 14]
+
+  # Alarms ------------------------------------------------------------------------------
+
+  # No KMS key: CloudWatch can't publish to a topic encrypted with the AWS managed key.
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectSlug}-${AppEnv}-alarms'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # The app's JSON lines (src/asmbly_ceramics/logs.py): `event` and `level` are fixed.
+  # Only the mailer sends, so only its group logs email_failed; LoggedErrors leaves it
+  # out, so one failed email sets off one alarm.
+  EmailFailuresFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref MailerLogGroup
+      FilterPattern: '{ $.event = "email_failed" }'
+      MetricTransformations:
+        - MetricName: EmailFailures
+          MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
+          MetricValue: '1'
+          Unit: Count
+
+  FormLoggedErrorsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref FormLogGroup
+      FilterPattern: '{ ($.level = "ERROR") && ($.event != "email_failed") }'
+      MetricTransformations:
+        - MetricName: LoggedErrors
+          MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
+          MetricValue: '1'
+          Unit: Count
+
+  MailerLoggedErrorsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref MailerLogGroup
+      FilterPattern: '{ ($.level = "ERROR") && ($.event != "email_failed") }'
+      MetricTransformations:
+        - MetricName: LoggedErrors
+          MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
+          MetricValue: '1'
+          Unit: Count
+
+  EmailFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-email-failures'
+      AlarmDescription: An email failed to send; see the drop-off's ID in the mailer's log.
+      Namespace: !Sub '${ProjectSlug}/${AppEnv}'
+      MetricName: EmailFailures
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  LoggedErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-logged-errors'
+      AlarmDescription: A function logged an ERROR line.
+      Namespace: !Sub '${ProjectSlug}/${AppEnv}'
+      MetricName: LoggedErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  MailerDeadLettersAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-mailer-dead-letters'
+      AlarmDescription: The mailer gave up on a stream record after its retries.
+      # Each new dead letter, not the queue's depth: the queue keeps them 14 days, and a
+      # depth alarm would stay in ALARM and say nothing about the next one.
+      Namespace: AWS/SQS
+      MetricName: NumberOfMessagesSent
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt MailerDeadLetterQueue.QueueName}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  # Each function's own Errors, summed: an Errors metric without FunctionName would
+  # count the whole account's functions.
+  FunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-function-errors'
+      AlarmDescription: A function invocation failed.
+      Metrics:
+        - Id: form
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions:
+                - {Name: FunctionName, Value: !Ref FormFunction}
+            Period: 300
+            Stat: Sum
+        - Id: mailer
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions:
+                - {Name: FunctionName, Value: !Ref MailerFunction}
+            Period: 300
+            Stat: Sum
+        - Id: total
+          Expression: FILL(form, 0) + FILL(mailer, 0) # Errors exists only when invoked
+          Label: Errors
+          ReturnData: true
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-api-5xx'
+      AlarmDescription: The HTTP API answered 5xx three times in five minutes.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - {Name: ApiId, Value: !Ref HttpApi}
+        - {Name: Stage, Value: $default}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+# Outputs only, never exported: nothing imports this stack. `sam deploy` prints them at
+# the end of a run, in the public Actions log, so none holds an ARN (an account ID) or an
+# address; the bucket's name is public anyway (the form posts photos to it).
+Outputs:
+  SiteUrl:
+    Value: !Sub 'https://${SiteHost}'
+  PhotoBucketName:
+    Value: !Ref PhotoBucket
+  TableName:
+    Value: !Ref RecordsTable
