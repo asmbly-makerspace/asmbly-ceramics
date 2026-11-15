@@ -10,7 +10,12 @@ count once against the rate limit; the one-byte upload expires with `uploads/`. 
    for the new version to be live).
 2. form: `GET /` is 200 with the form's security headers; its device cookie and
    submission token are kept for check 5.
-3. console: `GET /console` is 404 (phase 8 makes it a redirect to the staff sign-in).
+3. console: `GET /console` without a session is a 302 to
+   `/console/auth/sign-in?next=%2Fconsole`, which is a 302 to the staff sign-in: an
+   https address on another host, path `/oauth2/authorize`, with `client_id`,
+   `code_challenge_method=S256` and `redirect_uri` `<site>/console/auth/callback`, and
+   the `__Host-signin` cookie set. console-photo: a console photo's address without a
+   session is 401, never an image.
 4. foreign-origin: `POST /drop-off/uploads` from another origin is 403.
 5. upload-slot, upload, oversized-upload: two slots are issued; S3 takes a one-byte
    upload to the first (so a refusal below isn't a broken upload) and refuses a photo
@@ -31,7 +36,7 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from email.message import Message
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 PHOTO_MAX_BYTES = 10 * 1024 * 1024  # domain.limits.PHOTO_MAX_BYTES; the script imports nothing
 FOREIGN_ORIGIN = "https://example.org"
@@ -124,6 +129,39 @@ def check_form(site: str) -> tuple[str, str]:
     return "; ".join(cookies), token.group(1)
 
 
+def check_console(site: str) -> None:
+    """The console sends someone not signed in to the staff sign-in, returning only to
+    this site's fixed callback. Prints nothing from the address: its query is checked
+    here, never shown."""
+    first = request(f"{site}/console")
+    expect("console", first, 302)
+    if first.headers.get("Location", "") != "/console/auth/sign-in?next=%2Fconsole":
+        raise SmokeError("console", "not sent to the console's sign-in")
+    answer = request(f"{site}/console/auth/sign-in?next=%2Fconsole")
+    expect("console", answer, 302)
+    location = answer.headers.get("Location", "")
+    parts = urlsplit(location)
+    query = parse_qs(parts.query)
+    if parts.scheme != "https" or not parts.netloc or parts.netloc == urlsplit(site).netloc:
+        raise SmokeError("console", "the sign-in address isn't an https address on another host")
+    if parts.path != "/oauth2/authorize":
+        raise SmokeError("console", "the sign-in address isn't /oauth2/authorize")
+    if not query.get("client_id") or query.get("code_challenge_method") != ["S256"]:
+        raise SmokeError("console", "no client_id or code_challenge_method=S256")
+    if query.get("redirect_uri") != [f"{site}/console/auth/callback"]:
+        raise SmokeError("console", "the return address isn't this site's callback")
+    cookies = answer.headers.get_all("Set-Cookie") or []
+    if not any(cookie.startswith("__Host-signin=") for cookie in cookies):
+        raise SmokeError("console", "no __Host-signin cookie")
+
+
+def check_console_photo(site: str) -> None:
+    answer = request(f"{site}/console/drop-offs/AC-1/photos/1")
+    expect("console-photo", answer, 401)
+    if answer.headers.get("Content-Type", "").startswith("image/"):
+        raise SmokeError("console-photo", "an image without a session")
+
+
 def slots_request(site: str, origin: str, cookie: str, token: str) -> Answer:
     return request(
         f"{site}/drop-off/uploads",
@@ -182,8 +220,10 @@ def run(site: str, version: str, *, tries: int = 10, wait: float = 6.0) -> list[
     report.append("health: ok")
     cookie, token = check_form(site)
     report.append("form: ok")
-    expect("console", request(f"{site}/console"), 404)
+    check_console(site)
     report.append("console: ok")
+    check_console_photo(site)
+    report.append("console-photo: ok")
     expect("foreign-origin", slots_request(site, FOREIGN_ORIGIN, cookie, token), 403)
     report.append("foreign-origin: ok")
     answer = slots_request(site, site, cookie, token)

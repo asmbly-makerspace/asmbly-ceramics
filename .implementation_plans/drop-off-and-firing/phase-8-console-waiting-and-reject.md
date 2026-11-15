@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 8: Console: sign-in, waiting list, rejection
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -80,7 +80,10 @@ this phase #3 is done and #5 is done.
 | `src/asmbly_ceramics/web/console/__init__.py` | `console_routes(services: ConsoleServices) -> list[BaseRoute]`, mounted at `/console` by `create_app` |
 | `src/asmbly_ceramics/web/console/auth.py` | Sign-in, callback, sign-out, signed-out routes; `require_staff` (the per-request check) |
 | `src/asmbly_ceramics/web/console/session.py` | The `__Host-session` and `__Host-signin` cookies: set, read, clear; the signed sign-in state |
-| `src/asmbly_ceramics/web/console/csrf.py` | `csrf_token(member)`, `check_csrf(request, member)`, `check_origin(request)` |
+| `src/asmbly_ceramics/web/console/csrf.py` | `csrf_token(session_token, key)`, `check_csrf(sent, session_token, key)`, `check_origin(request, site_url)` |
+| `src/asmbly_ceramics/web/console/common.py` | `Staff`, `Answer`, `read_form`, `drop_off_id`, `not_found`, `render` |
+| `src/asmbly_ceramics/web/console/services.py` | `ConsoleServices` |
+| `src/asmbly_ceramics/use_cases/photos.py` | `ViewPhoto` (revision 6) |
 | `src/asmbly_ceramics/web/console/waiting.py` | `GET /console` |
 | `src/asmbly_ceramics/web/console/dropoffs.py` | The drop-off page, its photos, the rejection preview, reject, undo, retry |
 | `src/asmbly_ceramics/web/console/emails.py` | `GET /console/emails`: every email needing attention |
@@ -91,6 +94,8 @@ this phase #3 is done and #5 is done.
 | `src/asmbly_ceramics/web/templates/console/reject_preview.html` | The rejection email, exactly as it will go out, with Send rejection and Cancel |
 | `src/asmbly_ceramics/web/templates/console/not_allowed.html` | The 403 page |
 | `src/asmbly_ceramics/web/templates/console/signed_out.html` | The public "You're signed out" page |
+| `src/asmbly_ceramics/web/templates/console/signing_out.html` | Sign-out's page, which goes on to the staff sign-out (revision 14) |
+| `src/asmbly_ceramics/web/templates/console/message.html` | A message page, with an optional Sign in link |
 | `tests/web/console/__init__.py` | |
 | `tests/web/console/conftest.py` | A `console_client` fixture: `create_app` over the fakes, with a `StaffTokens` fake that accepts made-up tokens; `signed_in(client, groups=("ceramics",))` |
 | `tests/web/console/test_auth.py` | Sign-in, callback, the per-request check, sign-out |
@@ -105,15 +110,112 @@ this phase #3 is done and #5 is done.
 
 | Path | Change |
 | --- | --- |
-| `src/asmbly_ceramics/web/app.py` | `WebServices` gains `console: ConsoleServices \| None`; `create_app` mounts `console_routes` when it is set (the form function's app has `None`, so `/console` is not served there) |
-| `src/asmbly_ceramics/composition.py` | `build_console_services() -> ConsoleServices` and `console_app()` (the console function's ASGI app) |
+| `src/asmbly_ceramics/web/app.py` | `create_app(services, settings, console=None)` adds `console_routes` when `console` is given (the form function's app has none, so `/console` is not served there); `WebServices` is unchanged |
+| `src/asmbly_ceramics/composition.py` | `build_console_services() -> (ConsoleServices, WebSettings)` and `console_app()` (the console function's ASGI app) |
 | `src/asmbly_ceramics/web/app.py` (`create_from_environment`, from phase 7) | Accepts `APP_ROLE=console` and returns `composition.console_app()`; `entry/run.sh` is unchanged |
-| `infra/app.yaml` | `ConsoleFunction`, its role, its log group, the routes, the three staff sign-in parameters, a `ConsoleErrorsAlarm` |
+| `infra/app.yaml` | `ConsoleFunction`, its role, its log group, the routes and their throttles, the three staff sign-in parameters, `ConsoleLoggedErrorsFilter` and the console in `FunctionErrorsAlarm` |
 | `scripts/smoke.py` | Two console checks (below) |
 | `tests/repo/test_app_template.py` (from phase 7) | Pins for the console's role and routes |
 | `.implementation_plans/drop-off-and-firing/README.md` | Phase 8's status, when the work starts and when it is merged |
 
 ## Implementation details
+
+### Prep revisions (15 November 2026)
+
+`/prep` checked this document against the code, and the build and its reviews changed
+it further. The sections after this list describe what was built; the list is kept as the
+record of what changed from the first draft and why:
+
+1. **Use case calls.** `PreviewRejection(...)(RejectRequest(drop_off_id, reason, message,
+   version, staff), image_src)`, `RejectDropOff(...)(RejectRequest(...))` and
+   `UndoRejection(...)(UndoRequest(drop_off_id, version, staff))`, with `staff` the
+   `StaffMember`. The `version` the staff member saw travels as a hidden field from the
+   drop-off page through the preview to Send and Undo, so a change meanwhile is a
+   `Conflict` ("AC-12 changed while you were looking."). The use cases log their own
+   actions (`drop_off_rejected`, `rejection_undone`, `email_retried`); the console logs
+   only its sign-in events.
+2. **Undo's message** comes from `Undone.contact_the_person`: "AC-12 is waiting again. No
+   email was sent." only when the rejection email never went; otherwise "AC-12 is waiting
+   again. The rejection email went, or may have: contact the person directly."
+3. **CSRF token.** `StaffMember` has no `sub` or `auth_time`, so `csrf_token(session_token,
+   key)` is HMAC-SHA256, under the session key, of `"csrf:" + the session's ID token`:
+   bound to the session and new at each sign-in. `check_origin` accepts `Origin` equal to
+   the site, or with no `Origin` (or `null`) `Sec-Fetch-Site: same-origin` or a console
+   `Referer` of this site.
+4. **Session cookie** `Max-Age` is a fixed 3600 seconds (the token's lifetime); an expired
+   token in it fails `verify` and is cleared. `NotSignedIn` carries no reason: the adapter
+   logs `sign_in_refused` with its fixed reason, and the console logs `auth_rejected`.
+   A key-fetch outage is logged by the console as `jwks_unavailable` at ERROR.
+5. **Key fetches** are throttled in the adapter: `ThrottledSigningKeys`, `CognitoStaffTokens`'
+   default key set, fetches again for an unknown `kid` at most once a minute.
+6. **Photos.** A small read-only use case, `use_cases/photos.py` `ViewPhoto(records,
+   photos)(id, index, size)`, reads the drop-off's record and `PhotoStore.read(ref, size)`
+   (`NotFound` for a closed drop-off, a missing index or a gone photo), instead of the
+   whole `ViewDropOff` per thumbnail. A photo request without a valid session answers
+   `401` ("Sign in to the console to see this photo."), never the photo and never a
+   redirect, so a thumbnail loading after the session ends doesn't overwrite the sign-in
+   state; the smoke test's second check expects that `401`. Thumbnails load with
+   `loading="lazy"`, and the console function's reserved concurrency is 25 (revision 13),
+   so a long waiting list isn't throttled (throttled requests still show in `Api5xxAlarm`).
+7. **The preview** shows the composed email in `<iframe sandbox="allow-same-origin"
+   srcdoc=...>` (no scripts), and only the preview's response allows inline styles
+   (`style-src 'self' 'unsafe-inline'`, `frame-src 'self'`), so the email looks as it will
+   go out. The search box and the message carry `autocomplete="off"`.
+8. **The drop-off page** offers "Try sending again" for `view.emails_needing_attention`
+   and Undo when `view.can_undo_rejection`, as `ViewDropOff` decides; it re-decides
+   neither rule. `ConsoleServices` also holds `studio: CurrentStudio`, for the preview's
+   From address.
+9. **The app factory.** `create_app(services: WebServices | None, settings, console:
+   ConsoleServices | None = None)`: the form's routes when `services` is given, the
+   console's when `console` is, `/health` and `/static` always. `WebServices` is
+   unchanged. The console function's `WebSettings.cookie_key` is the session key.
+   `Settings` gains `StaffSignIn.from_environment()` (`STAFF_ISSUER`, `STAFF_SIGN_IN_URL`,
+   `STAFF_CLIENT_ID`), and `tests/repo/test_app_template.py`'s variables test covers the
+   console's.
+10. **The console's role** in `infra/app.yaml`, as phase 7's statements are written (and
+    as `tests/repo/test_app_template.py` requires): `ReadRecords` (`dynamodb:GetItem` on
+    the table, `LeadingKeys` `DROPOFF#*`, `EMAIL#*`, `LOAD#*`, `STUDIO`),
+    `QueryEmailsOfADropOff` (`dynamodb:Query` on the table, `LeadingKeys` `EMAIL#*`),
+    `QueryIndexes` (`dynamodb:Query` on `index/*`), `WriteRecords` (`dynamodb:PutItem`,
+    `LeadingKeys` `DROPOFF#*`, `EMAIL#*`, `STUDIO`, only inside `TransactWriteItems`,
+    `ReturnValues` `NONE`), `ReadKeptPhotos`, `ListKeptPhotos` and `ReadSessionKey`. No
+    `dynamodb:TransactWriteItems` statement (not an IAM action).
+11. **Alarms.** Phase 7 has no per-function alarm: the console joins the shared ones, a
+    `ConsoleLoggedErrorsFilter` feeding `LoggedErrors` and the console in
+    `FunctionErrorsAlarm`. No `ConsoleErrorsAlarm`.
+12. **Smoke test.** No stack output: check 1 follows two hops, `GET /console` to
+    `/console/auth/sign-in?next=%2Fconsole` (the per-request check's redirect), then that to
+    the staff sign-in, and checks its shape (an `https` address other than the site's,
+    path `/oauth2/authorize`, `client_id`, `code_challenge_method=S256`, `redirect_uri`
+    equal to `<site>/console/auth/callback`) and the `__Host-signin` cookie; check 2
+    expects `401`. A test runs both checks against the console app as built. Following
+    the redirect on to Cognito is left out: its answers belong to asmbly-staff-login and
+    aren't documented as a contract here.
+13. **Review fixes (15 November 2026).** The console's reserved concurrency is 25 (the
+    account has room), with the route throttle on `ANY /console/{proxy+}` bounding it;
+    the stage check loads a waiting list of 30 or more rows before prod. The role's
+    table `Query` is limited to `EMAIL#*`, the index `Query` is its own statement.
+    `DropOffView.can_reject` comes from the domain's `can_be_rejected`. "Waiting (n)" shows
+    its count on the waiting page only. The four token cases the Tests list names under
+    `test_auth.py` (expired, another client, an access token, other groups only) are
+    parametrized in `test_real_tokens.py`, through the real verifier. The router doesn't
+    redirect trailing slashes (uvicorn behind the Web Adapter sees plain http).
+14. **No form redirect to another site.** Browsers check `form-action 'self'` on each
+    redirect of a form submission, so no console POST answers a redirect off-site: a POST
+    without a valid session answers a 401 "Your sign-in has ended, so that wasn't saved.
+    Sign in and try again." page with a Sign in link, and sign-out answers a 200 page that
+    goes on to the staff sign-out by a meta refresh and a Continue link. The rejection
+    message's "It has N." is left out (the domain counts the normalised text).
+15. **The session is sealed.** `__Host-session` holds `<ID token>.<HMAC-SHA256 under the
+    session key>`, checked before the token is verified: changing `session-key` signs
+    everyone out, and a token from stage's sign-in (stage and prod share the client) is
+    no session on prod. Photos and thumbnails have their own route,
+    `GET /console/drop-offs/{id}/photos/{proxy+}`, with their own throttle (burst 100,
+    30 a second), so thumbnails can't starve pages. The key set is tried again 5 seconds
+    after a cold container's first fetch fails, and a failed refresh keeps the set held.
+    The Tests list's `test_photos_without_a_session_redirect_and_never_read_the_store` is
+    `test_photos_without_a_session_never_read_the_store` (revision 6: a 401, not a
+    redirect).
 
 ### web: who may reach what
 
@@ -123,411 +225,224 @@ this phase #3 is done and #5 is done.
 | `/console/search` | POST | `ceramics`, CSRF | `WaitingList`, `FindDropOffs` |
 | `/console/drop-offs/{id}` | GET | `ceramics` | `ViewDropOff` |
 | `/console/emails` | GET | `ceramics` | `EmailsNeedingAttention` |
-| `/console/drop-offs/{id}/photos/{k}` | GET | `ceramics` | `PhotoStore.read` through `ViewDropOff`'s photo refs |
-| `/console/drop-offs/{id}/photos/{k}/thumb` | GET | `ceramics` | the same, thumbnail |
+| `/console/drop-offs/{id}/photos/{k}` | GET | `ceramics` (401 without a session) | `ViewPhoto` |
+| `/console/drop-offs/{id}/photos/{k}/thumb` | GET | `ceramics` (401 without a session) | `ViewPhoto`, thumbnail |
 | `/console/drop-offs/{id}/reject/preview` | POST | `ceramics`, CSRF | `PreviewRejection` |
 | `/console/drop-offs/{id}/reject` | POST | `ceramics`, CSRF | `RejectDropOff` |
 | `/console/drop-offs/{id}/undo-reject` | POST | `ceramics`, CSRF | `UndoRejection` |
 | `/console/drop-offs/{id}/emails/{kind}/retry` | POST | `ceramics`, CSRF | `RetryEmail` |
 | `/console/auth/sign-in` | GET | anyone | (starts sign-in) |
 | `/console/auth/callback` | GET | anyone holding a valid `__Host-signin` | `StaffTokens.exchange`, `StaffTokens.verify` |
-| `/console/sign-out` | POST | `ceramics`, CSRF | (clears the session) |
+| `/console/sign-out` | POST | anyone whose session verifies, in `ceramics` or not, CSRF; no session or a stale one goes to `/console/signed-out` | (clears the session) |
 | `/console/signed-out` | GET | anyone | (static page) |
 
-`{id}` must match `AC-[1-9][0-9]{0,8}`; anything else is 404 before any use case runs.
-`{k}` is 1 to 6; `{kind}` is `received`, `ready` or `rejected`.
+`{id}` must be `AC-n` (`common.drop_off_id`); anything else is 404 before any use case
+runs. `{k}` is 1 to 6; `{kind}` is `received`, `ready` or `rejected`.
 
 ### web: the per-request check (`auth.require_staff`)
 
-Every route above except sign-in, callback and signed-out goes through
-`require_staff(request) -> StaffMember`, before anything else:
+Every route above except sign-in, callback, sign-out and signed-out goes through
+`require_staff(request) -> Staff` (a GET) or `require_staff_post(request) -> (Staff,
+form)` (a POST: then this site's origin, then the CSRF token, then the bounded form),
+before anything else:
 
-1. No `__Host-session` cookie: a GET is answered `302` to
-   `/console/auth/sign-in?next=<the path and query>`; a POST gets `303` to
-   `/console/auth/sign-in?next=/console` (the form's data is not kept, and a POST-only
-   path such as `/console/search` would answer the returning GET with 405).
-2. `StaffTokens.verify(token)` (phase 4) checks the signature against the pool's keys,
-   `iss == STAFF_ISSUER`, `aud == STAFF_CLIENT_ID`, `token_use == "id"`, `exp` (with no
-   leeway beyond 60 seconds), and that `cognito:groups` contains `ceramics`. It returns
-   `StaffMember(username, email)` from `cognito:username` and `email` (when
-   `email_verified` is true; otherwise `email` is `None`).
-3. `NotSignedIn` (bad signature, wrong issuer or audience, wrong use, expired): the
-   cookie is cleared and the request is redirected as in 1. The log line is
-   `event=auth_rejected` with `reason` set to the reason (`expired`, `bad_audience`,
-   `bad_use`, `bad_signature`, `bad_issuer`), never the token.
-4. `NotAllowed` (a valid token without the group, or with no `cognito:groups` claim):
-   `403` with `not_allowed.html`: "You don't have access to the ceramics console. Ask
-   the Facilities Manager to add you to the ceramics group.", a link to the drop-off form
-   (`/`) and a "Sign in as someone else" button (a POST to `/console/sign-out` carrying
-   the CSRF token for this session, like every other console POST, so another site
-   can't sign staff out). Logged as `event=not_allowed`, `user=<username>`.
-5. `SignInUnavailable` (the pool's keys can't be fetched): `503` with "The staff
-   sign-in can't be checked right now. Try again in a minute." Logged as
-   `event=jwks_unavailable` at ERROR, which the console's error alarm counts.
+1. No `__Host-session` cookie, a seal that isn't this key's, or `NotSignedIn` from
+   `StaffTokens.verify` (phase 4: signature, `iss`, `aud`, `token_use == "id"`, `exp`,
+   and the username's shape): a GET is answered `302` to
+   `/console/auth/sign-in?next=<the path and query>`; a POST answers a `401` page, "Your
+   sign-in has ended, so that wasn't saved. Sign in and try again.", with a Sign in link
+   (revision 14: no form redirect off-site). A cookie that was there is cleared, and the
+   console logs `auth_rejected` (the adapter logs `sign_in_refused` with its fixed
+   reason).
+2. `NotAllowed` (a valid token without `ceramics`): `403` with `not_allowed.html`: "You
+   don't have access to the ceramics console. Ask the Facilities Manager to add you to
+   the ceramics group.", a link to the drop-off form and a "Sign in as someone else"
+   button (a POST to `/console/sign-out` with this session's CSRF token). Logged
+   `not_allowed`, `user=<username>`.
+3. `SignInUnavailable` (the pool's keys can't be fetched and none are held): `503`, "The
+   staff sign-in can't be checked right now. Try again in a minute.", logged
+   `jwks_unavailable` at ERROR, which `ConsoleLoggedErrorsFilter` counts.
+4. A photo (`require_staff_for_photo`) answers 1's case with a `401` page, "Sign in to the
+   console to see this photo.", never a redirect and never the photo.
 
-Every console response, including the 302, 403 and 503, carries the headers from
-`web/security.py` (`Content-Security-Policy` with `form-action 'self'`, `nosniff`,
-`Cache-Control: no-store`, `Referrer-Policy: same-origin`).
+Every console response carries the headers from `web/security.py`
+(`Content-Security-Policy` with `form-action 'self'`, `nosniff`, `Cache-Control:
+no-store`, `Referrer-Policy: same-origin`).
 
 ### web: sign-in and sign-out
 
-- **`GET /console/auth/sign-in?next=...`**: makes a PKCE verifier (32 random bytes,
-  base64url) and a state (32 random bytes), and sets `__Host-signin` (HttpOnly, Secure,
-  SameSite=Lax, Path=/, Max-Age=600) to `{verifier, state, next, iat}` signed with
-  HMAC-SHA256 under the session key (`Secrets.get(SecretName.SESSION_KEY)`: phase 4's
-  `SsmSecrets` reads `/asmbly-ceramics/<APP_ENV>/session-key`; no variable names it).
-  `next` is kept only if it is a relative path starting with `/console` and not `//`,
-  without a scheme or backslash; otherwise `/console`. Then `302` to
-  `StaffTokens.sign_in_url(state=..., code_challenge=S256(verifier), redirect_uri=SITE_URL + "/console/auth/callback")`,
-  which builds `<STAFF_SIGN_IN_URL>/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...&scope=openid%20email&state=...&code_challenge=...&code_challenge_method=S256`.
-- **`GET /console/auth/callback?code=...&state=...`**: refuses (400, "Sign-in didn't
-  finish. Try again.", with a link to sign in) when the `__Host-signin` cookie is
-  missing, its signature fails, it is older than 10 minutes, or its state doesn't match
-  (compared with `hmac.compare_digest`); an `error=` from Cognito gets the same page.
-  Otherwise `StaffTokens.exchange(code, verifier, redirect_uri)` posts to
-  `<STAFF_SIGN_IN_URL>/oauth2/token`, and the returned ID token is verified as in the
-  per-request check. A member of the group gets `__Host-session` set to the ID token
-  (HttpOnly, Secure, SameSite=Lax, Path=/, Max-Age = `exp - now`), `__Host-signin`
-  cleared, and `303` to `next`. Someone outside the group gets the 403 page and no
-  session cookie. The access and refresh tokens are discarded. Logged as
-  `event=signed_in`, `user=<username>`.
-- **`POST /console/sign-out`**: clears `__Host-session` and `303`s to
-  `<STAFF_SIGN_IN_URL>/logout?client_id=<STAFF_CLIENT_ID>&logout_uri=<SITE_URL>/console/signed-out`.
-  Logged as `event=signed_out`.
+- **`GET /console/auth/sign-in?next=...`**: `session.new_sign_in` makes a PKCE verifier
+  and a state (32 random bytes each, base64url) and sets `__Host-signin` (HttpOnly,
+  Secure, SameSite=Lax, Path=/, Max-Age=600) to `{verifier, state, next, issued_at}`
+  signed with HMAC-SHA256 under the session key. `next` is kept only as a console path
+  (`safe_next`); otherwise `/console`. Then `302` to `StaffTokens.sign_in_url(state,
+  code_challenge, redirect_uri=<site>/console/auth/callback)`.
+- **`GET /console/auth/callback?code=...&state=...`**: a missing, tampered or
+  ten-minute-old sign-in cookie, an `error=`, or a state that doesn't match
+  (`hmac.compare_digest`) answers `400` "Sign-in didn't finish. Try again." with a Sign
+  in link (or, already signed in, `303` to `/console`), logged `sign_in_failed`.
+  Otherwise `exchange` and `verify`: a member of the group gets `__Host-session` (the
+  sealed ID token, Max-Age 3600), `__Host-signin` cleared, `303` to `next`, logged
+  `signed_in`; someone outside it gets the 403 page with a link to the staff sign-out and
+  no session; an unreachable token endpoint is a 503 logged `sign_in_unavailable`.
+- **`POST /console/sign-out`**: no session cookie (its hour has lapsed) or one that no
+  longer verifies: `303` to `/console/signed-out`, clearing any stale cookie; there is
+  nothing signed in to protect. A session that verifies (in `ceramics` or not), or one
+  that can't be checked during a key outage, must carry this site's origin and its CSRF
+  token; then the session is cleared and a `200` page goes on to
+  `<staff sign-in>/logout?client_id=...&logout_uri=<site>/console/signed-out` by a meta
+  refresh and a Continue link. Logged `signed_out`.
 - **`GET /console/signed-out`**: "You're signed out of the ceramics console." with a
-  "Sign in" link and a link to the drop-off form. No details.
+  Sign in link and a link to the drop-off form. No details.
 
-The ID token is about 1 to 2 KB, under the 4 KB cookie limit. Tokens last 60 minutes and
-are not refreshed (asmbly-staff-login's web clients get a 60-minute refresh token, its
-add-an-app open question 2), so staff sign in again about hourly; the managed-login
-session usually makes that one tap.
-
-**From phase 4's privacy review** (the adapter leaves these to this phase):
-
-- **Fixed return addresses.** `CognitoStaffTokens.sign_in_url`, `sign_out_url` and
-  `exchange` pass `redirect_uri` (and `logout_uri`) to Cognito as given. The console
-  passes only the fixed addresses on this site, `SITE_URL + "/console/auth/callback"`
-  and `SITE_URL + "/console/signed-out"`, built from settings, never from the request
-  (no `Host` header, query string or `next`). A test pins both. Cognito also refuses an
-  address the client doesn't list, but that is asmbly-staff-login's setting, not a
-  check here.
-- **Throttle key fetches.** `PyJWKClient` fetches the pool's keys again for every token
-  whose `kid` it hasn't cached, so a stream of forged tokens with made-up `kid`s makes
-  the console fetch the JWKS once per request. Wrap the `SigningKeys` passed to
-  `CognitoStaffTokens(keys=...)` so an unknown `kid` refetches at most once a minute per
-  container (otherwise `NotSignedIn` without a fetch), or check the `kid` against the
-  cached set before asking; a test sends many unknown `kid`s and counts one fetch. The
-  console function's reserved concurrency of 5 bounds it meanwhile.
+The ID token is 1 to 2 KB; one that would seal past 4096 characters isn't set (a browser
+would drop it) and the callback says sign-in didn't finish. Tokens last 60 minutes and
+are not refreshed, so staff sign in again about hourly; the managed-login session
+usually makes that one tap. The return addresses are only the two fixed ones built from
+`SITE_URL`, never from the request, and the key set is fetched by `ThrottledSigningKeys`
+(revisions 5 and 15; a failed refresh, unreachable or an empty or malformed set, keeps
+the set held and logs `jwks_refresh_failed` with a code).
 
 ### web: forged requests (`csrf.py`)
 
-- `csrf_token(member, token)` is HMAC-SHA256 under the session key of
-  `sub + ":" + auth_time` from the verified token, base64url. Every console form has it
-  as the hidden field `csrf`.
-- `check_csrf` runs on every console POST after `require_staff`: a missing or wrong
-  `csrf` field is `403` "This form has expired. Go back, reload the page and try
-  again." and `event=csrf_refused`.
-- `check_origin`: every console POST must carry `Origin` equal to `SITE_URL` (or, when
-  the browser sends no `Origin`, a `Referer` starting with `SITE_URL + "/console"`);
-  otherwise the same 403. SameSite=Lax on the session already keeps a cross-site POST
-  from carrying the cookie; these two checks hold even if it didn't.
+- `csrf_token(session_token, key)` is HMAC-SHA256 under the session key of `"csrf:" +`
+  the session's ID token, base64url: new at each sign-in. Every console form has it as
+  the hidden field `csrf`.
+- `check_origin(request, site_url)`: `Origin` must equal the site; with no `Origin` (or
+  `null`), `Sec-Fetch-Site: same-origin` or a `Referer` of a `/console` page of this
+  site. `check_csrf` then compares the field with `hmac.compare_digest`. Either failing
+  is `403` "This form has expired. Go back, reload the page and try again.", logged
+  `csrf_refused` with `outcome` `missing`, `wrong_token` or `other_origin`.
 
 ### web: the waiting list (`GET /console`) and search (`POST /console/search`)
 
-`GET /console` calls `WaitingList(records, clock, studio)(firing_type)` (phase 2d: the
-use case reads the clock itself; `firing_type` is the filter, or `None`).
-`POST /console/search` (form fields `q` and the CSRF token) calls the same and
-`FindDropOffs(records, clock, studio)(q)`, and renders the same page with the matches,
-`200` with no redirect. Search is a POST, never `GET /console?q=...`: the search text is
-often part of a person's name, and in a URL it would stay in the browser's history, in
-any proxy's or server's logs and in a `Referer`; in a form body it stays out of all of
-them (phase 7's access log already omits query strings, but the browser's history would
-not). The response carries `Cache-Control: no-store`, as every console page does. Shows,
-as in the design's "Waiting to fire" screen:
-
-- the heading "Waiting to fire", "Oldest first.", a "Find a drop-off" search box
-  (`type=search`, placeholder "AC-12, 12 or part of a name", in a
-  `<form method="post" action="/console/search">` with the CSRF token), and "Start a load"
-  (a link to `/console/loads`, live from phase 9);
-- three cards: Bisque (pieces, in n drop-offs), Glaze (pieces, in n drop-offs, then the
-  split by glaze type, e.g. "38 house dip, 14 commercial"), Overdue (drop-offs waiting
-  60 days or more), as the use case's totals give them;
-- a Show filter (All, Bisque, Glaze, one per active firing type; `?firing=<item id>`),
-  as links with `aria-pressed`;
-- a table, oldest first: thumbnail (56 px, `/console/drop-offs/{id}/photos/1/thumb`,
-  `alt="Photo of AC-12"`), ID (monospace), name, pieces, firing type (label and outline,
-  not colour alone), glaze type or "—", days waiting ("today", "1 day", "n days", an
-  "overdue" tag at 60 or more), and Open;
-- no match: "No waiting drop-offs match that. Check the ID, or try part of the name."
-
-`q` is at most 100 characters (longer is cut, not refused); it is passed to the use case
-as typed and shown back escaped. The page is a single column under 40rem: the table sits
-in a box that scrolls sideways, and the cards stack.
+`GET /console` calls `WaitingList(firing_type)`; `POST /console/search` (fields `q` and
+`csrf`) calls the same and `FindDropOffs(q)` and renders the same page with the matches,
+`200` with no redirect, so the search text (often part of a name) never sits in a URL.
+The page shows the heading "Waiting to fire", the search box (`autocomplete="off"`), the
+Bisque, Glaze (with the glaze types' split) and Overdue cards from the use case's totals,
+a Show filter of chips (`?firing=<item id>`, `aria-current` on the chosen one), and a
+table: a lazily loaded 56 px thumbnail, the ID, name, pieces, firing type, glaze type or
+"—", and for a waiting row (`WaitingRow.waiting`) its days waiting ("today", "1 day", "n
+days", an "overdue" tag at 60), otherwise its state, then Open. Search covers every
+state that still has a name (and a closed drop-off by its number), at most 50 rows; no
+match says "No drop-offs match that. Check the ID, or try part of the name." `q` is cut
+at 100 characters, never refused, and shown back escaped. Under 40rem the table scrolls
+sideways and the cards stack.
 
 ### web: one drop-off (`GET /console/drop-offs/{id}`)
 
-Calls `ViewDropOff(id)`. Unknown ID: 404 "There's no drop-off AC-999." Shows:
-
-- the ID (monospace, `ceramics-shade`), the name, the firing type tag, and the state
-  ("Waiting n days", "In load L-4", "Fired Nov 9", "Rejected today: Has glaze issues",
-  "Closed");
-- every photo at full size (`/console/drop-offs/{id}/photos/{k}`, `alt="Photo k of n"`),
-  stacked, each `max-width: 100%`;
-- Details: pieces, firing, glaze type, dropped off (Austin time), email, phone. A closed
-  drop-off shows "Closed on <date>; its contact details and photos were deleted." and
-  none of them;
-- Emails: each of the drop-off's emails with its status (Sent, Waiting to send,
-  Failed: "Sending failed (code)") and, for a failed one, "Try sending again" (a POST
-  form to `.../emails/{kind}/retry`);
-- when waiting: "Add to a load" (a link to `/console/loads`) and "Reject…";
-- when rejected today: "Undo rejection" with "Undoing sends no email; contact the person
-  directly." When rejected on an earlier day: no undo.
-
-"Reject…" opens the panel on the same page (`?reject=1`), without a script: a Reason
-select (the active rejection reasons, from `ViewStudio` through the use case's result),
-a Message textarea (`maxlength=1000`, "(required for Other)" or "(optional)" from the
-reason's `needs_message`), and "Preview the email", a POST form (with the CSRF token)
-to `/console/drop-offs/{id}/reject/preview`, so the message never sits in a URL.
+`ViewDropOff(id)`; an unknown ID is 404 "There's no drop-off AC-999." The page shows the
+ID, name, firing type and state, every photo at full size, the details (pieces, firing,
+glaze type, dropped off in Austin time, email as a `mailto:` link, phone as a `tel:`
+link; a closed drop-off shows none of them), and each email's status with "Try sending
+again" for `view.emails_needing_attention`. A waiting drop-off offers "Add to a load"
+(`/console/loads`) and "Reject…" (`?reject=1#reject`), which opens the panel on the same
+page without a script: a Reason select (the active reasons, "(needs a message)" where
+one does), a Message textarea (`maxlength` from the domain's limit,
+`autocomplete="off"`), "Preview the email" (a POST with the CSRF token and the version
+seen) and Cancel. Undo shows when `view.can_undo_rejection`.
 
 ### web: the rejection preview, reject and undo
 
-- **`POST .../reject/preview`** (form fields `reason`, `message`, the CSRF token; a POST
-  so the message, which is personal data, never sits in a URL, browser history or a log
-  of query strings) calls
-  `PreviewRejection(records, clock, studio, composer)(RejectRequest(id, reason, message,
-  version, staff), image_src)` (phase 2d), with `image_src` giving each photo's
-  console address. Refusals are shown next to the field on the
-  drop-off page's panel, with the typed message kept, each as the domain error's
-  `.message` from `domain/errors.py` (any extra detail is built by the page from the
-  records, never parsed from `.message`): an unknown reason (`UnknownItem`, "That reason
-  doesn't exist.") or a retired one (`ItemRetired`, "Other is retired and can't be
-  picked."), a reason that needs a message and none (`MessageRequired`, "This reason
-  needs a message."), a message over 1,000 characters (`MessageTooLong`, "The message is
-  longer than 1,000 characters."; the page may add the typed length, which it counts
-  itself), a drop-off that isn't waiting (`NotWaiting`, "AC-12 isn't waiting: it is in
-  load."; the page may add "It is in load L-4." from the drop-off's `load_id`). On success, `reject_preview.html` shows the composed email exactly as
-  `mail/compose.py` builds it (To, From, Subject, then the HTML body inside a sandboxed
-  frame-free box: the composed HTML is rendered by the composer with autoescape, then
-  inserted as markup, with the photos as `/console/drop-offs/{id}/photos/{k}/thumb`
-  in place of the `cid:` references), and a POST form with the reason and message as
-  hidden fields, the CSRF token, "Send rejection" and "Cancel" (a link back).
-- **`POST .../reject`** calls `RejectDropOff(id, reason, message, by=member.username)`,
-  which re-checks everything (the preview is a convenience, the domain decides) and
-  commits the rejection and the outbox email in one transaction. Success: `303` to the
-  drop-off page with "AC-12 was rejected. The email is on its way." A conflict (someone
-  changed it meanwhile): the page again with "AC-12 changed while you were looking.
-  Check it and try again." and nothing stored. Logged `event=rejected`,
-  `drop_off_id=AC-12`, `user`, `reason=<reason item id>`; never the message.
-- **`POST .../undo-reject`** calls `UndoRejection(id, by, now)`. A rejection from an
-  earlier Austin day: `UndoTooLate`'s `.message`, "AC-12 was rejected on an earlier day;
-  undo works only the same day." Success:
-  `303` with "AC-12 is waiting again. No email was sent." The rejection email already
-  queued or sent is not recalled.
-- **`POST .../emails/{kind}/retry`** (hidden field `occasion`: empty for received and ready, and for a rejected email the email's own `occasion` exactly as stored (`rejection_occasion`'s text), never a time the page formats) calls `RetryEmail(id, kind, occasion, staff)`; success `303`
-  with "The email to AC-12 will be sent again."; an email that isn't failed: "That
-  email isn't failed." Logged `event=email_retried`.
+- **`POST .../reject/preview`** calls `PreviewRejection(RejectRequest(...),
+  image_src)`, with each photo at its console thumbnail address. A refusal (`UnknownItem`,
+  `ItemRetired`, `MessageRequired`, `MessageTooLong`, `NotWaiting`, `Conflict`) shows
+  the drop-off page's panel again with the typed message and the domain error's
+  `.message` next to its field. On success `reject_preview.html` shows To, From,
+  Subject and the composed HTML in `<iframe sandbox="allow-same-origin" srcdoc=...>`
+  (this response alone allows inline styles and `frame-src 'self'`), and a form with the
+  reason, message and version hidden, "Send rejection" and Cancel.
+- **`POST .../reject`** calls `RejectDropOff(RejectRequest(...))`, which re-checks
+  everything and commits the rejection and its outbox email together: `303` to the
+  drop-off page with "AC-12 was rejected. The email is on its way."; a refusal shows the
+  panel again; an unknown commit outcome is a 503 that says it may have been saved.
+- **`POST .../undo-reject`** calls `UndoRejection(UndoRequest(...))`: `303` with the
+  message `Undone.contact_the_person` picks (revision 2); `UndoTooLate` on a later Austin
+  day.
+- **`POST .../emails/{kind}/retry`** (hidden `occasion`, exactly as stored) calls
+  `RetryEmail`: `303` with "The email to AC-12 will be sent again." (back to the emails
+  list with `back=emails`).
+
+The use cases log their own actions (`drop_off_rejected`, `rejection_undone`,
+`email_retried`), by ID and username, never the message.
 
 ### web: emails needing attention (`GET /console/emails`)
 
-Calls phase 3's `EmailsNeedingAttention(records, clock)()`: every email, studio-wide,
-that is failed, or stuck pending or sending, and isn't history (its drop-off closed or
-its rejection undone), oldest first. It is the only page that shows a fired drop-off
-whose ready email never went out once its load has left the loads list: such a drop-off
-keeps its contact details and photos until the email is sent or, at the latest, 30
-days after its firing, when the close deletes them (#7, #20), so it must not be out of
-sight.
-
-- The console's band shows "Emails need attention (n)" linking here whenever n > 0
-  (the layout calls the use case on every console page; one GSI query per unfinished
-  status, about a few items).
-- A table, oldest first: the drop-off's ID (a link to `/console/drop-offs/{id}`), the
-  email ("Received", "Ready for pickup", "Rejected"), its state ("Sending failed (code)",
-  "Stuck sending since <Austin time>" from the row's `since`, or "Stuck sending"
-  when it has none, "Waiting to send since <Austin time>" from `since`; the row's
-  `since` is the domain's `stuck_since`, so the template never picks between
-  `claimed_at`, `retried_at` and `created_at` itself), and "Try
-  sending again" (the same POST form as the drop-off page's, to
-  `/console/drop-offs/{id}/emails/{kind}/retry` with the hidden `occasion` exactly as
-  the row holds it). A row whose drop-off record is missing still shows, without the
-  link. Nothing else: no name, address or message, since the rows carry only keys and
-  states.
-- Empty: "No email needs attention."
+`EmailsNeedingAttention()` (phase 3): every failed, or stuck pending or sending, email
+that isn't history, studio-wide and oldest first. The band shows "Emails need attention
+(n)" on every console page whenever n > 0. Each row has the drop-off's ID (a link, or
+plain when its record is missing), the email, its state ("Sending failed (code)",
+"Stuck sending since …", "Waiting to send since …", from the row's `since`) and "Try
+sending again". No name, address or message. Empty: "No email needs attention."
 
 ### web: photos
 
-`GET .../photos/{k}` and `.../thumb` answer, after `require_staff`, with the JPEG bytes
-from `PhotoStore.read(ref)`, `Content-Type: image/jpeg`,
-`Cache-Control: no-store` (a shared kiln tablet keeps no photo after sign-out),
-`X-Content-Type-Options: nosniff` and
-`Content-Disposition: inline; filename="AC-12-k.jpg"`. A closed drop-off or a missing
-photo is 404. The request without a valid session never reaches `PhotoStore`: it gets
-the sign-in redirect. The full-size copies are at most 2048 pixels (phase 2), well under
-Lambda's 6 MB response; the Lambda Web Adapter returns them base64-encoded.
+`GET .../photos/{k}` and `.../thumb` answer, after `require_staff_for_photo`, the JPEG
+bytes from `ViewPhoto(id, k, size)`, `image/jpeg`, `Cache-Control: no-store`, `nosniff`
+and `Content-Disposition: inline; filename="AC-12-k.jpg"` (or `-thumb`). A closed
+drop-off, a missing index or a gone photo is 404. Without a valid session it is the 401
+page and `PhotoStore` is never read. Photos and thumbnails have their own API route and
+throttle (revision 15).
 
 ### web: phones and tablets
 
-The console uses the same layout partials as the form (phase 6): the purple band with the
-logo, "Ceramics console", "Signed in as <username>", Sign out; then the tab row. Under
-40rem the band wraps, the tabs scroll sideways, cards stack, the drop-off page puts the
-details under the photos, and every button and link is at least 44 px tall.
+The console uses the form's layout partials: the band with "Ceramics console", "Signed
+in as <username>" and Sign out, then the tab row. Under 40rem the band wraps, the tabs
+scroll sideways, the cards stack and the drop-off page puts the details under the
+photos. Buttons, chips, tabs, table links and Cancel links are at least 44 px tall
+(`--tap-target`).
 
 ### web: what is logged
 
-No line per request: uvicorn's access log is off (phase 7), phase 6 adds no request
-logger, and `LOG_FIELDS` (phase 2a) has no path or status field. The console logs the
-events above only, through `log_event`, with `user` set to the signed-in staff username. `drop_off_id`, `load_id`, `user`, `reason` and `error_code`
-are the only identifying fields; no name, email, phone, message, query string, cookie or
-token is logged. `q` is never logged.
+No line per request (uvicorn's access log is off). The console logs only `signed_in`,
+`signed_out`, `sign_in_failed`, `sign_in_unavailable`, `auth_rejected`, `not_allowed`,
+`csrf_refused` and `jwks_unavailable`, through `log_event`, with `user` the staff
+username. No name, email, phone, message, search text, cookie or token is logged; the
+reject panel's `Panel.message` and the requests' messages are left out of their reprs.
 
 ### app: `composition.build_console_services()`
 
-Builds, from the environment: `Records`, `IdNumbers`, `PhotoStore`, `Clock`, `Secrets`
-and `StaffTokens` (phase 4's `CognitoStaffTokens(issuer=STAFF_ISSUER,
-sign_in_origin=STAFF_SIGN_IN_URL, client_id=STAFF_CLIENT_ID)`: keyword-only;
-`sign_in_origin` is an https origin with no path, which the adapter checks), then the use cases above
-into `ConsoleServices`. It doesn't build a `Mailer`: in this phase the console sends
-nothing itself (rejections go through the outbox). It refuses to start when any
-`STAFF_*` variable is empty.
-
-```python
-@dataclass(frozen=True)
-class ConsoleServices:
-    staff_tokens: StaffTokens
-    secrets: Secrets
-    clock: Clock
-    site_url: str
-    waiting_list: WaitingList
-    find_drop_offs: FindDropOffs
-    view_drop_off: ViewDropOff
-    preview_rejection: PreviewRejection
-    reject_drop_off: RejectDropOff
-    undo_rejection: UndoRejection
-    retry_email: RetryEmail
-    emails_needing_attention: EmailsNeedingAttention
-    photos: PhotoStore
-```
-
-Phase 9 adds its use cases to this dataclass.
+`build_console_services(settings, staff, clients, staff_tokens) -> (ConsoleServices,
+WebSettings)` builds `DynamoDbRecords`, `S3PhotoStore`, `SystemClock`, `SsmSecrets`,
+`CurrentStudio` and `CognitoStaffTokens(issuer=, sign_in_origin=, client_id=)` from
+`StaffSignIn.from_environment()`, then the use cases, into `web/console/services.py`'s
+`ConsoleServices` (`staff_tokens`, `secrets`, `clock`, `studio`, `site_url` with
+`callback_url` and `signed_out_url`, `waiting_list`, `find_drop_offs`, `view_drop_off`,
+`view_photo`, `preview_rejection`, `reject_drop_off`, `undo_rejection`, `retry_email`,
+`emails_needing_attention`). The `WebSettings.cookie_key` is the session key, read at
+start. No `Mailer`: rejections go through the outbox. It refuses to start when a
+`STAFF_*` variable is empty or the session key can't be read. `console_app()` is the
+console function's app.
 
 ### infra: `infra/app.yaml`
 
-New parameters, resolved from asmbly-staff-login's values when the stack deploys:
-
-```yaml
-  StaffIssuer:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /config/cognito/staff/issuer
-  StaffSignInUrl:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /config/cognito/staff/sign-in-url
-  StaffClientId:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /config/cognito/staff/ceramics-staff-app-client-id
-```
-
-The execution role already has `ssm:GetParameters` on `parameter/config/cognito/staff/*`
-(phase 5). If `ceramics-staff-app-client-id` doesn't exist yet, the change set fails to
-create and nothing changes; that is why the client is an admin action before the merge.
-
-New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
-
-```yaml
-  ConsoleLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${ProjectSlug}-${AppEnv}-console
-      RetentionInDays: !If [IsProd, 90, 14]
-
-  ConsoleFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub ${ProjectSlug}-${AppEnv}-console
-      CodeUri: ../src
-      Handler: asmbly_ceramics/entry/run.sh
-      MemorySize: 1024
-      Timeout: 29
-      ReservedConcurrentExecutions: 5
-      Layers: [!Ref WebAdapterLayerArn]
-      LoggingConfig: {LogGroup: !Ref ConsoleLogGroup}
-      Environment:
-        Variables:
-          APP_ROLE: console
-          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
-          PORT: "8080"
-          AWS_LWA_READINESS_CHECK_PATH: /health
-          STAFF_ISSUER: !Ref StaffIssuer
-          STAFF_SIGN_IN_URL: !Ref StaffSignInUrl
-          STAFF_CLIENT_ID: !Ref StaffClientId
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            - Sid: Records
-              Effect: Allow
-              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]  # a commit's Update is a conditional Put (phase 4)
-              Resource: [!GetAtt RecordsTable.Arn, !Sub '${RecordsTable.Arn}/index/*']
-            - Sid: Transactions
-              Effect: Allow
-              Action: dynamodb:TransactWriteItems   # authorised per item action above (PutItem); listed for clarity
-              Resource: !GetAtt RecordsTable.Arn
-            - Sid: ReadKeptPhotos
-              Effect: Allow
-              Action: s3:GetObject
-              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
-            - Sid: ListKeptPhotos          # read lists dropoffs/AC-n/ after a 403: a gone photo is
-              Effect: Allow                 # UploadMissing, not PhotosUnavailable (phase 4)
-              Action: s3:ListBucket
-              Resource: !GetAtt PhotoBucket.Arn
-              Condition:
-                StringLike: {s3:prefix: 'dropoffs/*'}
-            - Sid: ReadSessionKey
-              Effect: Allow
-              Action: ssm:GetParameter
-              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key'
-      # No HttpApi events (phase 5's revision 18, decision 0003: the execution role can't
-      # tag an imported API). Phase 7's pattern instead: ConsoleIntegration
-      # (AWS::ApiGatewayV2::Integration, AWS_PROXY to this function, payload 2.0), the
-      # routes ConsoleRoute ('ANY /console') and ConsoleProxyRoute
-      # ('ANY /console/{proxy+}') targeting it, and ConsoleInvokePermission
-      # (AWS::Lambda::Permission, Principal apigateway.amazonaws.com).
-
-  ConsoleErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectSlug}-${AppEnv}-console-errors
-      # the same shape as phase 7's FormErrorsAlarm: Lambda Errors > 0 in 5 minutes,
-      # or the log metric filter level=ERROR; AlarmActions and OKActions: AlarmTopic
-```
-
-The shared environment variables (`APP_ENV`, `APP_VERSION`, `TABLE_NAME`,
-`PHOTO_BUCKET`, `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `LOG_LEVEL`) come from phase 7's
-`Globals`; no variable names the session key's parameter (`SsmSecrets` builds it from
-`APP_ENV`), so the role below decides which key the console reads. The session key is
-the console's alone: the form function's role can't read it, and the console's role reads no other
-key (not `hash-key`, not `form-key`). `kms:Decrypt` for the SecureString through SSM comes from the function
-boundary (phase 5). `dynamodb:TransactWriteItems` is checked by DynamoDB against the
-rights for the actions in it, and phase 4's `commit` sends only `Put` actions (an
-`Update` is the whole item put under its version check), so `dynamodb:PutItem` is the
-only write this phase's console needs: no `UpdateItem` (phase 9 adds it, on `COUNTER#*`
-only, for load IDs) and no `ConditionCheckItem`. Phase 4's tests name the exact actions,
-and this statement must match them. The role's path
-(`/asmbly-ceramics-app/`) and boundary come from `Globals`.
-
-No `ses:SendEmail` here: the console sends its first email (the test email) in phase 9,
-which adds the right then. The routes `ANY /console` and `ANY /console/{proxy+}` take
-precedence over the form's `$default` route, so the form function never sees a console
-path.
+- Parameters `StaffIssuer`, `StaffSignInUrl` and `StaffClientId`
+  (`AWS::SSM::Parameter::Value<String>`, defaults `/config/cognito/staff/issuer`,
+  `/config/cognito/staff/sign-in-url` and
+  `/config/cognito/staff/ceramics-staff-app-client-id`), resolved at each deploy: a
+  missing one fails the change set and changes nothing.
+- `ConsoleFunction` (`${ProjectSlug}-${AppEnv}-console`, 1024 MB, 29 s, reserved
+  concurrency 25, the Web Adapter layer, `APP_ROLE=console` and the three `STAFF_*`
+  variables, no `Events`), its `ConsoleLogGroup` (90 days on prod, 14 on stage), and the
+  role statements listed in revision 10: no `ses:SendEmail`, no `UpdateItem`.
+- `ConsoleIntegration` (AWS_PROXY, payload 2.0), `ConsoleRoute` (`ANY /console`),
+  `ConsoleProxyRoute` (`ANY /console/{proxy+}`), `ConsolePhotosRoute`
+  (`GET /console/drop-offs/{id}/photos/{proxy+}`) and `ConsoleInvokePermission`; the
+  stage's `RouteSettings` give `ANY /console/{proxy+}` burst 40 and 10 a second, and the
+  photos route burst 100 and 30 a second. The console's routes take precedence over the
+  form's `$default`.
+- No alarm of its own: `ConsoleLoggedErrorsFilter` feeds the shared `LoggedErrors`
+  metric, and the console is in `FunctionErrorsAlarm` (revision 11).
 
 ### infra: `scripts/smoke.py`
 
-Two new checks, after the form's, against each environment, with no credentials:
-
-1. `GET <SITE_URL>/console` answers `302`, its `Location` starts with the sign-in
-   address `https://<auth-domain>/oauth2/authorize?` (the smoke test reads the expected
-   host from the deploy's `STAFF_SIGN_IN_URL` stack output, `StaffSignInHost`, added in
-   this phase), and carries `client_id=` and `code_challenge_method=S256`. The
-   `__Host-signin` cookie is set.
-2. `GET <SITE_URL>/console/drop-offs/AC-1/photos/1` without a cookie answers `302` to
-   `/console/auth/sign-in`, never `200`, and no image bytes.
+Two checks after the form's, with no credentials (revision 12): `console`, `GET
+/console` is a `302` to `/console/auth/sign-in?next=%2Fconsole`, which is a `302` to an
+`https` address on another host, path `/oauth2/authorize`, with `client_id`,
+`code_challenge_method=S256` and `redirect_uri` `<site>/console/auth/callback`, and sets
+`__Host-signin`; `console-photo`, a photo's console address without a session is a
+`401` and no image.
 
 ## Tests
 
@@ -542,15 +457,14 @@ Two new checks, after the form's, against each environment, with no credentials:
 - `test_callback_for_someone_outside_the_group_shows_not_allowed_and_sets_no_session`
 - `test_next_pointing_off_site_is_replaced_by_the_console` (parametrized: `//evil.example`,
   `https://evil.example`, `/\\evil`, `javascript:x`, `/form`)
-- `test_an_expired_token_clears_the_cookie_and_redirects`
-- `test_a_token_for_another_client_is_refused`
-- `test_an_access_token_is_refused` (`token_use=access`)
-- `test_a_token_without_groups_is_not_allowed`
-- `test_a_token_with_other_groups_only_is_not_allowed`
+- `test_a_token_without_groups_is_not_allowed` (expired, another client, an access token and
+  other groups only are parametrized in `test_real_tokens.py`, revision 13)
 - `test_not_allowed_names_the_facilities_manager_and_links_to_the_form`
 - `test_unavailable_signing_keys_answer_503`
 - `test_sign_out_clears_the_session_and_goes_to_the_staff_logout`
 - `test_sign_out_without_the_csrf_token_is_refused` (also from the not-allowed page)
+- `test_sign_out_with_a_stale_session_only_clears_it`
+- `test_sign_out_with_no_session_cookie_goes_to_signed_out`
 - `test_the_signed_out_page_is_public_and_shows_nothing_personal`
 
 `tests/web/console/test_real_tokens.py` (phase 4's verifier with a test RSA key and a
@@ -597,8 +511,8 @@ public key is refused.
 - `test_the_drop_off_page_shows_every_photo_and_the_contact_details`
 - `test_an_unknown_or_malformed_id_is_404` (`AC-999`, `AC-0`, `ac-12`, `AC-12x`)
 - `test_photos_are_served_to_staff_with_private_caching_and_nosniff`
-- `test_photos_without_a_session_redirect_and_never_read_the_store` (the fake
-  `PhotoStore` records no read)
+- `test_photos_without_a_session_never_read_the_store` (a 401; the fake `PhotoStore`
+  records no read)
 - `test_a_closed_drop_off_shows_no_details_and_no_photos`
 - `test_other_without_a_message_is_refused_next_to_the_field_and_stores_nothing`
 - `test_a_message_of_1001_characters_is_refused`
@@ -649,7 +563,7 @@ public key is refused.
 4. Waiting drop-offs are listed oldest first with ID, name, pieces, firing type, glaze
    type, a thumbnail and days waiting; bisque and glaze are each totalled in pieces (#3).
 5. Opening a drop-off shows all its photos at full size, only to the group; a photo's
-   console address without a session is a redirect, not the photo (#3, #2).
+   console address without a session is a 401 "Sign in" page, not the photo (#3, #2).
 6. One search box finds drop-offs by `AC-12`, `ac12`, `12` or any part of the name (#3);
    the search is sent as a POST, so the text never appears in a URL, the browser's
    history or a log.
@@ -694,9 +608,14 @@ After the merge, once the deploy's smoke tests pass on stage and prod:
    message, preview, send. The email arrives as previewed. Undo the rejection: it is
    waiting again and no email arrives.
 4. Sign in as a staff user outside the `ceramics` group: "not allowed".
-5. Copy a photo's console address into a private window: it goes to the sign-in, not the
-   photo.
+5. Copy a photo's console address into a private window: it says to sign in (401), and
+   shows no photo.
 6. Check the console's log group for the session: no name, address, phone or message.
+7. With 30 or more waiting drop-offs on stage (made-up details), open the waiting list on
+   two devices at once and scroll to the end: every thumbnail loads, and `api-5xx` stays
+   quiet. This is the first time the console's role meets real IAM (`GetItem` and
+   `Query` by leading key, the transactional `PutItem`, the S3 list fallback): a reject
+   and an undo on stage exercise them.
 
 ## Rollout
 
@@ -706,6 +625,10 @@ After the merge, once the deploy's smoke tests pass on stage and prod:
 - **Check:** the smoke test's two console checks on each environment; then the stage
   checks under Verification, done by the maintainer and one ceramics staff member.
 - **Who confirms:** the maintainer, and one ceramics staff member who signs in on stage.
+- **Before prod:** the smoke test is unauthenticated, so none of the signed-in steps runs
+  before prod deploys. Either turn on prod's required reviewer for this merge (decision
+  0003's environments) and approve after the stage checks, or accept that the signed-in
+  checks come after prod; the prod console stays unused until staff are told its address.
 - **Undo:** a revert pull request. Its deploy removes the console function, role and
   routes; the table, bucket and drop-offs are untouched. Rejections made meanwhile stay
   in the records.
@@ -732,15 +655,68 @@ undoing.
 - **Before the stage check:** ceramics staff are in the `ceramics` group (Manage users,
   asmbly-staff-login#3), and one staff user outside it is available for the "not
   allowed" check.
-- **After the merge:** confirm the console's error alarm reaches the alarm topic's
-  subscribers (it uses phase 7's topic).
+- **After the merge:** confirm the shared alarms (logged errors, function errors), which
+  now count the console too, reach the alarm topic's subscribers (phase 7's topic).
 
 ## Hand-off
 
-Filled in when the phase is done. Phase 9 relies on:
+Built on branch `feat/drop-off-and-firing-phases-7-9` (15 November 2026). Phase 9 can
+rely on:
 
-- `console_routes`, `ConsoleServices` (to extend), `require_staff`, `csrf_token`,
-  `check_csrf`, `check_origin`, the console layout and its tab row;
-- `ConsoleFunction`, its role (to gain `ses:SendEmail`), its log group and alarm;
-- the drop-off page's email statuses and retry form, reused on the load's page;
-- `build_console_services()` and `console_app()`.
+- **App factory.** `create_app(services: WebServices | None, settings, console:
+  ConsoleServices | None = None)`; `create_from_environment` takes `APP_ROLE=console` and
+  returns `composition.console_app(settings)`. `composition.build_console_services(settings,
+  staff, clients, staff_tokens)` returns `(ConsoleServices, WebSettings)`; the console's
+  `WebSettings.cookie_key` is the session key, read at start.
+- **`web/console/services.py` `ConsoleServices`** (extend it): `staff_tokens`, `secrets`,
+  `clock`, `studio` (`CurrentStudio`), `site_url` (with `callback_url` and
+  `signed_out_url`), `waiting_list`, `find_drop_offs`, `view_drop_off`, `view_photo`,
+  `preview_rejection`, `reject_drop_off`, `undo_rejection`, `retry_email`,
+  `emails_needing_attention`.
+- **`web/console/__init__.py` `console_routes()`**: add phase 9's routes to the list.
+- **`web/console/auth.py`**: `require_staff(request) -> Staff` (a GET),
+  `require_staff_post(request) -> (Staff, form)` (a POST: session, origin, CSRF, the
+  bounded form), `require_staff_for_photo` (401 instead of a redirect).
+  `web/console/common.py`: `Staff(member, token, csrf)`, `Answer`, `read_form`,
+  `drop_off_id`, `not_found`, `render(request, template, context, staff, *, status,
+  attention)` (the band's "Emails need attention (n)"), `phone_text`.
+  `web/console/csrf.py`: `csrf_token(session_token, key)`, `check_csrf`, `check_origin`.
+  `web/console/session.py`: the two cookies and the signed sign-in state.
+- **Templates**: `console/layout.html` (the band, Sign out, the tab row with Loads at
+  `/console/loads`, Weekly counts at `/console/counts`, Settings at `/console/settings`;
+  pass `tab`; only `waiting` is marked current today: phase 9 adds the `aria-current`
+  branches for its three tabs), `console/message.html` (a message, optional Sign in).
+- **The drop-off page's email statuses and retry form** (`dropoffs.email_status`,
+  `KIND_LABELS`, the form posting `occasion` and, from the emails list, `back=emails`).
+  `retry` knows only `back=emails`: phase 9 extends it for the load page.
+- **`use_cases/photos.py` `ViewPhoto`**, and `EmailNeedingAttention.drop_off_found`.
+- **`adapters/aws/staff_tokens.py` `ThrottledSigningKeys`**, `CognitoStaffTokens`' default
+  key set.
+- **Infra**: `ConsoleFunction` (role statements `ReadRecords`, `QueryEmailsOfADropOff`,
+  `QueryIndexes`, `WriteRecords`, `ReadKeptPhotos`, `ListKeptPhotos`, `ReadSessionKey`).
+  Phase 9 must add: `ses:SendEmail` (the test email), `UpdateItem` on `COUNTER#load`,
+  `LOAD#*` to `WriteRecords`' `LeadingKeys` (a load is put), and `STUDIO` to
+  `QueryEmailsOfADropOff`'s `LeadingKeys` (or a statement of its own) for the settings
+  history (`records.history` queries the table's `STUDIO` partition), changing the pins
+  in `tests/repo/test_app_template.py`'s console tests with them. `ConsoleLogGroup`,
+  `ConsoleLoggedErrorsFilter`, the console in `FunctionErrorsAlarm`, `ConsoleIntegration`,
+  `ConsoleRoute`, `ConsoleProxyRoute`, `ConsolePhotosRoute`, `ConsoleInvokePermission`,
+  the stage's `RouteSettings` for `ANY /console/{proxy+}` and the photos route, and the parameters `StaffIssuer`,
+  `StaffSignInUrl`, `StaffClientId`. The smoke test's `console` and `console-photo`
+  checks.
+
+- **Behaviour to keep**: a console POST without a valid session answers the 401 "that
+  wasn't saved" page, never a redirect; sign-out with no session or a stale one goes to
+  `/console/signed-out`; a waiting-list row says whether it is waiting
+  (`WaitingRow.waiting`), so a template never compares state strings; a Cancel link
+  carries `class="cancel"` for the 44 px tap target.
+
+Checked at hand-off (15 November 2026): `ruff check`, `ruff format --check`, `mypy` and
+`pytest --cov` pass on the branch. Not yet checked: anything live. The console has not
+been deployed, so the stage checks under Verification, the first meeting of the role
+with real IAM and the admin actions in asmbly-staff-login are still to do.
+
+Deferred: following the sign-in redirect to Cognito in the smoke test (see the prep
+revisions); the console in `web/local.py` (the laptop app serves the form only). Left
+for the run's docs step: `README.md`, `docs/architecture.md` and `CLAUDE.md` still say
+the console isn't built.

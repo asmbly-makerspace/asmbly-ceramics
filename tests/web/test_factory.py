@@ -44,8 +44,41 @@ def test_the_form_role_builds_the_form_under_a_deadline(deployed: None) -> None:
     assert health.json() == {"status": "ok", "version": "test-1"}
 
 
-@pytest.mark.parametrize("role", ["", "console", "FORM"])
+@pytest.mark.parametrize("role", ["", "CONSOLE", "FORM", "mailer"])
 def test_any_other_role_fails_at_start(deployed: None, monkeypatch: pytest.MonkeyPatch, role: str) -> None:
     monkeypatch.setenv("APP_ROLE", role)
     with pytest.raises(SettingsError, match="APP_ROLE"):
         create_from_environment()
+
+
+def test_the_console_role_builds_the_console_under_a_deadline(
+    deployed: None, monkeypatch: pytest.MonkeyPatch, world: World
+) -> None:
+    from starlette.applications import Starlette
+
+    from asmbly_ceramics.web.app import create_app
+    from tests.web.console.conftest import console_services, console_settings
+
+    monkeypatch.setenv("APP_ROLE", "console")
+
+    def build(given: Settings | None = None) -> Starlette:
+        assert given == Settings.from_environment(ENVIRONMENT)
+        return create_app(None, console_settings(world), console_services(world))
+
+    monkeypatch.setattr(composition, "console_app", build)
+    root = logging.getLogger()
+    saved = list(root.handlers), root.level
+    try:
+        app = create_from_environment()
+    finally:
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+        for handler in saved[0]:
+            root.addHandler(handler)
+        root.setLevel(saved[1])
+    outermost: object = app.user_middleware[0].cls
+    assert outermost is RequestDeadline
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.get("/console", follow_redirects=False).status_code == 302
+        assert client.get("/", follow_redirects=False).status_code == 404  # no form here
+        assert client.get("/health").json()["status"] == "ok"

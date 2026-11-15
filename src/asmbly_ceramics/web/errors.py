@@ -28,23 +28,32 @@ MESSAGES = {
     503: TRY_AGAIN,
 }
 
+# The console's own sentences where the form's would point at the drop-off form.
+CONSOLE_MESSAGES = {
+    400: "Something was wrong with that request. Go back, reload the page and try again.",
+    413: "That was too much to send at once. Go back, shorten it and try again.",
+}
+
 
 class PageError(Exception):
     """Stop and answer with the error page for `status`; `message` replaces the
     status's fixed sentence only with another fixed sentence (a domain error's)."""
 
-    def __init__(self, status: int, message: str | None = None) -> None:
+    def __init__(self, status: int, message: str | None = None, *, logged: bool = False) -> None:
         if status not in MESSAGES:
             raise ValueError("a page error's status has a message")
         super().__init__(status)
         self.status = status
-        self.message = message or MESSAGES[status]
+        self.message = message
+        self.logged = logged  # the refusal was logged where it was decided
 
 
 def error_response(request: Request, status: int, message: str | None = None) -> Response:
     """The error page, or JSON for the upload slots' endpoint, which a script reads."""
     if request.url.path == "/drop-off/uploads":
         return JSONResponse({"error": _JSON_ERRORS.get(status, "unavailable")}, status_code=status)
+    if message is None and request.url.path.startswith("/console"):
+        message = CONSOLE_MESSAGES.get(status)
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(
         request, "error.html", {"message": message or MESSAGES[status]}, status_code=status
@@ -64,7 +73,7 @@ _JSON_ERRORS = {
 async def page_error(request: Request, exc: Exception) -> Response:
     if not isinstance(exc, PageError):  # registered for PageError only
         raise exc
-    if exc.status in _REFUSALS:  # counted by phase 7; no value from the request
+    if exc.status in _REFUSALS and not exc.logged:  # counted by phase 7; no value from the request
         log_event("page_refused", outcome=_REFUSALS[exc.status])
     return error_response(request, exc.status, exc.message)
 

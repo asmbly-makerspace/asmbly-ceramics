@@ -1,0 +1,37 @@
+{% extends "console/layout.html" %}
+{% block title %}Emails needing attention{% endblock %}
+{% block content %}
+<h2>Emails needing attention</h2>
+{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
+{% if rows %}
+<p class="hint">Oldest first.</p>
+<div class="table-box">
+<table class="list">
+  <thead>
+    <tr><th scope="col">Drop-off</th><th scope="col">Email</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
+  </thead>
+  <tbody>
+  {% for row, label, state in rows %}
+    <tr>
+      <td class="mono">{% if row.drop_off_found %}<a href="/console/drop-offs/{{ row.drop_off_id }}">{{ row.drop_off_id }}</a>{% else %}{{ row.drop_off_id }}{% endif %}</td>
+      <td>{{ label }}</td>
+      <td>{{ state }}</td>
+      <td>
+        {% if row.drop_off_found %}
+        <form method="post" action="/console/drop-offs/{{ row.drop_off_id }}/emails/{{ row.kind.value }}/retry" class="inline-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="occasion" value="{{ row.occasion }}">
+          <input type="hidden" name="back" value="emails">
+          <button type="submit">Try sending again</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="notice" role="status">No email needs attention.</p>
+{% endif %}
+{% endblock %}

@@ -328,8 +328,8 @@ What each key is for, and what changing it does:
 
 - `form-key` (the public form's cookie; the form function only): changing it only
   expires open ID pages. Safe at any time.
-- `session-key` (the console's sign-in state and CSRF tokens; the console only):
-  changing it signs everyone out of the console. Safe at any time.
+- `session-key` (the console's sessions, sign-in state and CSRF tokens; the console
+  only): changing it signs everyone out of the console at once. Safe at any time.
 - `hash-key` (the rate limit's and the submission tokens' keyed hashes): changing it
   resets the rate-limit counts and orphans every live submission: its ID page expires,
   and a form sent again with the same submission token is not seen as a repeat, so it

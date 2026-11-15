@@ -122,3 +122,62 @@ def test_the_entry_points_never_import_the_local_fakes_app() -> None:
         "assert 'asmbly_ceramics.web.local' not in sys.modules\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603 (a fixed command)
+
+
+def test_console_services_build_on_stubbed_clients_reading_only_the_session_key(
+    form_clients: tuple[FormClients, Stubber],
+) -> None:
+    from asmbly_ceramics.adapters.aws.staff_tokens import CognitoStaffTokens
+    from asmbly_ceramics.composition import build_console_services
+    from asmbly_ceramics.settings import StaffSignIn
+    from asmbly_ceramics.web.console import ConsoleServices
+    from tests.test_settings import STAFF_ENVIRONMENT
+
+    clients, ssm = form_clients
+    ssm.add_response(
+        "get_parameter",
+        {"Parameter": {"Value": KEY}},
+        {"Name": "/asmbly-ceramics/stage/session-key", "WithDecryption": True},
+    )
+    staff = StaffSignIn.from_environment(STAFF_ENVIRONMENT)
+    services, web_settings = build_console_services(SETTINGS, staff, clients)
+    ssm.assert_no_pending_responses()
+    assert isinstance(services, ConsoleServices)
+    assert isinstance(services.staff_tokens, CognitoStaffTokens)
+    assert services.site_url == SETTINGS.site_url
+    assert services.callback_url == SETTINGS.site_url + "/console/auth/callback"
+    assert services.signed_out_url == SETTINGS.site_url + "/console/signed-out"
+    assert web_settings.cookie_key == bytes(range(32))  # the session key, read at start
+    sign_in = services.staff_tokens.sign_in_url(
+        state="s", code_challenge="c", redirect_uri=services.callback_url
+    )
+    assert sign_in.startswith(STAFF_ENVIRONMENT["STAFF_SIGN_IN_URL"] + "/oauth2/authorize?")
+
+
+def test_the_console_refuses_to_start_without_its_staff_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    from asmbly_ceramics.composition import build_console_services
+    from asmbly_ceramics.settings import SettingsError
+
+    for name in ("STAFF_ISSUER", "STAFF_SIGN_IN_URL", "STAFF_CLIENT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(SettingsError, match="STAFF_ISSUER"):
+        build_console_services(SETTINGS)
+
+
+def test_the_console_app_has_no_form_route(
+    form_clients: tuple[FormClients, Stubber], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from starlette.testclient import TestClient
+
+    from asmbly_ceramics import composition
+    from tests.test_settings import STAFF_ENVIRONMENT
+
+    clients, ssm = form_clients
+    ssm.add_response("get_parameter", {"Parameter": {"Value": KEY}})
+    for name, value in STAFF_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(FormClients, "build", lambda region: clients)
+    app = composition.console_app(SETTINGS)
+    with TestClient(app, base_url=SETTINGS.site_url) as client:
+        assert client.get("/", follow_redirects=False).status_code == 404
+        assert client.get("/console", follow_redirects=False).status_code == 302

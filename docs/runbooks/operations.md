@@ -156,10 +156,10 @@ by drop-off ID only; never open a drop-off's details with the CLI.
 | Alarm | Look at | Then |
 | --- | --- | --- |
 | `email-failures` | the mailer's log group, `email_failed` lines: the drop-off's ID and the SES error code | staff use "Try sending again" in the console (phase 8) once the cause is fixed; a refused address is the person's to correct |
-| `logged-errors` | the form's and the mailer's log groups, `level` `ERROR` lines: the event and `error_code` | a code that names AWS (`ThrottlingException`, `AccessDenied`) points at the stack; `photos_not_deleted` names a drop-off for the backstop (#19) |
+| `logged-errors` | the form's, the console's and the mailer's log groups, `level` `ERROR` lines: the event and `error_code` | a code that names AWS (`ThrottlingException`, `AccessDenied`) points at the stack; `photos_not_deleted` names a drop-off for the backstop (#19); the console's `jwks_unavailable` or `sign_in_unavailable` means the staff sign-in can't be reached (asmbly-staff-login's) |
 | `mailer-dead-letters` | the mailer's log group around the alarm's time (`mailer_crashed` with the drop-off's ID) | the email stays pending; fix the cause, then staff retry it |
 | `function-errors` | the function's log group around the alarm's time | a deploy's bad version: roll back |
-| `api-5xx` | the API's access log group (status only) and the form's log group | as for `function-errors`; with no errors logged, many people at once may have used up the form's 5 reserved executions (API Gateway answers for it) |
+| `api-5xx` | the API's access log group (status only) and the form's and console's log groups | as for `function-errors`; with no errors logged, many people at once may have used up the form's 5 or the console's 25 reserved executions (the console's thumbnails are each a request; API Gateway answers for it) |
 
 Each returns to OK by itself when the next five minutes are quiet.
 

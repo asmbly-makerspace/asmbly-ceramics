@@ -64,3 +64,31 @@ class Settings:
         """The host `S3PhotoStore` presigns its POSTs to (virtual-hosted, regional), which
         the form's CSP allows in `connect-src`."""
         return f"https://{self.photo_bucket}.s3.{self.region}.amazonaws.com"
+
+
+@dataclass(frozen=True)
+class StaffSignIn:
+    """asmbly-staff-login's values the console needs, which `infra/app.yaml` resolves from
+    `/config/cognito/staff/*` at deploy: the pool's issuer, the managed login's origin and
+    this app's client ID. Not secrets."""
+
+    issuer: str
+    sign_in_url: str  # an https origin with no path; `CognitoStaffTokens` checks it
+    client_id: str
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> StaffSignIn:
+        environ = os.environ if environ is None else environ
+
+        def read(name: str) -> str:
+            value = environ.get(name, "").strip()
+            if not value:
+                raise SettingsError(f"{name} is not set")
+            return value
+
+        issuer = read("STAFF_ISSUER")
+        sign_in_url = read("STAFF_SIGN_IN_URL")
+        for name, value in (("STAFF_ISSUER", issuer), ("STAFF_SIGN_IN_URL", sign_in_url)):
+            if not value.startswith("https://"):
+                raise SettingsError(f"{name} must start with https://")
+        return cls(issuer=issuer, sign_in_url=sign_in_url, client_id=read("STAFF_CLIENT_ID"))

@@ -33,6 +33,7 @@ from asmbly_ceramics.use_cases.loads import (
     StartLoad,
     ViewLoad,
 )
+from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.received import ReceivedSummary
 from asmbly_ceramics.use_cases.reject import PreviewRejection, RejectDropOff, UndoRejection
 from asmbly_ceramics.use_cases.settings import (
@@ -76,6 +77,7 @@ class World:
     waiting: WaitingList
     find: FindDropOffs
     view: ViewDropOff
+    view_photo: ViewPhoto
     preview: PreviewRejection
     reject: RejectDropOff
     undo: UndoRejection
@@ -141,6 +143,7 @@ def world() -> World:
         waiting=WaitingList(records, clock, studio),
         find=FindDropOffs(records, clock, studio),
         view=ViewDropOff(records, clock, studio),
+        view_photo=ViewPhoto(records, photos),
         preview=PreviewRejection(records, clock, studio, composer),
         reject=RejectDropOff(records, clock, studio),
         undo=UndoRejection(records, clock),

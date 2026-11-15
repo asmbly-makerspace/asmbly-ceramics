@@ -5,11 +5,14 @@ import json
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlencode
 
 import pytest
 from scripts.smoke import SmokeError
 
 from scripts import smoke
+from tests.use_cases.conftest import World
+from tests.use_cases.conftest import world as world  # the fakes, for the console check
 
 VERSION = "abc1234"
 TOKEN = "t" * 32
@@ -50,7 +53,25 @@ class Handler(BaseHTTPRequestHandler):
             headers["Set-Cookie"] = "__Host-device=d123; Path=/; Secure; HttpOnly"
             self.answer(200, f'<input name="submission" value="{TOKEN}">'.encode(), headers)
         elif self.path == "/console":
-            self.answer(200 if wrong == "console" else 404)
+            self.answer(302, headers={"Location": "/console/auth/sign-in?next=%2Fconsole"})
+        elif self.path == "/console/auth/sign-in?next=%2Fconsole":
+            site = f"http://127.0.0.1:{self.server.server_address[1]}"
+            query = {
+                "client_id": "made-up-client",
+                "code_challenge_method": "S256",
+                "redirect_uri": f"{site}/console/auth/callback",
+                "state": "s",
+            }
+            if wrong == "console":
+                query["redirect_uri"] = "https://evil.example/console/auth/callback"
+            location = "https://sign-in.example.org/oauth2/authorize?" + urlencode(query)
+            cookie = "__Host-signin=x.y; Path=/; Secure; HttpOnly; SameSite=Lax"
+            self.answer(302, headers={"Location": location, "Set-Cookie": cookie})
+        elif self.path == "/console/drop-offs/AC-1/photos/1":
+            if wrong == "console-photo":
+                self.answer(200, b"\xff\xd8", {"Content-Type": "image/jpeg"})
+            else:
+                self.answer(401, b"Sign in", {"Content-Type": "text/html"})
         elif self.path.startswith("/bucket/"):
             self.answer(200 if wrong == "private-photos" else 403)
         else:
@@ -111,6 +132,7 @@ def test_every_check_passes_against_a_right_site(site: tuple[str, Stub]) -> None
         "health: ok",
         "form: ok",
         "console: ok",
+        "console-photo: ok",
         "foreign-origin: ok",
         "upload-slot: ok",
         "upload: ok",
@@ -125,6 +147,7 @@ def test_every_check_passes_against_a_right_site(site: tuple[str, Stub]) -> None
         "health",
         "form",
         "console",
+        "console-photo",
         "foreign-origin",
         "upload-slot",
         "upload",
@@ -144,7 +167,7 @@ def test_an_upload_s3_cuts_off_while_it_is_sent_counts_as_refused(site: tuple[st
     url, server = site
     server.wrong = "close-early"
     report = smoke.run(url, VERSION, tries=1, wait=0)
-    assert report[6].startswith("oversized-upload: refused, ")
+    assert report[7].startswith("oversized-upload: refused, ")
 
 
 def test_health_is_retried_until_the_new_version_is_live(site: tuple[str, Stub]) -> None:
@@ -171,7 +194,7 @@ def test_main_prints_check_names_and_statuses_never_a_body(
     server.wrong = "console"
     assert smoke.main([url, VERSION]) == 1
     error = capsys.readouterr().err
-    assert error == "smoke test failed: console: expected 404, got 200\n"
+    assert error == "smoke test failed: console: the return address isn't this site's callback\n"
     assert smoke.main([url]) == 2
 
 
@@ -184,3 +207,64 @@ def test_the_size_limit_is_the_domain_s() -> None:
 def test_only_http_urls_are_requested() -> None:
     with pytest.raises(ValueError, match="http"):
         smoke.request("file:///etc/hostname")
+
+
+@pytest.mark.parametrize(
+    ("location", "detail"),
+    [
+        ("http://sign-in.example.org/oauth2/authorize?client_id=c", "https address"),
+        ("https://sign-in.example.org/login?client_id=c", "/oauth2/authorize"),
+        ("https://sign-in.example.org/oauth2/authorize?code_challenge_method=S256", "client_id"),
+        ("https://sign-in.example.org/oauth2/authorize?client_id=c&code_challenge_method=plain", "S256"),
+    ],
+)
+def test_a_wrong_sign_in_address_fails_the_console_check(
+    monkeypatch: pytest.MonkeyPatch, location: str, detail: str
+) -> None:
+    from email.message import Message
+
+    headers = Message()
+    headers["Location"] = location
+    headers["Set-Cookie"] = "__Host-signin=x"
+    first = Message()
+    first["Location"] = "/console/auth/sign-in?next=%2Fconsole"
+
+    def answer(url: str, **_: object) -> smoke.Answer:
+        return smoke.Answer(302, first if url.endswith("/console") else headers, b"")
+
+    monkeypatch.setattr(smoke, "request", answer)
+    with pytest.raises(SmokeError, match=detail):
+        smoke.check_console("https://ceramics-stage.example.org")
+
+
+def test_the_console_checks_pass_against_the_real_console_app(
+    monkeypatch: pytest.MonkeyPatch, world: World
+) -> None:
+    """The two console checks against the console as built: the fakes, with the real
+    sign-in address (`CognitoStaffTokens` builds it without the network)."""
+    from dataclasses import replace
+    from email.message import Message
+
+    from starlette.testclient import TestClient
+
+    from asmbly_ceramics.adapters.aws.staff_tokens import CognitoStaffTokens
+    from asmbly_ceramics.web.app import create_app
+    from tests.adapters.aws.test_staff_tokens import CLIENT_ID, ISSUER, ORIGIN
+    from tests.web.conftest import SITE
+    from tests.web.console.conftest import console_services, console_settings
+
+    tokens = CognitoStaffTokens(issuer=ISSUER, sign_in_origin=ORIGIN, client_id=CLIENT_ID)
+    services = replace(console_services(world), staff_tokens=tokens)
+    app = create_app(None, console_settings(world), services)
+    with TestClient(app, base_url=SITE) as client:
+
+        def through_client(url: str, **_: object) -> smoke.Answer:
+            response = client.get(url.removeprefix(SITE), follow_redirects=False)
+            headers = Message()
+            for name, value in response.headers.multi_items():
+                headers[name] = value
+            return smoke.Answer(response.status_code, headers, response.content)
+
+        monkeypatch.setattr(smoke, "request", through_client)
+        smoke.check_console(SITE)
+        smoke.check_console_photo(SITE)

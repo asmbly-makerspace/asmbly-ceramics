@@ -59,3 +59,36 @@ def test_a_value_of_the_wrong_shape_is_refused(name: str, value: str) -> None:
     with pytest.raises(SettingsError, match=name) as raised:
         Settings.from_environment({**ENVIRONMENT, name: value})
     assert value not in str(raised.value)
+
+
+STAFF_ENVIRONMENT = {
+    "STAFF_ISSUER": "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_MadeUpPool",
+    "STAFF_SIGN_IN_URL": "https://sign-in.example.org",
+    "STAFF_CLIENT_ID": "made-up-client-id",
+}
+
+
+def test_the_staff_sign_in_values_are_read() -> None:
+    from asmbly_ceramics.settings import StaffSignIn
+
+    assert StaffSignIn.from_environment(STAFF_ENVIRONMENT) == StaffSignIn(
+        issuer=STAFF_ENVIRONMENT["STAFF_ISSUER"],
+        sign_in_url=STAFF_ENVIRONMENT["STAFF_SIGN_IN_URL"],
+        client_id="made-up-client-id",
+    )
+
+
+@pytest.mark.parametrize("name", sorted(STAFF_ENVIRONMENT))
+def test_a_missing_staff_value_fails_at_start_naming_it(name: str) -> None:
+    from asmbly_ceramics.settings import StaffSignIn
+
+    with pytest.raises(SettingsError, match=name):
+        StaffSignIn.from_environment({**STAFF_ENVIRONMENT, name: " "})
+
+
+@pytest.mark.parametrize("name", ["STAFF_ISSUER", "STAFF_SIGN_IN_URL"])
+def test_a_staff_address_must_be_https(name: str) -> None:
+    from asmbly_ceramics.settings import StaffSignIn
+
+    with pytest.raises(SettingsError, match=name):
+        StaffSignIn.from_environment({**STAFF_ENVIRONMENT, name: "http://sign-in.example.org"})

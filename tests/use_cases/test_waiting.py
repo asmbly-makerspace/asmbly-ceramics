@@ -166,6 +166,12 @@ def test_find_by_name_covers_every_state_with_a_name(world: World) -> None:
 
     assert sorted(str(row.drop_off.id) for row in found) == ["AC-1", "AC-2", "AC-3", "AC-4"]
     assert all(not row.overdue for row in found)
+    assert {str(row.drop_off.id): row.waiting for row in found} == {
+        "AC-1": True,
+        "AC-2": False,
+        "AC-3": False,
+        "AC-4": False,
+    }
 
 
 def test_find_by_number_finds_a_closed_drop_off(world: World) -> None:

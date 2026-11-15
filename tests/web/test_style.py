@@ -78,6 +78,15 @@ def test_buttons_and_inputs_are_at_least_44px() -> None:
     assert TOKENS["font-size-body"].strip() == "1rem"
 
 
+def test_cancel_links_are_at_least_44px() -> None:
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == ".cancel")
+    assert "min-height: var(--tap-target)" in body
+    for template in ("drop_off.html", "reject_preview.html"):
+        page = (WEB / "templates" / "console" / template).read_text()
+        assert '<a class="cancel" href="/console/drop-offs/{{ drop_off.id }}">Cancel</a>' in page, template
+
+
 @pytest.mark.parametrize(
     ("foreground", "background", "minimum"),
     [

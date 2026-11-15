@@ -19,9 +19,17 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt import PyJWK, PyJWKClientConnectionError, PyJWKClientError
+from jwt import PyJWK, PyJWKClientConnectionError, PyJWKClientError, PyJWKSetError
 
-from asmbly_ceramics.adapters.aws.staff_tokens import CognitoStaffTokens, UrllibTransport
+from asmbly_ceramics.adapters.aws.staff_tokens import (
+    KEYS_FIRST_RETRY_SECONDS,
+    KEYS_LIFESPAN_SECONDS,
+    KEYS_REFETCH_SECONDS,
+    CognitoStaffTokens,
+    SigningKeys,
+    ThrottledSigningKeys,
+    UrllibTransport,
+)
 from asmbly_ceramics.adapters.memory.staff_tokens import s256
 from asmbly_ceramics.ports.errors import SignInUnavailable
 from asmbly_ceramics.ports.staff import NotAllowed, NotSignedIn, StaffMember
@@ -42,9 +50,9 @@ PRIVATE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 OTHER = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
-def jwk_of(key: rsa.RSAPrivateKey) -> PyJWK:
+def jwk_of(key: rsa.RSAPrivateKey, kid: str = KID) -> PyJWK:
     public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
-    return PyJWK({**public, "kid": KID, "alg": "RS256", "use": "sig"})
+    return PyJWK({**public, "kid": kid, "alg": "RS256", "use": "sig"})
 
 
 class Keys:
@@ -83,7 +91,7 @@ def a_token(
     return jwt.encode(claims(**(named or {}), **overrides), key, algorithm="RS256", headers={"kid": KID})
 
 
-def tokens(keys: Keys | None = None, transport: Any = None) -> CognitoStaffTokens:
+def tokens(keys: SigningKeys | None = None, transport: Any = None) -> CognitoStaffTokens:
     return CognitoStaffTokens(
         issuer=ISSUER, sign_in_origin=ORIGIN, client_id=CLIENT_ID, keys=keys or Keys(), transport=transport
     )
@@ -380,3 +388,153 @@ def test_a_token_answer_cut_short_is_sign_in_unavailable() -> None:
 def test_a_key_set_connection_reset_is_sign_in_unavailable() -> None:
     with pytest.raises(SignInUnavailable):
         tokens(Keys(fail=ConnectionResetError())).verify(a_token())
+
+
+# The throttled key set (phase 8) --------------------------------------------------------
+
+
+class Fetches:
+    """A key set fetch that counts its calls; `fail` makes the next ones fail."""
+
+    def __init__(self, *keys: PyJWK) -> None:
+        self.keys = list(keys)
+        self.count = 0
+        self.fail: Exception | None = None
+
+    def __call__(self) -> list[PyJWK]:
+        self.count += 1
+        if self.fail is not None:
+            raise self.fail
+        return self.keys
+
+
+class Ticks:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def a_token_with_kid(kid: str, key: rsa.RSAPrivateKey = PRIVATE) -> str:
+    return jwt.encode(claims(), key, algorithm="RS256", headers={"kid": kid})
+
+
+def test_many_unknown_kids_fetch_the_key_set_once_a_minute() -> None:
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    assert verifier.verify(a_token()).username == STAFF
+    assert fetch.count == 1
+    for n in range(50):
+        with pytest.raises(NotSignedIn):
+            verifier.verify(a_token_with_kid(f"made-up-kid-{n}"))
+    assert fetch.count == 1  # within a minute of the last fetch: refused without one
+    clock.now += KEYS_REFETCH_SECONDS
+    for n in range(50):
+        with pytest.raises(NotSignedIn):
+            verifier.verify(a_token_with_kid(f"made-up-kid-later-{n}"))
+    assert fetch.count == 2  # one fetch for the whole minute's unknown kids
+    assert verifier.verify(a_token()).username == STAFF  # a known kid never fetches
+    assert fetch.count == 2
+
+
+def test_a_rotated_key_is_fetched_and_the_set_refreshes_hourly() -> None:
+    rotated = jwk_of(OTHER, "rotated-key")
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    keys = ThrottledSigningKeys(fetch, clock=clock)
+    keys.get_signing_key_from_jwt(a_token())
+    clock.now += KEYS_REFETCH_SECONDS
+    fetch.keys.append(rotated)
+    assert keys.get_signing_key_from_jwt(a_token_with_kid("rotated-key", OTHER)).key_id == "rotated-key"
+    assert fetch.count == 2
+    clock.now += KEYS_LIFESPAN_SECONDS
+    keys.get_signing_key_from_jwt(a_token())
+    assert fetch.count == 3
+
+
+def test_a_failed_fetch_is_unavailable_and_not_retried_within_a_minute() -> None:
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    fetch.fail = PyJWKClientConnectionError("made-up outage")
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    for _ in range(5):
+        with pytest.raises(SignInUnavailable):
+            verifier.verify(a_token())
+    assert fetch.count == 1
+    fetch.fail = None
+    clock.now += KEYS_REFETCH_SECONDS
+    assert verifier.verify(a_token()).username == STAFF
+    assert fetch.count == 2
+
+
+def test_a_token_without_a_kid_is_refused_without_a_fetch() -> None:
+    fetch = Fetches(jwk_of(PRIVATE))
+    verifier = tokens(keys=ThrottledSigningKeys(fetch))
+    with pytest.raises(NotSignedIn):
+        verifier.verify(jwt.encode(claims(), PRIVATE, algorithm="RS256"))
+    with pytest.raises(NotSignedIn):
+        verifier.verify("not-a-token")
+    assert fetch.count == 0
+
+
+def test_a_cold_container_retries_the_key_set_after_a_few_seconds() -> None:
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    fetch.fail = PyJWKClientConnectionError("made-up outage")
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    with pytest.raises(SignInUnavailable):
+        verifier.verify(a_token())
+    fetch.fail = None
+    clock.now += KEYS_FIRST_RETRY_SECONDS
+    assert verifier.verify(a_token()).username == STAFF
+    assert fetch.count == 2
+
+
+def test_a_failed_refresh_keeps_the_key_set_it_holds() -> None:
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    verifier.verify(a_token())
+    clock.now += KEYS_LIFESPAN_SECONDS
+    fetch.fail = PyJWKClientConnectionError("made-up outage")
+    assert verifier.verify(a_token()).username == STAFF  # stale but held: still checked
+    assert verifier.verify(a_token()).username == STAFF
+    assert fetch.count == 2  # the next refresh waits a minute
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        PyJWKClientError("The JWKS endpoint did not contain any signing keys"),
+        PyJWKSetError("made-up malformed key set"),
+        ValueError("made-up body that isn't JSON"),
+    ],
+)
+def test_a_refresh_that_reads_a_bad_key_set_keeps_the_set_it_holds(
+    failure: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    verifier.verify(a_token())
+    clock.now += KEYS_LIFESPAN_SECONDS
+    fetch.fail = failure
+    assert verifier.verify(a_token()).username == STAFF  # the held set still checks it
+    assert fetch.count == 2
+    [record] = [r for r in caplog.records if r.getMessage() == "jwks_refresh_failed"]
+    assert vars(record)["error_code"] == "jwks_unreadable"
+    assert_nothing_holds(caplog.records, str(failure))
+
+
+def test_a_refresh_that_returns_no_keys_keeps_the_set_it_holds() -> None:
+    fetch, clock = Fetches(jwk_of(PRIVATE)), Ticks()
+    verifier = tokens(keys=ThrottledSigningKeys(fetch, clock=clock))
+    verifier.verify(a_token())
+    clock.now += KEYS_LIFESPAN_SECONDS
+    fetch.keys = []
+    assert verifier.verify(a_token()).username == STAFF
+    assert fetch.count == 2
+
+
+def test_a_first_fetch_of_an_empty_key_set_signs_no_one_in() -> None:
+    fetch = Fetches()
+    verifier = tokens(keys=ThrottledSigningKeys(fetch))
+    with pytest.raises(NotSignedIn):
+        verifier.verify(a_token())

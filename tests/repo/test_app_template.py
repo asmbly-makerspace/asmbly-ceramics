@@ -18,7 +18,7 @@ from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.adapters.aws.ids import DROP_OFF_COUNTER
 from asmbly_ceramics.adapters.aws.photos import KEPT_PREFIX, UPLOADS_PREFIX
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, claim, new_email
-from asmbly_ceramics.domain.ids import DropOffId
+from asmbly_ceramics.domain.ids import DropOffId, LoadId
 from asmbly_ceramics.use_cases.emails import EMAIL_FAILED
 from tests.repo.cloudformation import load_template
 from tests.repo.files import REPO
@@ -256,7 +256,7 @@ def test_every_function_has_its_environment_s_boundary_a_path_and_its_own_log_gr
         "Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-function-boundary-arn"}
     }
     assert GLOBALS["RolePath"] == "/asmbly-ceramics-app/"
-    assert set(FUNCTIONS) == {"FormFunction", "MailerFunction"}
+    assert set(FUNCTIONS) == {"FormFunction", "MailerFunction", "ConsoleFunction"}
     for name, function in FUNCTIONS.items():
         properties = function["Properties"]
         for override in ("PermissionsBoundary", "RolePath", "Role", "AssumeRolePolicyDocument"):
@@ -453,7 +453,7 @@ def test_every_alarm_notifies_this_project_s_topic_and_ignores_missing_data() ->
 
 def test_the_function_errors_alarm_counts_a_function_that_wasn_t_invoked_as_zero() -> None:
     [total] = [m for m in ALARMS["FunctionErrorsAlarm"]["Properties"]["Metrics"] if m.get("ReturnData")]
-    assert total["Expression"] == "FILL(form, 0) + FILL(mailer, 0)"
+    assert total["Expression"] == "FILL(form, 0) + FILL(mailer, 0) + FILL(console, 0)"
 
 
 def test_the_template_sets_exactly_the_variables_the_app_reads() -> None:
@@ -462,10 +462,15 @@ def test_the_template_sets_exactly_the_variables_the_app_reads() -> None:
     app = (REPO / "src" / "asmbly_ceramics" / "web" / "app.py").read_text()
     read |= set(re.findall(r'os\.environ\.get\("([A-Z_]+)"', app))
     form = FUNCTIONS["FormFunction"]["Properties"]["Environment"]["Variables"]
-    set_by_template = set(GLOBALS["Environment"]["Variables"]) | {"APP_ROLE"}
+    console = FUNCTIONS["ConsoleFunction"]["Properties"]["Environment"]["Variables"]
+    staff = {"STAFF_ISSUER", "STAFF_SIGN_IN_URL", "STAFF_CLIENT_ID"}
+    set_by_template = set(GLOBALS["Environment"]["Variables"]) | {"APP_ROLE"} | staff
     lambda_sets = {"AWS_REGION"}
     assert read == set_by_template | lambda_sets
-    assert set(form) == {"APP_ROLE", "AWS_LAMBDA_EXEC_WRAPPER", "PORT", "AWS_LWA_READINESS_CHECK_PATH"}
+    web = {"APP_ROLE", "AWS_LAMBDA_EXEC_WRAPPER", "PORT", "AWS_LWA_READINESS_CHECK_PATH"}
+    assert set(form) == web
+    assert set(console) == web | staff
+    assert (form["APP_ROLE"], console["APP_ROLE"]) == ("form", "console")
 
 
 def test_the_dead_letters_alarm_counts_each_new_dead_letter() -> None:
@@ -485,7 +490,7 @@ def test_the_email_failures_alarm_counts_the_email_failed_event() -> None:
         email["MetricTransformations"][0]["MetricName"]
         == ALARMS["EmailFailuresAlarm"]["Properties"]["MetricName"]
     )
-    for name in ("FormLoggedErrorsFilter", "MailerLoggedErrorsFilter"):
+    for name in ("FormLoggedErrorsFilter", "MailerLoggedErrorsFilter", "ConsoleLoggedErrorsFilter"):
         assert (
             RESOURCES[name]["Properties"]["FilterPattern"]
             == f'{{ ($.level = "ERROR") && ($.event != "{EMAIL_FAILED}") }}'
@@ -498,7 +503,9 @@ def test_the_email_failures_alarm_counts_the_email_failed_event() -> None:
     assert dimensions == [
         [{"Name": "FunctionName", "Value": {"Ref": "FormFunction"}}],
         [{"Name": "FunctionName", "Value": {"Ref": "MailerFunction"}}],
+        [{"Name": "FunctionName", "Value": {"Ref": "ConsoleFunction"}}],
     ]
+    assert RESOURCES["ConsoleLoggedErrorsFilter"]["Properties"]["LogGroupName"] == {"Ref": "ConsoleLogGroup"}
 
 
 # What the file may not hold --------------------------------------------------------------
@@ -523,3 +530,98 @@ def test_the_addresses_are_ssm_parameters_resolved_by_cloudformation(name: str) 
     kebab = re.sub(r"(?<!^)(?=[A-Z])", "-", name).lower()
     for env in ("stage", "prod"):
         assert f"{name}=/asmbly-ceramics/{env}/{kebab}" in samconfig
+
+
+# The console (phase 8) -------------------------------------------------------------------------
+
+LOADS = _partition_prefix(keys.load_key(LoadId(1)), "L-1")
+
+
+def test_the_console_reads_only_kept_photos_and_its_session_key() -> None:
+    console = statements("ConsoleFunction")
+    [read] = granted("ConsoleFunction", "s3:GetObject")
+    assert sub(read["Resource"]) == "${PhotoBucket.Arn}/" + KEPT
+    [listing] = granted("ConsoleFunction", "s3:ListBucket")
+    assert listing["Condition"] == {"StringLike": {"s3:prefix": KEPT}}
+    assert not granted("ConsoleFunction", "s3:PutObject")
+    assert not granted("ConsoleFunction", "s3:DeleteObject")
+    [key] = granted("ConsoleFunction", "ssm:GetParameter")
+    assert [sub(r) for r in resources(key)] == [
+        "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key"
+    ]
+    assert "hash-key" not in str(console)
+    assert "form-key" not in str(console)
+    [get] = granted("ConsoleFunction", "dynamodb:GetItem")
+    assert sorted(leading_keys(get)) == sorted([DROP_OFFS, EMAILS, LOADS, STUDIO])
+    table_query, index_query = granted("ConsoleFunction", "dynamodb:Query")
+    assert table_query["Resource"] == TABLE
+    assert leading_keys(table_query) == [EMAILS]  # never SUBMISSION#, RATE# or COUNTER#
+    assert sub(index_query["Resource"]) == "${RecordsTable.Arn}/index/*"
+
+
+def test_the_console_role_cannot_send_email_yet() -> None:
+    for statement in statements("ConsoleFunction").values():
+        for action in actions(statement):
+            assert not action.startswith(("ses:", "sqs:", "sns:", "lambda:", "iam:")), action
+
+
+def test_the_console_writes_with_put_item_only() -> None:
+    every = [
+        a for s in statements("ConsoleFunction").values() for a in actions(s) if a.startswith("dynamodb:")
+    ]
+    assert sorted(set(every)) == ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
+    for forbidden in (
+        "dynamodb:UpdateItem",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Scan",
+    ):
+        assert forbidden not in every
+    [put] = granted("ConsoleFunction", "dynamodb:PutItem")
+    assert sorted(leading_keys(put)) == sorted([DROP_OFFS, EMAILS, STUDIO])
+    assert put["Condition"]["ForAnyValue:StringEquals"] == {
+        "dynamodb:EnclosingOperation": ["TransactWriteItems"]
+    }
+    assert put["Condition"]["StringEqualsIfExists"] == {"dynamodb:ReturnValues": "NONE"}
+
+
+def test_the_console_routes_go_to_the_console_function_only() -> None:
+    routes = {
+        r["Properties"]["RouteKey"]: r for r in RESOURCES.values() if r["Type"] == "AWS::ApiGatewayV2::Route"
+    }
+    photos = "GET /console/drop-offs/{id}/photos/{proxy+}"
+    assert set(routes) == {"$default", "ANY /console", "ANY /console/{proxy+}", photos}
+    for key in ("ANY /console", "ANY /console/{proxy+}", photos):
+        assert sub(routes[key]["Properties"]["Target"]) == "integrations/${ConsoleIntegration}"
+    assert sub(routes["$default"]["Properties"]["Target"]) == "integrations/${FormIntegration}"
+    integration = RESOURCES["ConsoleIntegration"]["Properties"]
+    assert integration["IntegrationUri"] == {"Fn::GetAtt": ["ConsoleFunction", "Arn"]}
+    assert (integration["IntegrationType"], integration["PayloadFormatVersion"]) == ("AWS_PROXY", "2.0")
+    assert RESOURCES["ConsoleInvokePermission"]["Properties"]["FunctionName"] == {"Ref": "ConsoleFunction"}
+    properties = FUNCTIONS["ConsoleFunction"]["Properties"]
+    assert properties["Handler"] == "asmbly_ceramics/entry/run.sh"
+    assert properties["ReservedConcurrentExecutions"] == 25
+    assert properties["Timeout"] == 29
+    stage = RESOURCES["HttpApiStage"]
+    assert set(stage["DependsOn"]) == {"ConsoleRoute", "ConsoleProxyRoute", "ConsolePhotosRoute"}
+    assert stage["Properties"]["RouteSettings"] == {
+        "ANY /console/{proxy+}": {"ThrottlingBurstLimit": 40, "ThrottlingRateLimit": 10},
+        photos: {"ThrottlingBurstLimit": 100, "ThrottlingRateLimit": 30},
+    }
+
+
+def test_the_staff_sign_in_values_come_from_parameter_store() -> None:
+    expected = {
+        "StaffIssuer": "/config/cognito/staff/issuer",
+        "StaffSignInUrl": "/config/cognito/staff/sign-in-url",
+        "StaffClientId": "/config/cognito/staff/ceramics-staff-app-client-id",
+    }
+    variables = FUNCTIONS["ConsoleFunction"]["Properties"]["Environment"]["Variables"]
+    for name, default in expected.items():
+        parameter = TEMPLATE["Parameters"][name]
+        assert (parameter["Type"], parameter["Default"]) == ("AWS::SSM::Parameter::Value<String>", default)
+    assert variables["STAFF_ISSUER"] == {"Ref": "StaffIssuer"}
+    assert variables["STAFF_SIGN_IN_URL"] == {"Ref": "StaffSignInUrl"}
+    assert variables["STAFF_CLIENT_ID"] == {"Ref": "StaffClientId"}
+    # One pool serves stage and prod: no environment overrides them.
+    assert "Staff" not in (REPO / "samconfig.toml").read_text()

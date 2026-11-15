@@ -551,6 +551,7 @@ def test_needs_attention_rows_hold_keys_and_states_only() -> None:
         "error_code",
         "created_at",
         "since",
+        "drop_off_found",
     ]
 
 
@@ -608,6 +609,10 @@ def test_an_email_of_a_missing_drop_off_is_shown_not_hidden(
     dropped_off(world, 1)
     world.mailer.fail_with = "MessageRejected"
     send_all(world)
+    [found] = world.emails_needing_attention()
+    assert found.drop_off_found is True
     monkeypatch.setattr(world.records, "drop_off", lambda id: None)
 
     assert attention(world) == [("AC-1", EmailKind.RECEIVED, EmailStatus.FAILED, "MessageRejected")]
+    [missing] = world.emails_needing_attention()
+    assert missing.drop_off_found is False

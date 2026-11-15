@@ -33,6 +33,7 @@ _SEARCHED = frozenset({DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.
 @dataclass(frozen=True, slots=True)
 class WaitingRow:
     drop_off: DropOff
+    waiting: bool  # still waiting: the page shows its days waiting, otherwise its state
     days_waiting: int  # domain.waiting.days_waiting
     overdue: bool  # domain.waiting.is_overdue: False for a drop-off that isn't waiting
     firing_type: str  # the item's name
@@ -52,6 +53,7 @@ class WaitingView:
 def _row(drop_off: DropOff, studio: Studio, now: datetime) -> WaitingRow:
     return WaitingRow(
         drop_off=drop_off,
+        waiting=drop_off.state is DropOffState.WAITING,
         days_waiting=days_waiting(drop_off, now),
         overdue=is_overdue(drop_off, now),
         firing_type=item_name(studio, CatalogList.FIRING_TYPES, drop_off.firing_type),

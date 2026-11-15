@@ -6,6 +6,7 @@
 <title>{% block title %}Drop off for firing{% endblock %} · Asmbly Ceramics</title>
 <link rel="stylesheet" href="/static/app.css?v={{ version }}">
 {% block scripts %}{% endblock %}
+{% block head_extra %}{% endblock %}
 </head>
 <body>
 <header>
@@ -20,8 +21,9 @@
       <h1>{% block heading %}Drop off for firing{% endblock %}</h1>
     </div>
   </div>
+  {% block header_extra %}{% endblock %}
 </header>
-<main class="page">
+<main class="{% block main_class %}page{% endblock %}">
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">

@@ -1,7 +1,7 @@
 # One environment of the ceramics studio app (stage or prod): the records table, the
-# private photo bucket, the public form behind an HTTP API at the environment's address,
-# the mailer that sends the outbox's emails, and the alarms that tell the maintainers
-# when sending fails. Deployed by .github/workflows/deploy.yml with the bootstrap's
+# private photo bucket, the public form and the staff console behind an HTTP API at the
+# environment's address, the mailer that sends the outbox's emails, and the alarms that
+# tell the maintainers when sending fails. Deployed by .github/workflows/deploy.yml with the bootstrap's
 # execution role (infra/bootstrap.yaml, decisions 0002 and 0003); never by hand.
 #
 # Every name comes from ProjectSlug and AppEnv. Nothing here is an account ID, an
@@ -48,6 +48,20 @@ Parameters:
   InitialSendingAddress:
     Type: AWS::SSM::Parameter::Value<String>
     Description: The name of the String parameter holding the studio's first sending address at asmbly.org.
+  # asmbly-staff-login's values (its add-an-app plan), resolved at each deploy: a missing
+  # one (the app's client not created yet) fails the change set and changes nothing.
+  StaffIssuer:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /config/cognito/staff/issuer
+    Description: The staff pool's issuer, which the console checks each ID token against.
+  StaffSignInUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /config/cognito/staff/sign-in-url
+    Description: The staff managed login's https origin.
+  StaffClientId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /config/cognito/staff/ceramics-staff-app-client-id
+    Description: This app's sign-in client, created in asmbly-staff-login.
 
 Conditions:
   IsProd: !Equals [!Ref AppEnv, prod]
@@ -201,9 +215,43 @@ Resources:
       RouteKey: $default
       Target: !Sub 'integrations/${FormIntegration}'
 
+  # The console's paths go to its own function; they take precedence over $default, so
+  # the form function never sees one.
+  ConsoleIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ConsoleFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  ConsoleRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /console
+      Target: !Sub 'integrations/${ConsoleIntegration}'
+
+  ConsoleProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /console/{proxy+}
+      Target: !Sub 'integrations/${ConsoleIntegration}'
+
+  # Photos and thumbnails: a route of their own, so a long list's thumbnails take their
+  # own throttle and can't starve the console's pages and forms.
+  ConsolePhotosRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /console/drop-offs/{id}/photos/{proxy+}
+      Target: !Sub 'integrations/${ConsoleIntegration}'
+
   # Access logs hold no source address, user agent or query string.
   HttpApiStage:
     Type: AWS::ApiGatewayV2::Stage
+    DependsOn: [ConsoleRoute, ConsoleProxyRoute, ConsolePhotosRoute]
     Properties:
       ApiId: !Ref HttpApi
       StageName: $default
@@ -211,6 +259,16 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 20
         ThrottlingRateLimit: 5
+      # The console's pages under /console/ get more room than the form's (the waiting
+      # list itself, ANY /console, keeps the default); its thumbnails (separate, lazily
+      # loaded requests) get their own, larger bucket.
+      RouteSettings:
+        ANY /console/{proxy+}:
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 10
+        GET /console/drop-offs/{id}/photos/{proxy+}:
+          ThrottlingBurstLimit: 100
+          ThrottlingRateLimit: 30
       AccessLogSettings:
         DestinationArn: !GetAtt HttpApiLogGroup.Arn
         Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength","integrationLatency":"$context.integrationLatency"}'
@@ -226,6 +284,14 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref FormFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+  ConsoleInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ConsoleFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
 
@@ -336,6 +402,90 @@ Resources:
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/hash-key'
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/form-key'
 
+  ConsoleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectSlug}-${AppEnv}-console'
+      Description: The staff console (the ceramics group only), through the Lambda Web Adapter.
+      Handler: asmbly_ceramics/entry/run.sh
+      MemorySize: 1024
+      Timeout: 29
+      # Each thumbnail is its own request (lazily loaded), so a long waiting list needs
+      # room; the stage's route throttle bounds it, and the key set's refetch is
+      # throttled in the app.
+      ReservedConcurrentExecutions: 25
+      Layers: [!Ref WebAdapterLayerArn]
+      Environment:
+        Variables:
+          APP_ROLE: console
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          PORT: '8080'
+          AWS_LWA_READINESS_CHECK_PATH: /health
+          STAFF_ISSUER: !Ref StaffIssuer
+          STAFF_SIGN_IN_URL: !Ref StaffSignInUrl
+          STAFF_CLIENT_ID: !Ref StaffClientId
+      # No Events: the API reaches it through ConsoleIntegration and ConsoleInvokePermission.
+      LoggingConfig:
+        LogGroup: !Ref ConsoleLogGroup
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Drop-offs, their emails, their loads and the studio, read by key.
+            - Sid: ReadRecords
+              Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, LOAD#*, STUDIO]
+            # A drop-off's emails: the table's EMAIL#AC-n partition only.
+            - Sid: QueryEmailsOfADropOff
+              Effect: Allow
+              Action: dynamodb:Query
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [EMAIL#*]
+            # The waiting list and search (GSI1 by state) and the emails needing
+            # attention (GSI2 by status).
+            - Sid: QueryIndexes
+              Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub '${RecordsTable.Arn}/index/*'
+            # A rejection, its undo, a retried email, and the studio's first-use
+            # seeding: each a transactional Put of the whole item under its version check
+            # (phase 4's commit). No UpdateItem: phase 9 adds it for load numbers.
+            - Sid: WriteRecords
+              Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt RecordsTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, STUDIO]
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation: [TransactWriteItems]
+                # Never the item it replaces, nor the one a failed condition met:
+                # dynamodb:ReturnValues covers ReturnValuesOnConditionCheckFailure too.
+                StringEqualsIfExists:
+                  dynamodb:ReturnValues: NONE
+            - Sid: ReadKeptPhotos
+              Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            # read lists dropoffs/AC-n/ after a 403, so a gone photo is UploadMissing.
+            - Sid: ListKeptPhotos
+              Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt PhotoBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: dropoffs/*
+            # The console's own key: never the form's hash-key or form-key.
+            - Sid: ReadSessionKey
+              Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key'
+
   MailerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -442,6 +592,12 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-form'
       RetentionInDays: !If [IsProd, 90, 14]
 
+  ConsoleLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectSlug}-${AppEnv}-console'
+      RetentionInDays: !If [IsProd, 90, 14]
+
   MailerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -488,6 +644,18 @@ Resources:
     Type: AWS::Logs::MetricFilter
     Properties:
       LogGroupName: !Ref FormLogGroup
+      FilterPattern: '{ ($.level = "ERROR") && ($.event != "email_failed") }'
+      MetricTransformations:
+        - MetricName: LoggedErrors
+          MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
+          MetricValue: '1'
+          Unit: Count
+
+  # A key-fetch outage (every console request 503) logs jwks_unavailable at ERROR.
+  ConsoleLoggedErrorsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ConsoleLogGroup
       FilterPattern: '{ ($.level = "ERROR") && ($.event != "email_failed") }'
       MetricTransformations:
         - MetricName: LoggedErrors
@@ -604,8 +772,18 @@ Resources:
                 - {Name: FunctionName, Value: !Ref MailerFunction}
             Period: 300
             Stat: Sum
+        - Id: console
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions:
+                - {Name: FunctionName, Value: !Ref ConsoleFunction}
+            Period: 300
+            Stat: Sum
         - Id: total
-          Expression: FILL(form, 0) + FILL(mailer, 0) # Errors exists only when invoked
+          Expression: FILL(form, 0) + FILL(mailer, 0) + FILL(console, 0) # Errors exists only when invoked
           Label: Errors
           ReturnData: true
       EvaluationPeriods: 1

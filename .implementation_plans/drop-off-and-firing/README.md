@@ -219,7 +219,7 @@ say `Refs #N`. #9 (Members see the kiln schedule) is not in this plan.
 | [5](phase-5-aws-bootstrap.md) | AWS bootstrap: roles, boundary, addresses | infra, docs | M | [~] In progress |
 | [6](phase-6-drop-off-form.md) | The drop-off form | web | L | [x] Complete |
 | [7](phase-7-first-deploy.md) | First deploy: stage and prod | infra, ci | L | [~] In progress |
-| [8](phase-8-console-waiting-and-reject.md) | Console: sign-in, waiting list, rejection | web, infra | L | [ ] Pending |
+| [8](phase-8-console-waiting-and-reject.md) | Console: sign-in, waiting list, rejection | web, infra | L | [~] In progress |
 | [9](phase-9-console-loads-settings-close.md) | Console: loads, settings, counts, the close | web, infra | L | [ ] Pending |
 | [10](phase-10-switch-from-clickup.md) | The switch from ClickUp | docs | S | [ ] Pending |
 

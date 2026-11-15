@@ -35,7 +35,7 @@
       ],
       "status": "done",
       "base_sha": "79fce2702fc799f5df41ab40bbe70254a0ef40f6",
-      "squashed_sha": null,
+      "squashed_sha": "12665328f27be8694314ff67c4622d652166d521",
       "review_rounds": 3,
       "cold_review": "fixed",
       "split_from": null,
@@ -64,17 +64,25 @@
         "3",
         "7"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "12665328f27be8694314ff67c4622d652166d521",
       "squashed_sha": null,
-      "review_rounds": null,
-      "cold_review": null,
+      "review_rounds": 3,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
-      "closes": [],
-      "refs": [],
+      "closes": [
+        3,
+        5
+      ],
+      "refs": [
+        4,
+        7
+      ],
       "admin_actions": [
-        "asmbly-staff-login: ceramics group and ceramics-staff client (openid, email) before merge"
+        "asmbly-staff-login: ceramics group and ceramics-staff client (openid, email) before merge",
+        "maintainer: set session-key before merge",
+        "maintainer: prod reviewer on, or sign-in checks after prod"
       ],
       "notes": ""
     },
@@ -192,6 +200,47 @@
       "ts": "2026-11-15T13:09:53Z",
       "type": "phase_done",
       "phase": "7"
+    },
+    {
+      "ts": "2026-11-15T13:09:55Z",
+      "type": "squash",
+      "phase": "7",
+      "sha": "12665328f27be8694314ff67c4622d652166d521"
+    },
+    {
+      "ts": "2026-11-15T13:09:55Z",
+      "type": "phase_start",
+      "phase": "8"
+    },
+    {
+      "ts": "2026-11-15T15:20:03Z",
+      "type": "decision",
+      "topic": "session",
+      "choice": "sealed cookie",
+      "reason": "rotating the key signs everyone out"
+    },
+    {
+      "ts": "2026-11-15T15:29:20Z",
+      "type": "cold_review",
+      "phase": "8",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 2,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T16:07:53Z",
+      "type": "decision",
+      "topic": "JWKS refresh failure",
+      "choice": "keep held keys on refresh; first fetch still fails closed",
+      "reason": "a bad refresh must not sign a valid session out"
+    },
+    {
+      "ts": "2026-11-15T16:07:53Z",
+      "type": "phase_done",
+      "phase": "8"
     }
   ]
 }
