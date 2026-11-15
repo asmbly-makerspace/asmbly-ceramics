@@ -4,8 +4,8 @@
   "issue": 1,
   "feature_branch": "feat/drop-off-and-firing-phases-7-9",
   "worktree": ".claude/worktrees/offshore-drop-off-and-firing-phases-7-9",
-  "status": "in-progress",
-  "stage": "qa",
+  "status": "complete",
+  "stage": "briefing",
   "selected_phases": [
     "7",
     "8",
@@ -138,7 +138,7 @@
   },
   "qa": {
     "base_sha": "1fb230745a5d03047a357a6b5f4d5a6c41e652b5",
-    "squashed_sha": null,
+    "squashed_sha": "391a320f58e9f39d499a193d9ce4dc21d2113a88",
     "closes": [
       2,
       3,
@@ -152,8 +152,8 @@
     ]
   },
   "pr": {
-    "number": null,
-    "result": null,
+    "number": 33,
+    "result": "green",
     "rounds": []
   },
   "events": [
@@ -380,6 +380,21 @@
       "ts": "2026-11-15T19:08:22Z",
       "type": "qa_written",
       "steps": 52
+    },
+    {
+      "ts": "2026-11-15T19:08:24Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "391a320f58e9f39d499a193d9ce4dc21d2113a88"
+    },
+    {
+      "ts": "2026-11-15T19:13:21Z",
+      "type": "pr_opened",
+      "pr": 33
+    },
+    {
+      "ts": "2026-11-15T19:13:21Z",
+      "type": "complete"
     }
   ]
 }
