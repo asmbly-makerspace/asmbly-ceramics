@@ -366,7 +366,7 @@ The close function and its schedule:
     Properties:
       RoleName: !Sub ${ProjectSlug}-${AppEnv}-close-scheduler
       Path: /asmbly-ceramics-app/
-      PermissionsBoundary: !ImportValue asmbly-ceramics-function-boundary-arn
+      PermissionsBoundary: {'Fn::ImportValue': !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'}   # its environment's boundary (phase 5, decision 0003)
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

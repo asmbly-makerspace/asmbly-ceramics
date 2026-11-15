@@ -45,6 +45,9 @@ issue → plan → branch → commits → checks → pull request → PR check �
    uv run pytest --cov
    ```
 
+   After a change to a template in `infra/`, also
+   `uvx cfn-lint==1.57.1 infra/*.yaml`.
+
 5. **Open a pull request.** Fill in every section of the
    [template](.github/PULL_REQUEST_TEMPLATE.md), including **Risk**. Write
    `Closes #<issue>`, or `Refs #<issue>` if the issue isn't finished.

@@ -171,7 +171,8 @@ delivery, so the mailer claims an item with a conditional update before sending.
 
 **Chosen:** AWS SAM, as AsmblyMCPs. A bootstrap stack, `asmbly-ceramics-bootstrap`,
 deployed by a person by hand, holds the GitHub OIDC deploy role, the role CloudFormation
-deploys with, the permissions boundary every function role carries, the artifacts
+deploys with, the permissions boundaries the function roles carry (one per environment,
+[0003](0003-one-function-boundary-per-environment.md)), the artifacts
 bucket, and the two API Gateway custom domain names with their certificates and their
 records in the `asmbly.org` zone, which another project owns. The app stacks,
 `asmbly-ceramics-stage` and `asmbly-ceramics-prod`, map their API to those names. A merge

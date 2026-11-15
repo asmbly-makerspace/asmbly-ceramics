@@ -1,0 +1,1119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  asmbly-ceramics bootstrap: the GitHub deploy role, the CloudFormation execution role,
+  the stage and prod function boundaries, the log delivery policy, the artifacts bucket
+  and the two addresses.
+  Deployed once by hand as the stack asmbly-ceramics-bootstrap
+  (docs/runbooks/aws-bootstrap.md).
+
+# No account ID: ARNs use AWS::AccountId; names come from ProjectSlug. Sent inline
+# (under 51,200 bytes). tests/repo/test_bootstrap.py pins it; a failed right is fixed
+# by a reviewed change here, never a quiet widening.
+
+Parameters:
+  ProjectSlug:
+    Type: String
+    Default: asmbly-ceramics
+    AllowedPattern: '^asmbly-ceramics$'
+    Description: The repository's name, the start of every name, and the Project tag's value.
+  GitHubSubjectPrefix:
+    Type: String
+    AllowedPattern: '^repo:asmbly-makerspace@[0-9]+/asmbly-ceramics@[0-9]+$'
+    Description: >-
+      The OIDC sub claim's prefix in GitHub's immutable, ID-based form (runbook step 2).
+  ParentHostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: The asmbly.org hosted zone, which another project owns.
+  ProdDomainName:
+    Type: String
+    Default: ceramics.asmbly.org
+  StageDomainName:
+    Type: String
+    Default: ceramics-stage.asmbly.org
+  EmailIdentityDomain:
+    Type: String
+    Default: asmbly.org
+    Description: The SES identity the app sends from; AsmblyMCPs' mcp-bootstrap owns it.
+  ArtifactsBucketSuffix:
+    Type: String
+    AllowedPattern: '^[a-z0-9]{8}$'
+    Description: >-
+      Eight random lowercase hex characters that make the artifacts bucket's name
+      unique without the account ID (runbook step 4). A change replaces the bucket.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: The account already has GitHub's OIDC provider; runbook step 1 checks.
+  EnvironmentTag:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, shared]
+    Description: >-
+      This stack's Environment tag: prod, as CLAUDE.md asks; shared only once
+      CLAUDE.md allows it (runbook, before you start).
+  WebAdapterPublisherAccount:
+    Type: String
+    AllowedPattern: '^[0-9]{12}$'
+    Description: >-
+      The public AWS account that publishes the Lambda Web Adapter layer, from the
+      layer ARN in its README (runbook step 4). Never Asmbly's; set here by hand so no
+      GitHub variable can point the layer elsewhere.
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, 'true']
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  # One deploy role per GitHub environment, each only its own stack. A pull
+  # request's job has no environment, so its token never matches (runbook step 3).
+  GitHubDeployRoleStage:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectSlug}-gha-deploy-stage'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub '${GitHubSubjectPrefix}:environment:stage'
+      Policies:
+        - PolicyName: deploy-the-stage-stack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: NeverTheBootstrap
+                Effect: Deny
+                Action: 'cloudformation:*'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+              # No import: it tags an existing resource.
+              - Sid: NoResourceImport
+                Effect: Deny
+                Action: cloudformation:CreateChangeSet
+                Resource: '*'
+                Condition:
+                  'Null':
+                    cloudformation:ImportResourceTypes: 'false'
+              - Sid: TaggedChangeSets
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:TagResource
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectSlug}-stage/*'
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: !Ref ProjectSlug
+                  'Null':
+                    aws:RequestTag/Component: 'false'
+                    aws:RequestTag/Environment: 'false'
+                    aws:RequestTag/Owner: 'false'
+                    aws:RequestTag/ManagedBy: 'false'
+              - Sid: TheAppStack
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStackResources
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectSlug}-stage/*'
+              - Sid: SamTransform
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31'
+              - Sid: TemplateChecksWithoutAResource
+                Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: '*'
+              - Sid: HandStacksToTheExecutionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: Artifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  GitHubDeployRoleProd:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectSlug}-gha-deploy-prod'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub '${GitHubSubjectPrefix}:environment:prod'
+      Policies:
+        - PolicyName: deploy-the-prod-stack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: NeverTheBootstrap
+                Effect: Deny
+                Action: 'cloudformation:*'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+              # No import: it tags an existing resource.
+              - Sid: NoResourceImport
+                Effect: Deny
+                Action: cloudformation:CreateChangeSet
+                Resource: '*'
+                Condition:
+                  'Null':
+                    cloudformation:ImportResourceTypes: 'false'
+              - Sid: TaggedChangeSets
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:TagResource
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectSlug}-prod/*'
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: !Ref ProjectSlug
+                  'Null':
+                    aws:RequestTag/Component: 'false'
+                    aws:RequestTag/Environment: 'false'
+                    aws:RequestTag/Owner: 'false'
+                    aws:RequestTag/ManagedBy: 'false'
+              - Sid: TheAppStack
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStackResources
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectSlug}-prod/*'
+              - Sid: SamTransform
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31'
+              - Sid: TemplateChecksWithoutAResource
+                Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: '*'
+              - Sid: HandStacksToTheExecutionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: Artifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  # The execution role: this project's names, aws:RequestTag on create and
+  # aws:ResourceTag after where the service has them; exceptions say why.
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectSlug}-cfn-exec'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      ManagedPolicyArns:
+        - !Ref CreateAndTagPolicy
+        - !Ref ChangeOwnPolicy
+        - !Ref RolesAndNamesPolicy
+      Policies:
+        - PolicyName: denials
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Any other Project tag, but the staff sign-in's parameters, which
+              # are only read (ResolveStackParameters).
+              - Sid: HandsOffOtherProjects
+                Effect: Deny
+                Action: '*'
+                NotResource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/cognito/staff/*'
+                Condition:
+                  'Null':
+                    aws:ResourceTag/Project: 'false'
+                  StringNotEquals:
+                    aws:ResourceTag/Project: !Ref ProjectSlug
+              - Sid: HandsOffTheBootstrap
+                Effect: Deny
+                Action: '*'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-bootstrap/*'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectSlug}-bootstrap/*'
+                  - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}'
+                  - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}'
+              - Sid: ArtifactsAreReadOnly
+                Effect: Deny
+                NotAction:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+              - Sid: NoSignInRights
+                Effect: Deny
+                Action:
+                  - 'cognito-idp:*'
+                  - 'cognito-identity:*'
+                Resource: '*'
+              - Sid: NoEmailOrDnsRights
+                Effect: Deny
+                Action:
+                  - 'ses:*'
+                  - 'route53:*'
+                  - 'acm:*'
+                Resource: '*'
+              - Sid: NoBoundaryRemoval
+                Effect: Deny
+                Action: iam:DeleteRolePermissionsBoundary
+                Resource: '*'
+              # No resource or key fences it; LogDeliveryPolicy is this project's.
+              - Sid: NoAccountLogPolicies
+                Effect: Deny
+                Action:
+                  - logs:PutResourcePolicy
+                  - logs:DeleteResourcePolicy
+                Resource: '*'
+              # The Allows are managed policies: IAM's inline limit is 10,240.
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  CreateAndTagPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-cfn-exec-create'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: Create and tag, only with the five tags (asmbly-ceramics execution role).
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SamTransform
+            Effect: Allow
+            Action: cloudformation:CreateChangeSet
+            Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31'
+          - Sid: ReadArtifacts
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub '${ArtifactsBucket.Arn}/*'
+
+          # Create only with the five tags in the request (the stack's tags).
+          - Sid: CreateTagged
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - s3:CreateBucket
+              - lambda:CreateFunction
+              - sns:CreateTopic
+              - sqs:CreateQueue
+              - logs:CreateLogGroup
+              - cloudwatch:PutMetricAlarm
+              - apigateway:POST
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*'
+              - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: !Ref ProjectSlug
+              'Null':
+                aws:RequestTag/Component: 'false'
+                aws:RequestTag/Environment: 'false'
+                aws:RequestTag/Owner: 'false'
+                aws:RequestTag/ManagedBy: 'false'
+          # Exception, "*": no resource type; fenced by its function and tags.
+          - Sid: CreateEventSourceMappings
+            Effect: Allow
+            Action: lambda:CreateEventSourceMapping
+            Resource: '*'
+            Condition:
+              ArnLike:
+                lambda:FunctionArn: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              StringEquals:
+                aws:RequestTag/Project: !Ref ProjectSlug
+              'Null':
+                aws:RequestTag/Component: 'false'
+                aws:RequestTag/Environment: 'false'
+                aws:RequestTag/Owner: 'false'
+                aws:RequestTag/ManagedBy: 'false'
+          # Tagging only to set this Project, on these names. No API Gateway
+          # tagging (generated IDs): the HTTP API takes its tags in POST /apis.
+          # No Untag right anywhere.
+          - Sid: TagOnCreate
+            Effect: Allow
+            Action:
+              - dynamodb:TagResource
+              - s3:TagResource
+              - lambda:TagResource
+              - sns:TagResource
+              - sqs:TagQueue
+              - cloudwatch:TagResource
+              - logs:TagResource
+              - logs:TagLogGroup
+              - iam:TagRole
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*'
+              - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-*'
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: !Ref ProjectSlug
+          # Exception: a mapping's tags in its create call need lambda:TagResource.
+          # No import (deploy roles), so no existing mapping; see decision 0003.
+          - Sid: TagEventSourceMappingsOnCreate
+            Effect: Allow
+            Action: lambda:TagResource
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: !Ref ProjectSlug
+              'Null':
+                aws:RequestTag/Component: 'false'
+                aws:RequestTag/Environment: 'false'
+                aws:RequestTag/Owner: 'false'
+                aws:RequestTag/ManagedBy: 'false'
+
+  ChangeOwnPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-cfn-exec-change'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: Change, read back and delete what carries Project=asmbly-ceramics (asmbly-ceramics execution role).
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # The handlers' actions, only on what carries this Project tag. API
+          # sub-resources: their API's or domain's tags, else fail closed (0003).
+          - Sid: ChangeOwn
+            Effect: Allow
+            Action:
+              - dynamodb:UpdateTable
+              - dynamodb:UpdateTimeToLive
+              - dynamodb:UpdateContinuousBackups
+              - dynamodb:DescribeTable
+              - dynamodb:DescribeTimeToLive
+              - dynamodb:DescribeContinuousBackups
+              - dynamodb:DescribeContributorInsights
+              - dynamodb:DescribeKinesisStreamingDestination
+              - dynamodb:GetResourcePolicy
+              - dynamodb:ListTagsOfResource
+              - dynamodb:DeleteTable
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:GetFunctionCodeSigningConfig
+              - lambda:GetFunctionRecursionConfig
+              - lambda:GetRuntimeManagementConfig
+              - lambda:GetFunctionScalingConfig
+              - lambda:GetPolicy
+              - lambda:ListTags
+              - lambda:DeleteFunction
+              - lambda:PutFunctionConcurrency
+              - lambda:DeleteFunctionConcurrency
+              - logs:PutRetentionPolicy
+              - logs:DeleteRetentionPolicy
+              - logs:PutMetricFilter
+              - logs:DeleteMetricFilter
+              - logs:ListTagsForResource
+              - logs:ListTagsLogGroup
+              - logs:GetDataProtectionPolicy
+              - logs:DeleteLogGroup
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:GetDataProtectionPolicy
+              - sns:ListSubscriptionsByTopic
+              - sns:ListTagsForResource
+              - sns:Subscribe
+              - sns:DeleteTopic
+              - sqs:GetQueueAttributes
+              - sqs:SetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:ListQueueTags
+              - sqs:DeleteQueue
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:ListTagsForResource
+              - cloudwatch:DeleteAlarms
+              - apigateway:GET
+              - apigateway:POST
+              - apigateway:PUT
+              - apigateway:PATCH
+              - apigateway:DELETE
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectSlug}-*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${ProdDomainName}/apimappings/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/${StageDomainName}/apimappings/*'
+            Condition:
+              StringEquals:
+                aws:ResourceTag/Project: !Ref ProjectSlug
+
+          # Generated IDs: only tagged ones that feed this project's functions.
+          - Sid: OwnEventSourceMappings
+            Effect: Allow
+            Action:
+              - lambda:GetEventSourceMapping
+              - lambda:UpdateEventSourceMapping
+              - lambda:DeleteEventSourceMapping
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
+            Condition:
+              ArnLike:
+                lambda:FunctionArn: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+              StringEquals:
+                aws:ResourceTag/Project: !Ref ProjectSlug
+          # ListTags takes no lambda:FunctionArn; read only.
+          - Sid: OwnEventSourceMappingTags
+            Effect: Allow
+            Action: lambda:ListTags
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*'
+            Condition:
+              StringEquals:
+                aws:ResourceTag/Project: !Ref ProjectSlug
+          # Only API Gateway; the scheduler invokes through its role.
+          - Sid: InvokePermissionsForApiGatewayOnly
+            Effect: Allow
+            Action:
+              - lambda:AddPermission
+              - lambda:RemovePermission
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-*'
+            Condition:
+              StringEquals:
+                lambda:Principal: apigateway.amazonaws.com
+                aws:ResourceTag/Project: !Ref ProjectSlug
+
+          # Exception, by name: S3 checks aws:ResourceTag only with ABAC on;
+          # PutBucketTagging has no aws:RequestTag. No condition sees a public
+          # access block, policy or CORS rule: phase 7's test pins them.
+          - Sid: PhotoBucketsByName
+            Effect: Allow
+            Action:
+              - s3:PutBucketTagging
+              - s3:PutBucketPolicy
+              - s3:GetBucketPolicy
+              - s3:DeleteBucketPolicy
+              - s3:PutLifecycleConfiguration
+              - s3:GetLifecycleConfiguration
+              - s3:PutBucketCORS
+              - s3:GetBucketCORS
+              - s3:PutBucketPublicAccessBlock
+              - s3:GetBucketPublicAccessBlock
+              - s3:PutEncryptionConfiguration
+              - s3:GetEncryptionConfiguration
+              - s3:PutBucketOwnershipControls
+              - s3:GetBucketOwnershipControls
+              - s3:GetBucketTagging
+              - s3:ListTagsForResource
+              - s3:GetBucketVersioning
+              - s3:GetBucketAbac
+              - s3:GetBucketAcl
+              - s3:GetBucketMetadataTableConfiguration
+              - s3:GetBucketLogging
+              - s3:GetBucketNotification
+              - s3:GetBucketObjectLockConfiguration
+              - s3:GetBucketWebsite
+              - s3:GetAccelerateConfiguration
+              - s3:GetAnalyticsConfiguration
+              - s3:GetIntelligentTieringConfiguration
+              - s3:GetInventoryConfiguration
+              - s3:GetMetricsConfiguration
+              - s3:GetReplicationConfiguration
+              - s3:ListBucket
+              - s3:DeleteBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-*-photos-*'
+
+  RolesAndNamesPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-cfn-exec-roles'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: Function roles inside the boundary, untagged resources by name, stack parameters (asmbly-ceramics execution role).
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Exception, by name: default-group schedules take no tags.
+          - Sid: SchedulesByName
+            Effect: Allow
+            Action:
+              - scheduler:CreateSchedule
+              - scheduler:UpdateSchedule
+              - scheduler:DeleteSchedule
+              - scheduler:GetSchedule
+            Resource: !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/${ProjectSlug}-*'
+
+          # Exception, by name: subscriptions take no tags; ARNs start with the topic's.
+          - Sid: SubscriptionsByName
+            Effect: Allow
+            Action:
+              - sns:GetSubscriptionAttributes
+              - sns:SetSubscriptionAttributes
+              - sns:Unsubscribe
+            Resource: !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-*'
+
+          # Exception, read only: the Web Adapter layer, from its publisher only.
+          - Sid: WebAdapterLayer
+            Effect: Allow
+            Action: lambda:GetLayerVersion
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${WebAdapterPublisherAccount}:layer:LambdaAdapterLayerArm64:*'
+
+          # Function roles: under /asmbly-ceramics-app/, tagged, with their own
+          # environment's boundary. No condition sees a trust policy: phase 7's
+          # test pins it, and the boundary caps any session.
+          - Sid: CreateStageFunctionRoles
+            Effect: Allow
+            Action: iam:CreateRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-stage-*'
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref FunctionBoundaryStage
+                aws:RequestTag/Project: !Ref ProjectSlug
+              'Null':
+                aws:RequestTag/Component: 'false'
+                aws:RequestTag/Environment: 'false'
+                aws:RequestTag/Owner: 'false'
+                aws:RequestTag/ManagedBy: 'false'
+          - Sid: GrantStageInsideItsBoundary
+            Effect: Allow
+            Action:
+              - iam:PutRolePermissionsBoundary
+              - iam:PutRolePolicy
+              - iam:AttachRolePolicy
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-stage-*'
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref FunctionBoundaryStage
+                aws:ResourceTag/Project: !Ref ProjectSlug
+          - Sid: CreateProdFunctionRoles
+            Effect: Allow
+            Action: iam:CreateRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-prod-*'
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref FunctionBoundaryProd
+                aws:RequestTag/Project: !Ref ProjectSlug
+              'Null':
+                aws:RequestTag/Component: 'false'
+                aws:RequestTag/Environment: 'false'
+                aws:RequestTag/Owner: 'false'
+                aws:RequestTag/ManagedBy: 'false'
+          - Sid: GrantProdInsideItsBoundary
+            Effect: Allow
+            Action:
+              - iam:PutRolePermissionsBoundary
+              - iam:PutRolePolicy
+              - iam:AttachRolePolicy
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-prod-*'
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref FunctionBoundaryProd
+                aws:ResourceTag/Project: !Ref ProjectSlug
+          - Sid: ManageFunctionRoles
+            Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListAttachedRolePolicies
+              - iam:DeleteRolePolicy
+              - iam:DetachRolePolicy
+              - iam:UpdateAssumeRolePolicy
+              - iam:UpdateRole
+              - iam:UpdateRoleDescription
+              - iam:DeleteRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-*'
+            Condition:
+              StringEquals:
+                aws:ResourceTag/Project: !Ref ProjectSlug
+          - Sid: PassFunctionRoles
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-*'
+            Condition:
+              StringEquals:
+                iam:PassedToService:
+                  - lambda.amazonaws.com
+                  - scheduler.amazonaws.com
+
+          # SSM-typed stack parameters (Strings; never the SecureString keys).
+          - Sid: ResolveStackParameters
+            Effect: Allow
+            Action: ssm:GetParameters
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/config/cognito/staff/*'
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/*/alert-email'
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/*/initial-sending-address'
+
+          # Exception, "*": reads the handlers call without a resource.
+          - Sid: DescribeWithoutAResource
+            Effect: Allow
+            Action:
+              - logs:DescribeLogGroups
+              - logs:DescribeMetricFilters
+              - logs:DescribeResourcePolicies
+              - logs:DescribeIndexPolicies
+              - logs:GetLogDelivery
+              - logs:ListLogDeliveries
+              - cloudwatch:DescribeAlarms
+            Resource: '*'
+          # Exception, "*": an HTTP API's access-log delivery (no resource, no tag).
+          # Not logs:PutResourcePolicy: LogDeliveryPolicy already grants delivery.
+          - Sid: ApiAccessLogDelivery
+            Effect: Allow
+            Action:
+              - logs:CreateLogDelivery
+              - logs:UpdateLogDelivery
+              - logs:DeleteLogDelivery
+            Resource: '*'
+
+  # One boundary per environment (decision 0003): the most a function or
+  # scheduler role there can do, on its environment's names only.
+  FunctionBoundaryStage:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-stage-function-boundary'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: The most an asmbly-ceramics stage function role can do.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteOwnLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-stage-*:*'
+          # TransactWriteItems is authorized per item (PutItem). No ListStreams:
+          # it takes no resource, so a table ARN never grants it.
+          - Sid: OwnTables
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DescribeStream
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-stage-*'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-stage-*/index/*'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-stage-*/stream/*'
+          - Sid: OwnPhotos
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-stage-photos-*/*'
+          - Sid: ListOwnPhotos
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-stage-photos-*'
+          - Sid: OwnSecrets
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/stage/*'
+          - Sid: DecryptOwnSecretsThroughSsm
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'ssm.${AWS::Region}.amazonaws.com'
+          # SES checks the most specific identity covering the From address.
+          - Sid: SendFromAsmblyAddresses
+            Effect: Allow
+            Action: ses:SendEmail
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailIdentityDomain}'
+              - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailIdentityDomain}'
+            Condition:
+              StringLike:
+                ses:FromAddress: !Sub '*@${EmailIdentityDomain}'
+          - Sid: RunOwnFunctions
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-stage-*'
+          - Sid: OwnDeadLetterQueues
+            Effect: Allow
+            Action: sqs:SendMessage
+            Resource: !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-stage-*'
+
+  FunctionBoundaryProd:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectSlug}-prod-function-boundary'
+      Path: !Sub '/${ProjectSlug}-bootstrap/'
+      Description: The most an asmbly-ceramics prod function role can do.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteOwnLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectSlug}-prod-*:*'
+          # As in the stage boundary.
+          - Sid: OwnTables
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DescribeStream
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-prod-*'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-prod-*/index/*'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectSlug}-prod-*/stream/*'
+          - Sid: OwnPhotos
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-prod-photos-*/*'
+          - Sid: ListOwnPhotos
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectSlug}-prod-photos-*'
+          - Sid: OwnSecrets
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/prod/*'
+          - Sid: DecryptOwnSecretsThroughSsm
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'ssm.${AWS::Region}.amazonaws.com'
+          - Sid: SendFromAsmblyAddresses
+            Effect: Allow
+            Action: ses:SendEmail
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailIdentityDomain}'
+              - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*@${EmailIdentityDomain}'
+            Condition:
+              StringLike:
+                ses:FromAddress: !Sub '*@${EmailIdentityDomain}'
+          - Sid: RunOwnFunctions
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectSlug}-prod-*'
+          - Sid: OwnDeadLetterQueues
+            Effect: Allow
+            Action: sqs:SendMessage
+            Resource: !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectSlug}-prod-*'
+
+  # Log delivery may write the access logs: no logs:PutResourcePolicy (0003).
+  LogDeliveryPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: !Sub '${ProjectSlug}-log-delivery'
+      PolicyDocument: !Sub >-
+        {"Version": "2012-10-17", "Statement": [{"Sid": "AWSLogDeliveryWrite",
+        "Effect": "Allow", "Principal": {"Service": "delivery.logs.amazonaws.com"},
+        "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": [
+        "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectSlug}-*:log-stream:*"],
+        "Condition": {"StringEquals": {"aws:SourceAccount": "${AWS::AccountId}"},
+        "ArnLike": {"aws:SourceArn": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"}}}]}
+
+  # Where sam deploy uploads code: private, encrypted, TLS only, kept.
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectSlug}-artifacts-${ArtifactsBucketSuffix}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-artifacts
+            Status: Enabled
+            ExpirationInDays: 90
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt ArtifactsBucket.Arn
+              - !Sub '${ArtifactsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # The two addresses: certificate, regional custom domain, A and AAAA aliases.
+  ProdCertificate:
+    Type: AWS::CertificateManager::Certificate
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      DomainName: !Ref ProdDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref ProdDomainName
+          HostedZoneId: !Ref ParentHostedZoneId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  StageCertificate:
+    Type: AWS::CertificateManager::Certificate
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      DomainName: !Ref StageDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref StageDomainName
+          HostedZoneId: !Ref ParentHostedZoneId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: Bootstrap}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: cloudformation}
+
+  ProdDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref ProdDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref ProdCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+          IpAddressType: dualstack
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: Bootstrap
+        Environment: !Ref EnvironmentTag
+        Owner: it-volunteers
+        ManagedBy: cloudformation
+
+  StageDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref StageDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref StageCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+          IpAddressType: dualstack
+      Tags:
+        Project: !Ref ProjectSlug
+        Component: Bootstrap
+        Environment: !Ref EnvironmentTag
+        Owner: it-volunteers
+        ManagedBy: cloudformation
+
+  ProdDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref ParentHostedZoneId
+      Name: !Ref ProdDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ProdDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ProdDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+  ProdDnsRecordIpv6:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref ParentHostedZoneId
+      Name: !Ref ProdDomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt ProdDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ProdDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+  StageDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref ParentHostedZoneId
+      Name: !Ref StageDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt StageDomain.RegionalDomainName
+        HostedZoneId: !GetAtt StageDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+  StageDnsRecordIpv6:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref ParentHostedZoneId
+      Name: !Ref StageDomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt StageDomain.RegionalDomainName
+        HostedZoneId: !GetAtt StageDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
+Outputs:
+  StageDeployRoleArn:
+    Description: The stage environment's AWS_DEPLOY_ROLE_ARN (an environment secret).
+    Value: !GetAtt GitHubDeployRoleStage.Arn
+  ProdDeployRoleArn:
+    Description: The prod environment's AWS_DEPLOY_ROLE_ARN (an environment secret).
+    Value: !GetAtt GitHubDeployRoleProd.Arn
+  ExecutionRoleArn:
+    Description: Both environments' AWS_CFN_EXECUTION_ROLE_ARN (an environment secret).
+    Value: !GetAtt CloudFormationExecutionRole.Arn
+  ArtifactsBucketName:
+    Description: Both environments' SAM_ARTIFACTS_BUCKET (a variable; no account ID in it).
+    Value: !Ref ArtifactsBucket
+  StageFunctionBoundaryArn:
+    Description: Every function role's permissions boundary in the stage app stack.
+    Value: !Ref FunctionBoundaryStage
+    Export:
+      Name: !Sub '${ProjectSlug}-stage-function-boundary-arn'
+  ProdFunctionBoundaryArn:
+    Description: Every function role's permissions boundary in the prod app stack.
+    Value: !Ref FunctionBoundaryProd
+    Export:
+      Name: !Sub '${ProjectSlug}-prod-function-boundary-arn'
+  ProdDomainNameOut:
+    Description: The prod app stack maps its API to this custom domain name.
+    Value: !Ref ProdDomain
+    Export:
+      Name: !Sub '${ProjectSlug}-prod-domain-name'
+  StageDomainNameOut:
+    Description: The stage app stack maps its API to this custom domain name.
+    Value: !Ref StageDomain
+    Export:
+      Name: !Sub '${ProjectSlug}-stage-domain-name'

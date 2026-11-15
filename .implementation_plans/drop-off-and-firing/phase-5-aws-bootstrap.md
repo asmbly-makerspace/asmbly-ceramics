@@ -10,7 +10,7 @@ estimated_size: M
 
 # Phase 5: AWS bootstrap: roles, boundary, addresses
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -46,6 +46,160 @@ estimated_size: M
   - "Using sending authorization with Amazon SES" `/ses/latest/dg/sending-authorization.html`:
     a sender in the same account needs only IAM; no identity policy.
   - "DeletionPolicy attribute" `/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html`.
+
+## Revisions from /prep (2026-11-14)
+
+`/prep` checked this document against the code, cfn-lint 1.57.1's CloudFormation
+resource schemas (each type's handler permissions) and the account, read only. Where the
+sections below disagree with this list, this list wins.
+
+1. **Other projects' resources: a Deny on any other `Project` value, not a list.** The
+   account holds many more `Project` values than `ProtectedProjectTags` named (the
+   facilities automation's `facilities:*`, `purchase-request:*`, `problem-report:*`,
+   `ceramics:kiln-dropoff-viewer`; `mcp`; `staff-login-rehearsal`; …). `HandsOffOtherProjects`
+   denies `*` when `aws:ResourceTag/Project` is present (`Null: false`) and is not
+   `${ProjectSlug}`. The parameter `ProtectedProjectTags` and runbook step 1's tag
+   comparison go.
+2. **The staff sign-in's parameters are excepted from that Deny.** `/config/cognito/staff/*`
+   is tagged `Project=staff-login`, so the Deny would refuse `ResolveStackParameters`
+   (phase 8). The Deny uses `NotResource` for that path; the role's only right there is
+   `ssm:GetParameters`.
+3. **No `aws:TagKeys` clause.** SAM adds `lambda:createdBy` and `httpapi:createdBy` tags
+   and CloudFormation its `aws:cloudformation:*` ones, which a five-key
+   `ForAllValues aws:TagKeys` refuses. Create statements require
+   `aws:RequestTag/Project = asmbly-ceramics` and `Null: false` on
+   `aws:RequestTag/Component`, `Environment`, `Owner` and `ManagedBy`: the five tags must
+   be there, extra ones are allowed.
+4. **Rights the CloudFormation handlers need**, missing above: `lambda:GetLayerVersion`
+   on `layer:LambdaAdapterLayerArm64` (AWS's account, so `*` for the account: read only,
+   `WebAdapterLayer`); the log-delivery and resource-policy actions API Gateway's access
+   logs need, in `DescribeWithoutAResource`; the read-backs each handler calls
+   (`dynamodb:DescribeContributorInsights`, `DescribeKinesisStreamingDestination`,
+   `GetResourcePolicy`; the photo bucket's `Get*`; `lambda:GetFunctionCodeSigningConfig`,
+   `GetFunctionRecursionConfig`, `GetRuntimeManagementConfig`, `GetPolicy`;
+   `sns:ListSubscriptionsByTopic`, `GetDataProtectionPolicy`, `ListTagsForResource`;
+   `sqs:ListQueueTags`; `cloudwatch:ListTagsForResource`; `logs:ListTagsForResource`);
+   `s3:TagResource` and `apigateway:TagResource` in `TagOnCreate`; and SNS subscriptions
+   (`SubscriptionsByName`, by name: a subscription takes no tags).
+5. **API Gateway:** `apigateway:POST` with `aws:RequestTag` only on `/apis` (creating an
+   API). Routes, integrations, stages and API mappings carry no tags of their own, so
+   POST, PUT, PATCH, DELETE and GET under `/apis/*` and on the two domain names'
+   `apimappings` sit in `ChangeOwn` under `aws:ResourceTag`, which API Gateway evaluates
+   against the parent. If phase 7's first stage deploy shows otherwise, the fallback
+   above applies, by a reviewed change the maintainer asks for.
+6. **S3 bucket configuration by name.** S3 evaluates `aws:ResourceTag` on a bucket only
+   when the bucket has ABAC on (`AbacStatus`, per the bucket schema and
+   `buckets-tagging.html`), so the photo bucket's configuration actions are in
+   `PhotoBucketsByName`, fenced by its global `asmbly-ceramics-*-photos-*` name and the
+   tag Deny. Creating it still needs the tags.
+7. **No Untag right anywhere**, so a resource can't drop its `Project` tag and slip out
+   of the fences; `iam:DeleteRolePermissionsBoundary` is denied (`NoBoundaryRemoval`).
+   The bootstrap's two domain names are added to `HandsOffTheBootstrap`, and the
+   artifacts bucket is read only for the execution role (`ArtifactsAreReadOnly`).
+8. **One deploy role per environment.** `asmbly-ceramics-gha-deploy-stage` is trusted
+   only by `environment:stage` and may deploy only `asmbly-ceramics-stage`; `-prod` the
+   same for prod. With one role for both, a stage job could deploy prod and a reviewer
+   on prod would gate nothing. Outputs `StageDeployRoleArn` and `ProdDeployRoleArn`
+   replace `DeployRoleArn`; each environment's `AWS_DEPLOY_ROLE_ARN` is its own. The
+   split is by stack only: both pass the one execution role, and the one boundary
+   covers both environments (Hand-off, open for the maintainer).
+9. **No account ID in a GitHub variable.** A role ARN holds the account ID and GitHub
+   prints a step's `with:` inputs unmasked, so `AWS_DEPLOY_ROLE_ARN` and
+   `AWS_CFN_EXECUTION_ROLE_ARN` are **environment secrets** (phase 7 reads
+   `secrets.`, not `vars.`). The artifacts bucket is
+   `${ProjectSlug}-artifacts-${ArtifactsBucketSuffix}` (eight random hex characters, a
+   parameter, as phase 7's photo bucket), so `SAM_ARTIFACTS_BUCKET` stays a variable.
+10. **IPv6:** the domain names set `IpAddressType: dualstack` (the property exists in
+    `AWS::ApiGatewayV2::DomainName`), so the `AAAA` aliases answer.
+11. **Email:** `SendFromAsmblyAddresses` also lists `identity/*@${EmailIdentityDomain}`,
+    in case an address identity at the domain exists (SES then authorizes against it);
+    still only with `ses:FromAddress` like `*@${EmailIdentityDomain}`.
+12. **The OIDC subject** already uses GitHub's immutable form
+    (`use_immutable_subject: true`, prefix `repo:asmbly-makerspace@<id>/asmbly-ceramics@<id>`).
+    Runbook step 2 checks that; `include_claim_keys` would change the subject's format
+    and is not used.
+13. **The runbook's order and checks:** the GitHub environments (deployments from `main`
+    only) are created **before** the stack, since GitHub creates an unprotected
+    environment when a job names one that doesn't exist. Step 1 adds the `asmbly.org`
+    CAA records and a count (never a list) of address identities at `asmbly.org`. Each
+    step has Do, Check, Who confirms, Undo, including the keys; the addresses are read
+    with `read -r`, never typed into a command line. A section recovers a failed first
+    create (`ROLLBACK_COMPLETE`), the undo checks the validation CNAMEs are gone,
+    termination protection is turned on after the create, and the boundary check
+    simulates both an `asmbly.org` From (allowed) and another (implicitDeny).
+14. **Drift:** the `infra` job uses `astral-sh/setup-uv@v10.3.3` and
+    `actions/checkout@v7` like the `python` job; the change set adds 17 resources (18
+    with the OIDC provider, after revision 17); Rollout's keys are three SecureStrings and two Strings
+    (steps 1 to 8); the hand-off's queues include `asmbly-ceramics-<env>-mailer-dlq`.
+15. **Phase 7 must** set `RolePath: /asmbly-ceramics-app/` on every generated role (SAM
+    `Globals.Function.RolePath`) and pin each function role's trust to
+    `lambda.amazonaws.com` or `scheduler.amazonaws.com` in its template test: IAM can't
+    condition a trust policy's content, so that test is the fence. `TransactWriteItems`
+    is not an IAM action (cfn-lint's policy data), so neither the boundary nor a role
+    lists it.
+16. **Still open, the maintainer's:** the two addresses, before this phase merges. The
+    bootstrap's `Environment` tag is `prod` by default (revision 19), as CLAUDE.md
+    asks; `shared` only once CLAUDE.md is amended (the runbook's "Before you start").
+17. **After the build's review:** the execution role's allows moved into three managed
+    policies (one inline policy passed IAM's 10,240-character limit once filled in);
+    `lambda:CreateEventSourceMapping` has no resource type, so it is on `*` fenced by
+    `lambda:FunctionArn` and the tags (`CreateEventSourceMappings`); `apigateway:PUT` on
+    `/apis` (an HTTP API's body is imported) was its own exception (`ImportApis`, gone
+    after revision 18); `apigateway:TagResource` (not an IAM action in cfn-lint's data) and the role-wide
+    `W3037` ignore are gone; the access-log writes are their own named exception
+    (`ApiAccessLogDelivery`); `ReadTheBoundary` was dead under the bootstrap Deny and is
+    gone.
+18. **After two cold reviews (14 November 2026)**, each checked against the Service
+    Authorization Reference's JSON (`servicereference.us-east-1.amazonaws.com`):
+    - No `TagResource` on API Gateway (`/tags/*`, a resource with no condition key) or
+      on event-source mappings: with generated IDs, another project's untagged API or
+      mapping could be given `Project=asmbly-ceramics` and then changed (`ChangeOwn`).
+      Mappings are created with their tags and reached only by `OwnEventSourceMappings`
+      (`aws:ResourceTag` and `lambda:FunctionArn`, which Get, Update and Delete take).
+      `ImportApis` is gone; phase 7's HTTP API is an `AWS::ApiGatewayV2::Api` with no
+      `Body`, created with its tags ([decision 0003](../../docs/decisions/0003-one-function-boundary-per-environment.md)).
+    - Two boundaries, `asmbly-ceramics-stage-function-boundary` and `-prod-`, each on
+      its own environment's names; roles named `asmbly-ceramics-<env>-*` only with
+      their environment's boundary (decision 0003). The exports are
+      `asmbly-ceramics-<env>-function-boundary-arn`.
+    - `lambda:AddPermission` and `RemovePermission` only with `lambda:Principal` =
+      `apigateway.amazonaws.com` (`InvokePermissionsForApiGatewayOnly`). The
+      scheduler invokes through its role, so it needs no resource-policy permission.
+    - `s3:PutBucketTagging` takes no `aws:RequestTag`, so it is in `PhotoBucketsByName`.
+      No condition key sees a public access block's settings, so phase 7's template
+      test pins them, and the runbook proposes an account-level block (none exists).
+    - `logs:PutResourcePolicy` (no resource, account-wide) is removed and denied: the
+      account's four HTTP API stages log to `/aws/apigateway/` with no log resource
+      policy. `logs:DescribeIndexPolicies` moved to `DescribeWithoutAResource`.
+    - `lambda:GetLayerVersion` only from `WebAdapterPublisherAccount`, a parameter the
+      maintainer sets by hand from the Web Adapter's README (no number in a file).
+    - The deploy roles' `CreateChangeSet` and `cloudformation:TagResource` require the
+      five request tags (`TaggedChangeSets`).
+    - `dynamodb:ListStreams` (no resource) is out of the boundaries.
+    - IAM has no condition on a trust policy's content (`CreateRole` takes only
+      `iam:PermissionsBoundary`, `iam:RoleTemplateARN` and the tag keys;
+      `UpdateAssumeRolePolicy` only `iam:PermissionsBoundary`): review and phase 7's
+      template test are the fence, and the boundary caps any session.
+    - `test_the_template_fits_cloudformations_inline_size_limit` keeps the template
+      under 51,200 bytes; the change set adds 18 resources (19 with the provider).
+19. **After the lead's re-review (14 November 2026)**; where it differs from 18, this wins:
+    - Lambda needs `lambda:TagResource` for a mapping's tags in its create call
+      (Lambda's "Using tags on event source mappings"). `TagEventSourceMappingsOnCreate`
+      allows it on `event-source-mapping:*` with the five request tags only, and both
+      deploy roles are denied import change sets (`NoResourceImport`), so the role can't
+      reach an existing mapping. No key limits `TagResource` to the create call: the
+      residual risk is in [decision 0003](../../docs/decisions/0003-one-function-boundary-per-environment.md).
+    - The account's HTTP API log groups each hold a log-group policy
+      (`describe-resource-policies --policy-scope RESOURCE`; the earlier check read the
+      account scope only), made by CloudFormation's role with `logs:PutResourcePolicy`.
+      That action takes no resource or key, so the role stays denied it and the
+      bootstrap owns `LogDeliveryPolicy`, `asmbly-ceramics-log-delivery` (account scope,
+      its own name, `/aws/apigateway/asmbly-ceramics-*` only). The change set adds 19
+      resources (20 with the provider).
+    - If an HTTP API's integration and route don't see the API's tags, they fail
+      closed; the fallback (the API's ID as a bootstrap parameter, by ARN) is in
+      decision 0003.
+    - `EnvironmentTag` defaults to `prod`.
 
 ## Goal
 
@@ -92,7 +246,7 @@ person, or a secret.
   exists in the same commit; then as a link).
 - `.github/workflows/pr-checks.yml`: a top-level `env:` with `CFN_LINT_VERSION: '1.57.1'`;
   a job `infra` (name `Templates`, `runs-on: ubuntu-24.04`, `timeout-minutes: 10`,
-  steps: checkout, `astral-sh/setup-uv@v7`, then
+  steps: checkout, `astral-sh/setup-uv@v10.3.3`, then
   `run: uvx "cfn-lint==${CFN_LINT_VERSION}" infra/*.yaml`); `pr-check`'s `needs`
   becomes `[python, infra]`. No credentials, no environment: `test_workflows.py`'s
   checks stay as they are and still pass. The version appears only in `env`, which
@@ -138,13 +292,12 @@ creates `GitHubOidcProvider` only when asked.
   `role/asmbly-ceramics-bootstrap/*`, so no app stack can edit the roles that deploy
   it.
 - Stack tags, set on the `deploy` command and propagated by CloudFormation:
-  `Project=asmbly-ceramics Component=Bootstrap Environment=shared Owner=it-volunteers ManagedBy=cloudformation`.
+  `Project=asmbly-ceramics Component=Bootstrap Environment=prod Owner=it-volunteers ManagedBy=cloudformation`.
   The template also sets them on each resource that takes `Tags` (roles, the bucket,
   the certificates, the domain names) so they don't depend on propagation.
   - **Open question for the maintainer:** CLAUDE.md lists `Environment=<prod or stage>`.
-    The bootstrap serves both, so this plan uses `shared`, as AsmblyMCPs' bootstrap
-    does. If the Asmbly AWS Tagging Guide allows only `prod` and `stage`, it becomes
-    `prod`. The guide itself was not found in any of the three repositories; where it
+    The bootstrap serves both; it uses `prod` (revision 19), and `shared`, as
+    AsmblyMCPs' bootstrap does, only once CLAUDE.md is amended to allow it. The guide itself was not found in any of the three repositories; where it
     lives is asked in the README's report.
 
 ### infra: resources
@@ -282,9 +435,9 @@ The name patterns, the only resources the Allow statements reach:
 | Service | Create accepts `aws:RequestTag` and `aws:TagKeys` | Later actions accept `aws:ResourceTag` | Notes |
 | --- | --- | --- | --- |
 | DynamoDB | `CreateTable`: yes | `UpdateTable`, `UpdateTimeToLive`, `UpdateContinuousBackups`, `DeleteTable`: yes | |
-| S3 | `CreateBucket`: yes | `PutBucketPolicy`, `PutLifecycleConfiguration`, `PutBucketCORS`, `PutBucketPublicAccessBlock`, `PutEncryptionConfiguration`, `PutBucketOwnershipControls`, `PutBucketTagging`, `DeleteBucket`: yes | **To confirm in /prep**: whether CloudFormation passes the stack's tags to `CreateBucket` or adds them afterwards with `PutBucketTagging`; in the second case the first `PutBucketTagging` meets a bucket with no tags and `aws:ResourceTag` fails. Fallback, if the first stage deploy shows it: `PutBucketTagging` moves to `TagOnCreate` (it already carries `aws:RequestTag`). |
-| Lambda | `CreateFunction`, `CreateEventSourceMapping`: yes | `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `DeleteFunction`, `AddPermission`, `UpdateEventSourceMapping`, `DeleteEventSourceMapping`: yes | |
-| API Gateway (`apigateway:` actions, which cover HTTP APIs) | `POST`: yes | `PATCH`, `PUT`, `DELETE`: yes; `GET`: `aws:ResourceTag` only | **To confirm in /prep**: routes, integrations, stages and API mappings carry no tags of their own; whether `aws:ResourceTag` on `/apis/<id>/routes` is evaluated against the API's tags. Fallback, if the first stage deploy fails on them: those sub-resources are reached by `/apis/*` with the `HandsOffOtherProjects` Deny as the fence, which is what AsmblyMCPs relies on, and the README's report says so. |
+| S3 | `CreateBucket`: yes | Only with ABAC on the bucket; `PutBucketTagging` takes no `aws:RequestTag` | Corrected after review (revision 18): the bucket's configuration, `PutBucketTagging` included, is fenced by name (`PhotoBucketsByName`). Whether CloudFormation sends the tags on `CreateBucket` or adds them with `PutBucketTagging` afterwards, both are allowed. |
+| Lambda | `CreateFunction`, `CreateEventSourceMapping`: yes | `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `DeleteFunction`, `AddPermission`, `UpdateEventSourceMapping`, `DeleteEventSourceMapping`: yes | The mapping actions also take `lambda:FunctionArn`; `AddPermission` and `RemovePermission` take `lambda:Principal` (revision 18). |
+| API Gateway (`apigateway:` actions, which cover HTTP APIs) | `POST`: yes | `PATCH`, `PUT`, `DELETE`: yes; `GET`: `aws:ResourceTag` only | **To confirm in /prep**: routes, integrations, stages and API mappings carry no tags of their own; whether `aws:ResourceTag` on `/apis/<id>/routes` is evaluated against the API's tags. Superseded (revision after the final reviews): an untagged `/apis/*` Allow with `HandsOffOtherProjects` as the fence would reach other projects' untagged APIs, so it is not the fallback. The fallback is [decision 0003](../../docs/decisions/0003-one-function-boundary-per-environment.md#the-apis-integration-route-and-stage-and-their-tags): the API's ID, read after a create with rollback disabled, as a bootstrap parameter, with all five methods allowed on `/apis/<that id>/*` by ARN. |
 | EventBridge Scheduler | `CreateSchedule`: **no** (`aws:ResourceTag` only, on the schedule group) | `UpdateSchedule`, `DeleteSchedule`: yes | Schedules in the default group take no tags, so `SchedulesByName` scopes by name only. |
 | SNS | `CreateTopic`: yes | `Subscribe`, `SetTopicAttributes`, `DeleteTopic`: yes | |
 | SQS | `CreateQueue`, `TagQueue`: yes | `SetQueueAttributes`, `DeleteQueue`: yes | |
@@ -441,7 +594,7 @@ it, by hand, only when they asked for it in the conversation.
 3. **Deploy with a change set.**
    `aws cloudformation deploy --template-file infra/bootstrap.yaml --stack-name
    asmbly-ceramics-bootstrap --capabilities CAPABILITY_NAMED_IAM --no-execute-changeset
-   --tags Project=asmbly-ceramics Component=Bootstrap Environment=shared
+   --tags Project=asmbly-ceramics Component=Bootstrap Environment=prod
    Owner=it-volunteers ManagedBy=cloudformation --parameter-overrides
    "GitHubSubjectPrefix=$SUBJECT" "ParentHostedZoneId=$PARENT_ZONE"`; then
    `describe-change-set` (expect: only `Add` actions, 15 resources or 16 with the OIDC
@@ -567,28 +720,34 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov
 uvx cfn-lint==1.57.1 infra/*.yaml
+sam validate --lint -t infra/bootstrap.yaml --region us-east-2
 ```
 
-After the merge, the maintainer follows the runbook. It works when:
+After the merge, the maintainer follows the runbook. It works when
 `aws cloudformation describe-stacks --stack-name asmbly-ceramics-bootstrap` shows
-`CREATE_COMPLETE` with the six outputs; both certificates are `ISSUED`; `dig` returns
-addresses for both names; and, as a negative check of the boundary,
-`aws iam simulate-custom-policy` with the boundary's document and
-`--action-names ses:SendEmail --context-entries` for a From address outside
-`asmbly.org` answers `implicitDeny`. The deploy roles are first used for real by
-phase 7's first deploy.
+`CREATE_COMPLETE`, termination protection on and the eight outputs; both certificates
+are `ISSUED`; `dig` returns addresses for both names; the GitHub environments hold the
+secrets `AWS_DEPLOY_ROLE_ARN` and `AWS_CFN_EXECUTION_ROLE_ARN` and the variables
+`AWS_REGION`, `SAM_ARTIFACTS_BUCKET` and `WEB_ADAPTER_LAYER_ARN`; and runbook step 8's
+simulations answer, for each boundary, `allowed` for an `asmbly.org` From address and its
+own table, and `implicitDeny` for a From address outside `asmbly.org` and the other
+environment's table. The deploy roles are first used for real by phase 7's first deploy.
 
 ## Rollout
 
 - **What is done:** the maintainer deploys `asmbly-ceramics-bootstrap` by hand after
-  this phase merges, sets up the two GitHub environments and their variables, and sets
-  the four SecureString parameters (runbook steps 1–6).
-- **Check:** the runbook's per-step checks above; the stack's change set shows only
-  `Add` actions and only the expected resources.
-- **Who confirms:** the maintainer (@sababado).
-- **Undo:** delete the stack (and the environments, variables and parameters) while no
-  app stack exists. After phase 7, delete `asmbly-ceramics-prod` and
-  `asmbly-ceramics-stage` first; their table and bucket are retained.
+  this phase merges, with the Web Adapter's publisher account and the `Environment`
+  tag he decided; sets up the two GitHub environments, their secrets and variables;
+  sets the three SecureStrings and two Strings per environment; and checks both
+  boundaries (runbook steps 1 to 8).
+- **Check:** the runbook's per-step checks; the change set shows 18 `Add` rows (19 with
+  the OIDC provider) and nothing else.
+- **Who confirms:** the maintainer (@sababado), and the `asmbly.org` zone's owner for
+  the DNS records.
+- **Undo:** delete the stack (and the environments, secrets, variables and parameters)
+  while no app stack exists. After phase 7, delete `asmbly-ceramics-prod` and
+  `asmbly-ceramics-stage` first; their table and bucket are retained. A later change to
+  the stack follows the runbook's "Later changes", with its own check and undo.
 - Nothing else in the account changes: the `asmbly.org` zone gets the two names'
   records and the certificates' validation records, which no other project uses.
 
@@ -596,44 +755,127 @@ phase 7's first deploy.
 
 - Before this phase merges: the maintainer confirms the two addresses
   `ceramics.asmbly.org` and `ceramics-stage.asmbly.org`, and the `Environment` tag value
-  for the bootstrap (`shared` or `prod`).
+  for the bootstrap (`EnvironmentTag`: `prod` by default; `shared` needs CLAUDE.md's rule
+  amended first).
 - After it merges: deploy the bootstrap by hand with rights to the `asmbly.org` zone;
-  create the `stage` and `prod` GitHub environments (deployments from `main` only) and
-  their variables `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`,
-  `SAM_ARTIFACTS_BUCKET`, `WEB_ADAPTER_LAYER_ARN`; set `/asmbly-ceramics/<env>/hash-key`,
-  `form-key` and `session-key` (SecureString) and `alert-email` and
-  `initial-sending-address` (String) for both environments. All by the runbook.
+  create the `stage` and `prod` GitHub environments (deployments from `main` only) with
+  the **secrets** `AWS_DEPLOY_ROLE_ARN` and `AWS_CFN_EXECUTION_ROLE_ARN` (a role ARN holds
+  the account ID) and the **variables** `AWS_REGION`, `SAM_ARTIFACTS_BUCKET` and
+  `WEB_ADAPTER_LAYER_ARN`; set `/asmbly-ceramics/<env>/hash-key`, `form-key` and
+  `session-key` (SecureString) and `alert-email` and `initial-sending-address` (String)
+  for both environments. All by the runbook.
+- His decision, proposed: an account-level S3 public access block (the runbook's
+  "Proposed admin actions"), after the account's other projects agree.
 
 ## Hand-off
 
+Built on branch `feat/aws-bootstrap-phase-5` (2026-11-14). Nothing is in AWS until the
+maintainer follows [the runbook](../../docs/runbooks/aws-bootstrap.md) after the merge.
+The prep revisions above are what was built; where this section and the
+Implementation details above differ, this section and `infra/bootstrap.yaml` are right.
+
 Phase 7 can rely on:
 
-- The stack `asmbly-ceramics-bootstrap` and its exports
-  `asmbly-ceramics-function-boundary-arn`, `asmbly-ceramics-prod-domain-name`,
+- The stack `asmbly-ceramics-bootstrap` (termination protection on) and its exports
+  `asmbly-ceramics-stage-function-boundary-arn`, `asmbly-ceramics-prod-function-boundary-arn`
+  (each app stack imports its own: `{'Fn::ImportValue': !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'}`),
+  `asmbly-ceramics-prod-domain-name` and
   `asmbly-ceramics-stage-domain-name` (each the custom domain's name, to map an API
-  to).
-- The GitHub environments `stage` and `prod` with the variables above.
-- For each environment, the SSM SecureString parameters
-  `/asmbly-ceramics/<env>/hash-key`, `/asmbly-ceramics/<env>/form-key` and
-  `/asmbly-ceramics/<env>/session-key`, and the String parameters
-  `/asmbly-ceramics/<env>/alert-email` and `/asmbly-ceramics/<env>/initial-sending-address`.
-- What the execution role allows, which phase 7's template must fit:
-  - every resource tagged with all five tags at creation, `Project=asmbly-ceramics`
-    (stack tags plus explicit `Tags` on alarms, which `PutMetricAlarm` checks);
+  to; the domains are dualstack).
+- The GitHub environments `stage` and `prod`, deployments from `main` only, each with
+  the **secrets** `AWS_DEPLOY_ROLE_ARN` (its own role: `asmbly-ceramics-gha-deploy-stage`
+  or `-prod`, trusted only by that environment and allowed only its own stack) and
+  `AWS_CFN_EXECUTION_ROLE_ARN`, and the **variables** `AWS_REGION`,
+  `SAM_ARTIFACTS_BUCKET` (`asmbly-ceramics-artifacts-<suffix>`, no account ID) and
+  `WEB_ADAPTER_LAYER_ARN`. `deploy.yml` reads the role ARNs as `secrets.`, not `vars.`.
+- For each environment, the SSM SecureStrings `/asmbly-ceramics/<env>/hash-key`,
+  `form-key` and `session-key`, and the Strings `/asmbly-ceramics/<env>/alert-email` and
+  `initial-sending-address`.
+- What the execution role allows, which `infra/app.yaml` must fit:
+  - every taggable resource created with `Project=asmbly-ceramics` and the other four
+    tags (stack tags; explicit `Tags` on alarms, which `PutMetricAlarm` checks); extra
+    tags (SAM's `lambda:createdBy`, `httpapi:createdBy`) are fine;
   - names: table `asmbly-ceramics-<env>-records`, bucket
-    `asmbly-ceramics-<env>-photos-<suffix>`, functions `asmbly-ceramics-<env>-<job>`, log groups
-    `/aws/lambda/asmbly-ceramics-<env>-<job>` and
-    `/aws/apigateway/asmbly-ceramics-<env>`, topic `asmbly-ceramics-<env>-alarms`,
-    alarms `asmbly-ceramics-<env>-*`, queue `asmbly-ceramics-<env>-close-dlq`, schedule
+    `asmbly-ceramics-<env>-photos-<suffix>`, functions `asmbly-ceramics-<env>-<job>`,
+    log groups `/aws/lambda/asmbly-ceramics-<env>-<job>`,
+    `/aws/apigateway/asmbly-ceramics-<env>` (or `/aws/vendedlogs/asmbly-ceramics-…`),
+    topic `asmbly-ceramics-<env>-alarms`, alarms `asmbly-ceramics-<env>-*`, queues
+    `asmbly-ceramics-<env>-mailer-dlq` and `-close-dlq`, schedule
     `asmbly-ceramics-<env>-close` in the default group;
-  - every function role with `RolePath: /asmbly-ceramics-app/`, a name starting
-    `asmbly-ceramics-`, and `PermissionsBoundary` set to the imported boundary ARN; the
-    scheduler's role the same, passed to `scheduler.amazonaws.com`;
+  - every function role (and the scheduler's) with `RolePath: /asmbly-ceramics-app/`
+    (SAM's `Globals.Function.RolePath`), a name starting `asmbly-ceramics-<env>-` (SAM's
+    generated `<stack>-<Function>Role-…` does, the stack being `asmbly-ceramics-<env>`),
+    and `PermissionsBoundary` set to its own environment's imported boundary ARN; passed only to `lambda.amazonaws.com` or
+    `scheduler.amazonaws.com`. IAM can't condition a trust policy's content, so
+    `test_app_template.py` pins each role's trust to those principals;
+  - the Web Adapter layer: `lambda:GetLayerVersion` on `layer:LambdaAdapterLayerArm64`
+    in the publisher account the maintainer set (`WebAdapterPublisherAccount`) only;
   - no Cognito, SES, Route 53 or ACM resource in an app stack; only an
     `AWS::ApiGatewayV2::ApiMapping` to the bootstrap's domain name;
-  - `AWS::SSM::Parameter::Value<String>` parameters only under `/config/cognito/staff/`.
-- The boundary's statement Sids (`WriteOwnLogs`, `OwnTables`, `OwnPhotos`,
+  - the HTTP API as an `AWS::ApiGatewayV2::Api` with no `Body` and its tags, plus its
+    `Integration`, `Route`, `Stage` (with its tags) and an `AWS::Lambda::Permission`
+    for `apigateway.amazonaws.com`: no `AWS::Serverless::HttpApi` or `HttpApi` event
+    (it imports a body, then tags the API, and the role has no API Gateway tagging
+    right; decision 0003); event-source mappings tagged (stack tags) and feeding an
+    `asmbly-ceramics-` function;
+  - `AWS::SSM::Parameter::Value<String>` parameters only under `/config/cognito/staff/`
+    and `/asmbly-ceramics/<env>/alert-email` and `initial-sending-address`; the deploy
+    workflow never runs `describe-stacks` or `describe-change-set`, which show the
+    resolved values (phase 7 says so too);
+  - no Untag right anywhere: a template that removes a tag fails.
+- What only phase 7's `test_app_template.py` can fence, because the execution role
+  changes the photo bucket by name (S3 checks tags only with ABAC on) and can't see a
+  template's content: the photo bucket keeps all four public access block settings on,
+  `BucketOwnerEnforced`, SSE-S3, the TLS-only Deny, no public principal in its policy,
+  and versioning off (#7's deletes must be real); CORS only for `https://<SiteHost>`
+  and `POST`; no `AWS::Logs::ResourcePolicy` (the bootstrap owns the access-log policy,
+  and the role is denied it); the access-log group named
+  `/aws/apigateway/asmbly-ceramics-<env>` (the bootstrap's policy covers only that); each
+  role's trust is `lambda.amazonaws.com` or `scheduler.amazonaws.com` (IAM has no
+  condition on a trust policy's content). The role itself refuses a `Lambda::Permission`
+  for any principal but `apigateway.amazonaws.com`. The deploy
+  workflow masks the account ID (`::add-mask::`) before `sam deploy` prints stack ARNs.
+- Each boundary's statement Sids (`WriteOwnLogs`, `OwnTables`, `OwnPhotos`,
   `ListOwnPhotos`, `OwnSecrets`, `DecryptOwnSecretsThroughSsm`,
   `SendFromAsmblyAddresses`, `RunOwnFunctions`, `OwnDeadLetterQueues`), each function
-  role taking a subset.
-- `tests/repo/cloudformation.py`'s `load_template` for phase 7's template tests.
+  role taking a subset. `TransactWriteItems` is not an IAM action: a commit needs only
+  `PutItem` (and `UpdateItem` for the counter). No `dynamodb:ListStreams` (it takes no
+  resource); a role's stream statement leaves it out too.
+- `tests/repo/cloudformation.py`'s `load_template` for `test_app_template.py`, and
+  `tests/repo/test_bootstrap.py::test_only_the_deploy_workflow_may_get_credentials`,
+  which phase 7 changes to name `deploy.yml`'s two deploy jobs.
+
+To confirm on phase 7's first stage deploy (fail closed; a fix is a reviewed change to
+`infra/bootstrap.yaml` the maintainer asks for, never a widening in the console):
+
+- that CloudFormation sends the tags in `CreateApi` (`POST /apis`), `CreateStage` and
+  `CreateEventSourceMapping`, rather than tagging afterwards (the role can't);
+- that API Gateway evaluates `aws:ResourceTag` on routes, integrations, stages and API
+  mappings against their API or domain name (`ChangeOwn`); if not, decision 0003's
+  fallback;
+- that CloudFormation sends `aws:SourceAccount` when it assumes the execution role
+  (neither sibling's role has the condition); if it doesn't, the fix is removing that
+  condition from the trust, as a reviewed change;
+- that the handler permissions listed are all the deploy needs (SNS may check
+  subscription actions on the topic, which `SubscriptionsByName`'s pattern covers), and
+  that, with the bootstrap's `asmbly-ceramics-log-delivery` policy, the stage's access
+  logs need no `logs:PutResourcePolicy` (if they do, decision 0003's fallback).
+
+Also for phase 7: the execution role's rights are in three managed policies
+(`asmbly-ceramics-cfn-exec-create`, `-change`, `-roles`) plus an inline Deny, because
+one inline policy passed IAM's 10,240-character limit; `test_every_policy_fits_iams_size_limits`
+measures each. Artifacts expire after 90 days: a rollback after a quiet quarter needs
+the old code object, so phase 7's operations runbook says to redeploy instead.
+
+Open for the maintainer: each environment now has its own boundary (decision 0003), but
+stage and prod still share the execution role, so a stage template could name a prod
+resource or pass a prod role. Both deploy roles also write to the one artifacts bucket,
+so a stage job could place an object a prod deploy reuses (`sam` skips an upload whose
+hash-named key exists). An execution role and an artifacts prefix or bucket per
+environment would close it; that is his call. The keys use SSM's AWS
+managed key, which anyone in the account with `ssm:GetParameter` on them can decrypt; a
+customer-managed key is also his call.
+
+Deferred: phase 9's document cites `scheduler:*` and `sqs:*` from this phase; the
+execution role gives the four schedule actions in `SchedulesByName` and named SQS
+actions, which is what phase 9 must fit (its `/prep` checks it).

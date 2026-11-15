@@ -482,13 +482,12 @@ New resources (names from `ProjectSlug` and `AppEnv`, tags from the stack):
               Effect: Allow
               Action: ssm:GetParameter
               Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key'
-      Events:
-        Console:
-          Type: HttpApi
-          Properties: {ApiId: !Ref HttpApi, Method: ANY, Path: /console}
-        ConsoleAnything:
-          Type: HttpApi
-          Properties: {ApiId: !Ref HttpApi, Method: ANY, Path: '/console/{proxy+}'}
+      # No HttpApi events (phase 5's revision 18, decision 0003: the execution role can't
+      # tag an imported API). Phase 7's pattern instead: ConsoleIntegration
+      # (AWS::ApiGatewayV2::Integration, AWS_PROXY to this function, payload 2.0), the
+      # routes ConsoleRoute ('ANY /console') and ConsoleProxyRoute
+      # ('ANY /console/{proxy+}') targeting it, and ConsoleInvokePermission
+      # (AWS::Lambda::Permission, Principal apigateway.amazonaws.com).
 
   ConsoleErrorsAlarm:
     Type: AWS::CloudWatch::Alarm

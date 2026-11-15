@@ -18,8 +18,11 @@ inspector, which checks and re-encodes photos with Pillow (`adapters/images.py`)
 public drop-off form (`web/`: Starlette pages rendered with Jinja2, the photo upload
 script, the Content-Security-Policy and other headers, same-origin checks and signed
 cookies; `web/local.py` runs it on the fakes on a laptop). The brand colours the pages
-and the emails share are in `brand.py`. Not built: the staff console's pages, the
-scheduled close's handler, any SAM template and the deploy. Nothing is in AWS. The rest is planned in
+and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap stack
+(deploy roles, boundaries, addresses), deployed by hand with
+[its runbook](runbooks/aws-bootstrap.md). Not built: the staff console's pages, the
+scheduled close's handler, the app's SAM template and the deploy. Nothing is in AWS
+yet. The rest is planned in
 [.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
 drop-offs through a ClickUp form until #8 switches it over.
 

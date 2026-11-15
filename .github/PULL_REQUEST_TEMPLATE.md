@@ -21,4 +21,5 @@ none
 ## Test plan
 
 - [ ] `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest --cov`
+- [ ] `uvx cfn-lint==1.57.1 infra/*.yaml` (after a template change)
 - [ ]
