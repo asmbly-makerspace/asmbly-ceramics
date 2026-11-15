@@ -1,11 +1,10 @@
 # 0004: The form's role may clean up its own photos and seed the studio, and the photo bucket is named with a random suffix
 
-Status: proposed, 15 November 2026, with phase 7 of the plan for epic #1
+Status: accepted by the maintainer (@sababado), 15 November 2026. Proposed with phase 7 of the plan for epic #1
 ([phase 7](../../.implementation_plans/drop-off-and-firing/phase-7-first-deploy.md)).
 It amends [0002](0002-how-the-app-is-built-and-deployed.md): the form function's row in
 "Hosting" (what the form may do) and the bucket's name in "Photos go straight to S3".
-It becomes accepted when the maintainer says so; the plan's Admin actions ask for his
-word on each of the four points before phase 7 merges.
+The maintainer accepted it on 15 November 2026.
 
 Decision 0002 says the public form may "create new drop-offs, their outbox emails and
 submissions; issue upload slots; read settings and its own submissions, never a

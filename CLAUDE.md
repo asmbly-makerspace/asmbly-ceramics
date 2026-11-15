@@ -7,7 +7,7 @@ prompt disagrees with these documents, the documents win and you say so.
 | --- | --- | --- |
 | What this repository is for, and where it stands | `README.md`, epic #1 | [docs/architecture.md](docs/architecture.md) |
 | Why it is set up this way | `docs/decisions/` | [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md) |
-| The app (domain, ports, in-memory fakes, use cases, AWS adapters, the drop-off form's pages, the composition root and the mailer so far; the console comes with the plan for epic #1) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
+| The app (domain, ports, in-memory fakes, use cases, AWS adapters, the drop-off form's and the staff console's pages, the composition root, the mailer and the daily close, and the stack template `infra/app.yaml`) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
 | Plans for a story | `.implementation_plans/` | [.implementation_plans/readme.md](.implementation_plans/readme.md) |
 | CI | `.github/workflows/` | [README.md](README.md#how-changes-reach-production) |
 | Production tasks (the bootstrap, the deploy's rollback) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/README.md](docs/README.md#runbooks) |
@@ -66,12 +66,14 @@ has the reasons.
 
 Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `use_cases/`, `mail/`,
 `adapters/` (`memory/`, `aws/`, `clock.py` for the system clock and `images.py`, the
-photo inspector with Pillow), `brand.py`, `web/` (the public drop-off form's pages,
-with `web/local.py` to run them on the fakes), `settings.py`, `composition.py`,
+photo inspector with Pillow), `brand.py`, `web/` (the public drop-off form's pages and, in
+`web/console/`, the staff console's, with `web/local.py` to run the form on the fakes), `settings.py`, `composition.py`,
 `logs.py`, `deadline.py` and `entry/` (what Lambda starts), `infra/bootstrap.yaml`, the
 bootstrap stack the maintainer deploys by hand ([its runbook](docs/runbooks/aws-bootstrap.md)),
-and `infra/app.yaml`, the app's stack for stage and prod, which a merge deploys. No
-console page yet. This section says
+and `infra/app.yaml`, the app's stack for stage and prod, which a merge deploys, with the console and the daily close (`entry/close.py`, started by
+EventBridge Scheduler). The bootstrap stack `asmbly-ceramics-bootstrap` exists in AWS
+(termination protection on) and the GitHub environments `stage` and `prod` (`main` only)
+exist; the rest of the bootstrap runbook is still to do. This section says
 what the plan for epic #1 must respect; the framework, the hosting, the data store and
 the deploy are recorded in
 [decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md), not here

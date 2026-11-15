@@ -13,19 +13,26 @@ If you find a security problem, please report it privately ([SECURITY.md](SECURI
 
 ## Status
 
-**The domain, the use cases, the AWS adapters, the drop-off form and its deploy are
-built; the staff console isn't.** `src/asmbly_ceramics/` holds the domain model, the ports with
+**The domain, the use cases, the AWS adapters, the drop-off form, the staff console, the
+daily close and their deploy are built.** `src/asmbly_ceramics/` holds the domain model, the ports with
 in-memory fakes, the use cases (submit a drop-off, the email composer and outbox, the
 waiting list, search, rejection, kiln loads, settings, the daily close, counts), AWS
 adapters (DynamoDB, S3, SES, Cognito tokens, Parameter Store) and the public drop-off
-form (`web/`: Starlette pages, the photo upload script and the security headers). They
-are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
+form and the staff console (`web/`, `web/console/`: Starlette pages, the photo upload
+script and the security headers; the console is the waiting list, search, one drop-off
+and its photos, rejection, loads, settings and their history, counts, and the emails
+needing attention). They are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
 permissions boundary, the two addresses), which the maintainer deploys by hand with
-[its runbook](docs/runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's stack (the
-records table, the private photo bucket, the form behind an HTTP API, the mailer and
-its alarms), which a merge to `main` deploys to stage and then prod once the bootstrap
+[its runbook](docs/runbooks/aws-bootstrap.md). The stack `asmbly-ceramics-bootstrap`
+exists in AWS and the GitHub environments `stage` and `prod` exist (`main` only); the
+runbook's later steps (the environments' secrets and variables, the app's keys, the two
+addresses, the boundary check) are not done yet, so no deploy has succeeded.
+`infra/app.yaml` is the app's stack (the records table, the private photo bucket, the
+form and the console behind an HTTP API, the mailer, the daily close at 03:17 Austin
+time, and their alarms), which a merge to `main` deploys to stage and then prod once the bootstrap
 is in place. The prod form's address isn't published until the switch from ClickUp
-(#8). The staff console's pages aren't built yet. The plan's next phases are in
+(#8), and the console needs the `ceramics` group and the app's sign-in client from
+asmbly-staff-login. The plan's remaining phase is in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
 | Story | What changes for people |
@@ -58,8 +65,8 @@ scripts/                the deploy's smoke test, parameter list and compose chec
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
 src/asmbly_ceramics/    the app: domain/, ports/, use_cases/, mail/, adapters/ (memory/, aws/, the
                         system clock and the photo inspector) and web/ (the drop-off form's
-                        pages), composition.py and entry/ (what Lambda starts); no
-                        console page yet
+                        pages) and web/console/ (the staff console), composition.py and
+                        entry/ (what Lambda starts)
 tests/                  the app's tests; tests/repo/ checks the repository itself
 ```
 
