@@ -26,7 +26,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError, ParamValidationError
 
+from asmbly_ceramics import deadline
 from asmbly_ceramics.adapters.aws import keys
+from asmbly_ceramics.adapters.aws.deadline import DeadlinePassed
 from asmbly_ceramics.adapters.aws.errors import log_aws_error, retry_attempts
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
@@ -60,7 +62,7 @@ _UNKNOWN_CODES = frozenset({"TransactionInProgressException", "InternalServerErr
 # botocore errors raised before any request left: nothing was sent. Any other botocore
 # error may follow a retried timeout (botocore's retries hide the earlier tries), so it
 # leaves the outcome open.
-_NOT_SENT = (NoCredentialsError, ParamValidationError)
+_NOT_SENT = (NoCredentialsError, ParamValidationError, DeadlinePassed)  # refused before sending
 _ALL_STATES = tuple(DropOffState)
 _REJECTION_STATES = (DropOffState.REJECTED, DropOffState.CLOSED)  # a rejection is kept on close
 _ALL_STATUSES = tuple(LoadStatus)
@@ -112,7 +114,10 @@ class DynamoDbRecords:
         return self._get(keys.email_key(drop_off_id, kind, occasion), Email)
 
     def submission(self, token_hash: str) -> Submission | None:
-        return self._get(keys.submission_key(token_hash), Submission)
+        # Under the cleanup deadline: a submit whose commit timed out re-reads it to
+        # learn whether to delete the photos it kept (decision 0004).
+        with deadline.cleanup():
+            return self._get(keys.submission_key(token_hash), Submission)
 
     # Lists ----------------------------------------------------------------------------
 

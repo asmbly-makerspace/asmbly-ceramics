@@ -1,0 +1,97 @@
+{% extends "console/layout.html" %}
+{% block title %}Waiting to fire{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Waiting to fire</h2>
+  <p class="hint">Oldest first.</p>
+</div>
+<form method="post" action="/console/search" class="search" role="search">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="q">Find a drop-off</label>
+  <div class="search-row">
+    <input type="search" id="q" name="q" value="{{ query }}" maxlength="{{ search_max }}" placeholder="AC-12, 12 or part of a name" autocomplete="off">
+    <button type="submit">Find</button>
+  </div>
+</form>
+<p><a class="button" href="/console/loads">Start a load</a></p>
+
+<div class="cards">
+{% for item in view.firing_types %}
+  <section class="card">
+    <h3>{{ item.name }}</h3>
+    <p class="card-number">{{ view.totals.pieces.get(item.id, 0) }} pieces</p>
+    <p>in {{ view.totals.drop_offs.get(item.id, 0) }} drop-offs</p>
+    {% if item.needs_glaze_type %}
+    <p>{% for glaze in view.glaze_types if view.totals.pieces_by_glaze.get(glaze.id) %}{{ view.totals.pieces_by_glaze[glaze.id] }} {{ glaze.name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+  </section>
+{% endfor %}
+  <section class="card">
+    <h3>Overdue</h3>
+    <p class="card-number">{{ view.totals.overdue }}</p>
+    <p>waiting {{ limits.OVERDUE_AFTER.days }} days or more</p>
+  </section>
+</div>
+
+<nav class="filter" aria-label="Show">
+  <span class="filter-label">Show</span>
+  <a class="chip" href="/console"{% if firing is none and found is none %} aria-current="true"{% endif %}>All</a>
+  {% for item in view.firing_types %}
+  <a class="chip" href="/console?firing={{ item.id }}"{% if firing == item.id %} aria-current="true"{% endif %}>{{ item.name }}</a>
+  {% endfor %}
+</nav>
+
+{% set rows = found.rows if found is not none else view.rows %}
+{% if found is not none %}
+<h3>Found for “{{ query }}”</h3>
+{% endif %}
+{% if rows %}
+<div class="table-box">
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col"><span class="visually-hidden">Photo</span></th>
+      <th scope="col">ID</th>
+      <th scope="col">Name</th>
+      <th scope="col">Pieces</th>
+      <th scope="col">Firing</th>
+      <th scope="col">Glaze</th>
+      <th scope="col">Waiting</th>
+      <th scope="col"><span class="visually-hidden">Open</span></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+  {% set d = row.drop_off %}
+    <tr>
+      <td>{% if d.photos %}<img class="thumb" src="/console/drop-offs/{{ d.id }}/photos/1/thumb" alt="Photo of {{ d.id }}" width="56" height="56" loading="lazy">{% endif %}</td>
+      <td class="mono">{{ d.id }}</td>
+      <td>{{ d.contact.name if d.contact else "—" }}</td>
+      <td>{{ d.pieces }}</td>
+      <td><span class="tag">{{ row.firing_type }}</span></td>
+      <td>{{ row.glaze_type or "—" }}</td>
+      <td>
+        {% if row.waiting %}
+        {% if row.days_waiting == 0 %}today{% elif row.days_waiting == 1 %}1 day{% else %}{{ row.days_waiting }} days{% endif %}
+        {% if row.overdue %}<span class="tag tag-overdue">overdue</span>{% endif %}
+        {% else %}
+        {{ d.state.label }}
+        {% endif %}
+      </td>
+      <td><a href="/console/drop-offs/{{ d.id }}">Open</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if found is not none and found.truncated %}
+<p class="hint">Only the oldest {{ rows | length }} matches are shown. Type more of the name to narrow it.</p>
+{% endif %}
+{% elif found is not none %}
+<p class="notice" role="status">No drop-offs match that. Check the ID, or try part of the name.</p>
+{% elif firing is not none %}
+<p class="notice" role="status">No waiting drop-offs of this firing type.</p>
+{% else %}
+<p class="notice" role="status">Nothing is waiting to fire.</p>
+{% endif %}
+{% endblock %}

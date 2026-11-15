@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 else:
     DynamoDBClient = Any
 
+DROP_OFF_COUNTER = "dropoff"
+"""The drop-off counter's name (`COUNTER#dropoff`); the form's IAM grant names it too."""
+
 
 class DynamoDbIdNumbers:
     def __init__(self, client: DynamoDBClient, table: str) -> None:
@@ -28,7 +31,7 @@ class DynamoDbIdNumbers:
         self._table = table
 
     def next_drop_off_id(self) -> DropOffId:
-        return DropOffId(self._next("dropoff"))
+        return DropOffId(self._next(DROP_OFF_COUNTER))
 
     def next_load_id(self) -> LoadId:
         return LoadId(self._next("load"))

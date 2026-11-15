@@ -10,7 +10,96 @@ estimated_size: L
 
 # Phase 7: First deploy: stage and prod
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
+
+## Prep revisions (15 November 2026)
+
+`/prep` checked this document against the code (a drift check and an adversarial audit,
+both run as subagents). Where this section and the text below disagree, this section
+wins; the build follows it.
+
+- **No `TransactOnTheTable` statements.** `dynamodb:TransactWriteItems` is not an IAM
+  action: AWS's "Using IAM with DynamoDB transactions"
+  (`/amazondynamodb/latest/developerguide/transaction-apis-iam.html`) authorizes each
+  item of a transaction as its own `PutItem`/`UpdateItem`/`DeleteItem`/`ConditionCheckItem`
+  (with `dynamodb:EnclosingOperation`), so `dynamodb:LeadingKeys` is evaluated per item.
+  The roles' `PutItem` statements are what a commit needs. The "To confirm in `/prep`"
+  note under Required reading is settled this way; the first stage submit proves it.
+- **The mailer's SES statement names both identities** the bootstrap's boundary names:
+  `identity/${EmailDomain}` and `identity/*@${EmailDomain}` (SES authorizes against the
+  most specific identity covering the From address), with `ses:FromAddress` `*@${EmailDomain}`.
+  Every ARN uses `${AWS::Partition}`.
+- **The whole-request bound is a deadline** (phase 6's hand-off: the use cases run
+  synchronously on the event loop, so an `asyncio` timeout can't stop them, and per-call
+  configs can't sum some forty calls under 29 s). `asmbly_ceramics/deadline.py` (stdlib
+  only) holds the request's deadline in a `ContextVar`, `REQUEST_BUDGET_SECONDS = 14` for the work and
+  `CLEANUP_BUDGET_SECONDS = 22` for cleanups;
+  `web.app.RequestDeadline` (ASGI middleware, added by `create_from_environment`) sets it
+  for each HTTP request; `adapters/aws/deadline.py` registers a botocore `before-send`
+  hook on every client `adapters.aws.clients` builds, which raises `DeadlinePassed` (a
+  `BotoCoreError`) before any attempt once the deadline has passed. The adapters already
+  turn a `BotoCoreError` into their port's `Unavailable`, so the page answers phase 6's
+  503 and logs `drop_off_unavailable` with `error_code=DeadlinePassed`. One attempt then
+  takes at most 2 s to connect and 4 s per read, so a request ends near 26 s (28 s after review). Outside a
+  request (the mailer) the hook does nothing.
+- **Clients are built in `adapters/aws/clients.py`** (`dynamodb_client`, `s3_client`,
+  `ssm_client`, `ses_client`): `tests/domain/test_imports.py` lets only `adapters/` import
+  boto3, so `composition.py` imports these, never boto3. The mailer's config is
+  `adapters.aws.mailer.STREAM_SES_CLIENT_CONFIG` (`SES_CLIENT_CONFIG` merged with a 30 s
+  read). `composition.build_form_services(settings, clients)` and `build_mailer(settings,
+  clients)` take stubbed clients in tests.
+- **`build_mailer` passes `CurrentStudio(..., seed=False)`**, which raises
+  `StudioNotSeeded` when the studio is missing (the flag phase 2a built).
+- **Alarms.** A metric filter belongs to one log group: only the mailer logs
+  `email_failed`, so `EmailFailuresFilter` is on `MailerLogGroup` only. `LoggedErrors`
+  has one filter per function's group, pattern `{ ($.level = "ERROR") && ($.event != "email_failed") }`,
+  so one failed email sets off one alarm. `FunctionErrorsAlarm` sums each function's
+  `AWS/Lambda` `Errors` with metric math (an `Errors` alarm without `FunctionName` is
+  account-wide). Alarms carry the five tags explicitly (the execution role creates them
+  only with the tags in the request).
+- **The mailer.** `Timeout: 300` (up to ten reads at a worst 18 s each, then a 30 s send;
+  a timeout would leave the email `sending` with nothing logged) and
+  `StartingPosition: TRIM_HORIZON` (a replaced mapping doesn't skip pending emails; the
+  claim skips whatever is no longer pending).
+- **Outputs**: `SiteUrl`, `PhotoBucketName`, `TableName` only. `sam deploy` prints the
+  outputs in the public log, so none is an ARN (it holds the account ID).
+- **Smoke check 5** checks that S3 refuses the oversized POST (a 4xx, its code printed),
+  not that the object is absent afterwards: without credentials a GET answers 403 either
+  way. A refused POST stores nothing.
+- **`run.sh`** sets `PYTHONPATH` to `$LAMBDA_TASK_ROOT` (the Web Adapter's Python
+  examples do the same) and starts uvicorn on `0.0.0.0:$PORT` with `--no-access-log`.
+  `logs.configure_logging(level, version)` replaces Lambda's root handler and uvicorn's
+  own handlers, so every line is JSON; a line holds a message's template, never its
+  arguments, and an exception only by its class name.
+- **CI details**: the `Templates` job gains `actions/setup-python` (`.python-version`)
+  for `sam build`; the tip-of-main step reads `gh api` with `GH_TOKEN: ${{ github.token }}`
+  and, when a newer commit is on main, prints the notice and ends the job with exit 0 and
+  every later step skipped (an output `tip`); `SAM_CLI_VERSION` is `1.172.1`.
+- **Merge order**: phases 7, 8 and 9 are built on one branch and merge in one pull
+  request, so stage and prod never take drop-offs without the console's reject and the
+  daily close (#7). Phase 8 sets the console's routes their own throttling (the stage's
+  default 5 per second, burst 20, is shared by every route).
+- **Account check, read only (done in `/prep`)**: `aws lambda get-account-settings`
+  shows 1,000 concurrent executions with 976 unreserved, so the 7 reserved per
+  environment here (and phases 8 and 9's) leave well over 100.
+- **Files added to the tables below**: `src/asmbly_ceramics/deadline.py`,
+  `src/asmbly_ceramics/adapters/aws/deadline.py`, `docs/decisions/0004-the-form-role-and-the-photo-bucket-name.md`
+  (status proposed: the four points in Admin actions), `docs/runbooks/operations.md`
+  (the rollback, taking the form offline, removing an environment), `tests/entry/__init__.py`,
+  `tests/scripts/__init__.py`, `tests/scripts/test_compose_check.py`,
+  `tests/test_entry_script.py`, `tests/test_deadline.py`; modified:
+  `src/asmbly_ceramics/adapters/aws/clients.py`, `src/asmbly_ceramics/adapters/aws/mailer.py`,
+  `tests/repo/test_bootstrap.py` (its "no workflow gets credentials" test now names
+  `deploy.yml`'s two jobs).
+- **The undo.** Reverting this phase's pull request also removes `deploy.yml`, so no
+  Deploy run follows a revert of the first deploy, and the stacks stay. The rollback
+  for a later change is a revert pull request (its Deploy runs); taking the form
+  offline at once, or removing an environment, are maintainer steps in
+  `docs/runbooks/operations.md` (the form function's reserved concurrency set to 0, by
+  hand, as a step he asks for). The retained table and bucket keep personal details
+  until they are deleted; the runbook says so.
+- **The size note**: the repository's plan rules say a phase is about 800 lines at most;
+  the maintainer accepts phases up to about 5,000, so this phase isn't split.
 
 ## Required reading
 
@@ -869,37 +958,18 @@ and doesn't test this alarm.
 | The pull request merges | The maintainer, on his word for it | **Deploy** runs | none needed |
 | Stage deploys | the workflow | the change set is all `Add` on the first run (the run's log); the smoke test passes | revert the pull request; the next run removes what it added, except the retained table and bucket |
 | Prod deploys | the workflow, after stage's smoke test | the smoke test against prod passes | as for stage |
+| A six-photo drop-off at the limits on stage | the maintainer, with made-up details: six photos of about 10 MB each | the ID page, not the 503 (the 14 s work budget fits); if not, the budget or the form's memory changes before prod's address is published | none: it closes like any other |
 | A real drop-off on stage | the maintainer, with made-up details | the ID, the email with photos, no location in them | none: the drop-off closes like any other (phase 9) or stays waiting on stage |
 | The alarm | the maintainer, on stage | the notification arrives | the alarm returns to OK by itself |
 
 ### If the first create of a stack fails
 
-A first create that is refused (a right the bootstrap lacks, decision 0003's
-fail-closed cases) rolls back to `ROLLBACK_COMPLETE`. That stack can't be updated, only
-deleted, and the deploy roles have no `cloudformation:DeleteStack` and no import. The
-rollback keeps the table and the bucket (`Retain`), whose fixed names make the next
-create fail too. So the maintainer recovers by hand, with his own credentials, as a
-step he asks for in the conversation (the example is stage; prod is the same with
-`prod`):
-
-| Step | Check | Undo |
-| --- | --- | --- |
-| Read why it failed | `aws cloudformation describe-stack-events --stack-name asmbly-ceramics-stage --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceStatusReason]"`; the status is `ROLLBACK_COMPLETE` (`describe-stacks`) | none: read only |
-| Check the retained table and bucket are empty | `aws dynamodb scan --table-name asmbly-ceramics-stage-records --select COUNT` gives `Count: 0`; `aws s3api list-objects-v2 --bucket <the photo bucket> --max-keys 1 --query KeyCount` gives `0`. A first create stores nothing; if either isn't empty, stop and write it up: nothing below runs | none: read only, counts only |
-| Delete the failed stack | `aws cloudformation delete-stack --stack-name asmbly-ceramics-stage`, then `aws cloudformation wait stack-delete-complete`; `describe-stacks` then says it doesn't exist | none needed: it held nothing; the next deploy creates it again |
-| Delete the empty table and bucket | `aws dynamodb update-table --table-name asmbly-ceramics-stage-records --no-deletion-protection-enabled`, `aws dynamodb delete-table --table-name asmbly-ceramics-stage-records`, `aws s3api delete-bucket --bucket <the photo bucket>`; `describe-table` and `head-bucket` then say they don't exist | none needed: both were empty; the next create makes them again |
-| Fix the cause | a reviewed pull request (to the bootstrap, then deployed by the runbook's "Later changes to the bootstrap stack", or to this template) | revert that pull request |
-| Run **Deploy** again | the change set is all `Add`; the smoke test passes | as in the table above |
-
-When decision 0003's API fallback applies (an integration, route or stage refused on
-the API's tags), the maintainer, after the steps above up to the fix, recreates the
-stack by hand with rollback disabled (`sam deploy --disable-rollback`, passing the
-execution role), so it stops at `CREATE_FAILED` with its API kept, and reads the API's
-ID from the stack's resources. The fix is then the reviewed bootstrap change that
-allows that ID, and the next **Deploy** updates the stack in place (a stack whose
-create failed with rollback disabled can be updated); it isn't deleted again, since a
-new API would have a new ID. Undo: delete the stack and its empty table and bucket as
-above.
+A first create that is refused rolls back to `ROLLBACK_COMPLETE`, keeps the retained
+table and bucket, and can only be deleted, which the deploy roles can't do. The
+maintainer's steps by hand (read why, check the table and bucket are empty, delete the
+stack and them, fix, deploy again, and decision 0003's API fallback), each with its
+Do, Check, Who confirms and Undo, are in the runbook:
+[If the first create of a stack fails](../../docs/runbooks/operations.md#if-the-first-create-of-a-stack-fails).
 
 Removing an environment entirely is a step for the maintainer by hand: delete the
 stack, then, only if the data is truly not wanted, the retained table (turn deletion
@@ -944,7 +1014,60 @@ that), and no QR code points to it. Nobody is told yet.
 
 ## Hand-off
 
-Filled in when the phase is done. Phases 8 and 9 rely on:
+Built on 15 November 2026 (branch `feat/drop-off-and-firing-phases-7-9`). Where the
+list below this paragraph differs from what was built, this paragraph wins:
+
+- **Template** `infra/app.yaml`: the logical IDs listed below, except that the metric
+  filters are `EmailFailuresFilter` (mailer only), `FormLoggedErrorsFilter` and
+  `MailerLoggedErrorsFilter`; outputs `SiteUrl`, `PhotoBucketName`, `TableName` (no
+  ARN). Phase 8's `ConsoleFunction` adds a `LoggedErrors` filter on its own group and a
+  `MetricStat` to `FunctionErrorsAlarm`'s metric math, its own throttling on the
+  console's routes, and a `test_app_template.py` row for its role.
+- **Composition**: `asmbly_ceramics.settings.Settings.from_environment()`;
+  `asmbly_ceramics.composition.build_form_services(settings=None, clients=None)` and
+  `build_mailer(settings=None, clients=None)`; the client bundles
+  `adapters.aws.clients.FormClients.build(region)` / `MailerClients.build(region)`
+  (cached per container; phase 8 adds `ConsoleClients` there, never boto3 in
+  `composition.py`); `web.app.create_from_environment()` (checks `APP_ROLE` against
+  `web.app.APP_ROLES`, configures logging, adds `RequestDeadline`).
+- **The request bound** (changed in review): `asmbly_ceramics.deadline`
+  (`REQUEST_BUDGET_SECONDS = 14` for the work, `CLEANUP_BUDGET_SECONDS = 22` for what
+  runs inside `deadline.cleanup()`: `S3PhotoStore`'s deletes and the submission re-read,
+  so a submit cut off after keeping photos still deletes them; a commit refused by the
+  deadline is `RecordsUnavailable`, not `CommitOutcomeUnknown`; the hook is registered
+  first among `before-send` handlers),
+  `web.app.RequestDeadline`, and `adapters.aws.deadline.check_deadline(client)`, which
+  every client built by `adapters.aws.clients` carries: after the deadline an AWS call
+  raises `DeadlinePassed` (a `BotoCoreError`), so the adapter raises its port's
+  `Unavailable` (`DeadlinePassedOnRetry`, after an attempt that may have landed, is an
+  unknown outcome, never "not sent"). The console's botocore calls follow it as they
+  are; `adapters/aws/staff_tokens.py` calls Cognito with `urllib` (5 s each) and never
+  sees the deadline, which phase 8 bounds itself.
+- **Timeouts**: the mailer's SES client is `adapters.aws.mailer.STREAM_SES_CLIENT_CONFIG`
+  (one attempt, 30 s read); the console's test email keeps `SES_CLIENT_CONFIG`.
+- **Logging**: `asmbly_ceramics.logs.configure_logging(level, version)`; fields
+  `level`, `logger`, `message` (a template, never its arguments), `version` and
+  `use_cases.log.LOG_FIELDS`; an exception only as `error_code`.
+- **Scripts**: `scripts/smoke.py <site> <version>` (check 3, `console`, is phase 8's to
+  change), `scripts/sam_parameters.py <config-env> [Key=Value ...]`,
+  `scripts/compose_check.py <build dir>`.
+- **Names**: bucket suffixes `faa1243f` (stage) and `853de865` (prod) in
+  `samconfig.toml`; the SAM CLI is `1.172.1` in both workflows' `env`.
+- **Rights** (from review): every `PutItem` a role may make carries
+  `StringEqualsIfExists dynamodb:ReturnValues NONE`, and the puts on drop-offs, emails,
+  submissions and the studio also `ForAnyValue:StringEquals dynamodb:EnclosingOperation
+  [TransactWriteItems]` (only inside `Records.commit`). Phase 8's console role and phase
+  9's close role follow it, and `test_app_template.py`'s pin is extended to them.
+- **Not yet known** (the first deploy settles them): S3's answer to the oversized POST
+  (the smoke test prints it), the phone checks, that the submit's transaction is
+  authorized item by item as the roles expect (with `EnclosingOperation`), whether Lambda
+  wants `dynamodb:ListStreams` (which the role and the boundary leave out) to create the
+  mailer's stream mapping (if so the first create rolls back: the recovery above), and
+  whether a six-photo submit at the size limit fits the 14 s work budget: on stage,
+  before prod's address is published, submit six photos of about 10 MB each and expect
+  the ID page, not the 503.
+
+The plan's list, as written before the build:
 
 - **Template logical IDs**: `RecordsTable`, `PhotoBucket`, `PhotoBucketPolicy`, `HttpApi`,
   `FormIntegration`, `DefaultRoute`, `HttpApiStage`, `FormInvokePermission`,

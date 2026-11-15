@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Signing out{% endblock %}
+{% block head_extra %}<meta http-equiv="refresh" content="0; url={{ logout_url }}">{% endblock %}
+{% block heading %}Ceramics console{% endblock %}
+{% block content %}
+<div class="notice" role="status">
+  <p>Signing you out of the staff sign-in…</p>
+</div>
+<p><a class="button" href="{{ logout_url }}">Continue</a></p>
+{% endblock %}

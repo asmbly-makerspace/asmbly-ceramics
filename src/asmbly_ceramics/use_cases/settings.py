@@ -34,7 +34,7 @@ from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.studio import CurrentStudio
 
-HISTORY_PAGE = 20
+HISTORY_PAGE = 50  # "Show all changes": a page of the history
 BAD_RECIPIENT = "bad_recipient"  # the signed-in staff member's address isn't an address
 
 
@@ -51,16 +51,23 @@ class ViewStudio:
         self._records = records
         self._studio = studio
 
-    def __call__(self, before: str | None = None, limit: int = HISTORY_PAGE) -> StudioView:
+    def __call__(
+        self, before: str | None = None, limit: int = HISTORY_PAGE, *, with_used: bool = True
+    ) -> StudioView:
         """The settings, which items are used, and a page of history. `BadCursor` for a
-        `before` no page gave (the page shows the first page instead)."""
+        `before` no page gave (the page shows the first page instead). `with_used=False`
+        skips the per-item scan (`used` is then empty) for a page that shows no list."""
         studio = self._studio()
         page = self._records.history(limit, before)
-        used = {
-            (which, item.id): self._records.is_item_used(which, item.id)
-            for which in CatalogList
-            for item in studio.items(which)
-        }
+        used = (
+            {
+                (which, item.id): self._records.is_item_used(which, item.id)
+                for which in CatalogList
+                for item in studio.items(which)
+            }
+            if with_used
+            else {}
+        )
         return StudioView(studio, page.changes, MappingProxyType(used), page.older)
 
 

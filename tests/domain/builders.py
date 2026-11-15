@@ -11,7 +11,7 @@ from typing import TypedDict, Unpack
 
 from asmbly_ceramics.domain.closing import close
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffDetails, DropOffState, Rejection, new_drop_off
-from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email
+from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
@@ -140,3 +140,11 @@ def a_sent_ready_email(drop_off_id: DropOffId, sent_at: datetime, pickup_window_
     checks, so a test can hand the close a naive time or a window of 0 to see it refuse."""
     claimed = claim(new_email(drop_off_id, EmailKind.READY, NOW), NOW)
     return replace(claimed, status=EmailStatus.SENT, sent_at=sent_at, pickup_window_days=pickup_window_days)
+
+
+def a_sent_rejected_email(drop_off: DropOff, sent_at: datetime) -> Email:
+    """The rejected email of `drop_off`'s current rejection, sent at `sent_at`."""
+    assert drop_off.rejection is not None
+    occasion = rejection_occasion(drop_off.rejection.at)
+    claimed = claim(new_email(drop_off.id, EmailKind.REJECTED, drop_off.rejection.at, occasion), NOW)
+    return replace(claimed, status=EmailStatus.SENT, sent_at=sent_at)

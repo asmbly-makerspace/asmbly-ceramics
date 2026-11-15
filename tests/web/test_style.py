@@ -78,6 +78,28 @@ def test_buttons_and_inputs_are_at_least_44px() -> None:
     assert TOKENS["font-size-body"].strip() == "1rem"
 
 
+def test_cancel_links_are_at_least_44px() -> None:
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == ".cancel")
+    assert "min-height: var(--tap-target)" in body
+    for template in ("drop_off.html", "reject_preview.html"):
+        page = (WEB / "templates" / "console" / template).read_text()
+        assert '<a class="cancel" href="/console/drop-offs/{{ drop_off.id }}">Cancel</a>' in page, template
+
+
+def test_summaries_and_action_links_are_at_least_44px() -> None:
+    """The load page's "Change kiln, firing or date" and the weeks' links are tapped at
+    the kiln, as the buttons are."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    for selector in ("summary", ".actions a"):
+        body = next(body for sel, body in rules.items() if sel.strip() == selector)
+        assert "min-height: var(--tap-target)" in body, selector
+    load = (WEB / "templates" / "console" / "load.html").read_text()
+    assert "<summary>Change kiln, firing or date</summary>" in load
+    counts = (WEB / "templates" / "console" / "counts.html").read_text()
+    assert '<nav class="actions" aria-label="Weeks">' in counts
+
+
 @pytest.mark.parametrize(
     ("foreground", "background", "minimum"),
     [

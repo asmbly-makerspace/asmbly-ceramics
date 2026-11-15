@@ -5,7 +5,17 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 
 # Folders that hold tools' output or other people's code, never the repository's own text.
-SKIPPED = {".git", ".venv", ".mypy_cache", ".ruff_cache", ".pytest_cache", "node_modules", "worktrees"}
+# `.aws-sam` is `sam build`'s output (git ignores it): the bundled libraries, not ours.
+SKIPPED = {
+    ".git",
+    ".venv",
+    ".aws-sam",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "node_modules",
+    "worktrees",
+}
 
 
 def repository_files(pattern: str) -> list[Path]:

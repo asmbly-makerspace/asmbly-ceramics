@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 9: Console: loads, settings, counts, the close
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -84,8 +84,12 @@ and #7 are done.
 | Path | Change |
 | --- | --- |
 | `src/asmbly_ceramics/web/console/__init__.py` | Mounts the new routes; the tab row's Loads, Weekly counts and Settings become live |
-| `src/asmbly_ceramics/web/console/dropoffs.py` | "Add to a load" opens the load picker (`/console/loads?add=AC-12`) |
-| `src/asmbly_ceramics/composition.py` | `ConsoleServices` gains the phase 3 use cases above and a `Mailer` (for the test email only); `build_closer() -> CloseFinished` |
+| `src/asmbly_ceramics/web/templates/console/drop_off.html` | "Add to a load" opens the load picker (`/console/loads?add=AC-12`) |
+| `src/asmbly_ceramics/web/templates/console/layout.html` | The Loads, Weekly counts and Settings tabs get `aria-current` |
+| `src/asmbly_ceramics/adapters/aws/clients.py` | `ConsoleClients`: the form's three clients plus an SES client with a short, request-sized timeout |
+| `tests/web/console/test_auth.py`, `tests/test_composition.py`, `tests/scripts/test_smoke.py` | The route walk covers every new route; the console's composition; the smoke test's new checks |
+| `src/asmbly_ceramics/composition.py` | `ConsoleServices` gains the phase 3 use cases above, built with `DynamoDbIdNumbers` (for `StartLoad`) and `SesMailer` plus `JinjaComposer` (for `SendTestEmail` only) from `ConsoleClients`; `build_closer() -> CloseFinished` |
+| `src/asmbly_ceramics/web/console/services.py` | The new use cases |
 | `infra/app.yaml` | `ses:SendEmail` on the console's role; the close function, its role, log group, schedule, scheduler role, dead-letter queue and two alarms |
 | `scripts/smoke.py` | `/console/loads` and `/console/settings` redirect to sign-in without a session (the close isn't public, so it is checked under Rollout instead) |
 | `tests/repo/test_app_template.py` | Pins for the new resources |
@@ -94,12 +98,17 @@ and #7 are done.
 ## Implementation details
 
 Every route below is behind phase 8's `require_staff`; every POST also passes
-`check_csrf` and `check_origin`, then answers `303` to the page it came from with a
-one-line message (Post/Redirect/Get), so a refresh repeats nothing. Domain errors are
+`check_csrf` and `check_origin`, then, after a change, answers `303` to the page it came
+from with a one-line message (Post/Redirect/Get), so a refresh repeats nothing. A
+refusal, "Mark L-4 fired?" and the test email answer the page directly (400 or 409 for a
+refusal), since nothing was stored (see the hand-off). Domain errors are
 shown on the page, in the words below, with the typed input kept; nothing is stored. A
 `Conflict` from `Records.commit` (someone else changed the load or the drop-off) is shown
-as "L-4 changed while you were working. Here it is now; try again." Logs carry
-`event`, `drop_off_id`, `load_id`, `user`, `reason` and `error_code` only (phase 2's `LOG_FIELDS`).
+as "L-4 changed while you were working. Here it is now; try again." (naming the IDs the
+`Conflict` reports, the load's when it reports none). The use cases already log every
+change (`load_started`, `load_changed`, `added_to_load`, `removed_from_load`,
+`load_firing`, `load_fired`, `settings_changed`, `test_email`) with the fields phase 2's
+`LOG_FIELDS` allows; the pages log nothing more, and never a typed value.
 
 ### web: loads
 
@@ -107,13 +116,13 @@ as "L-4 changed while you were working. Here it is now; try again." Logs carry
 | --- | --- | --- |
 | `/console/loads` | GET | `ListLoads` |
 | `/console/loads` | POST | `StartLoad(kiln, firing_type, date, by)` |
-| `/console/loads/{load}` | GET | `ViewLoad`, `WaitingList` (filtered), `FindDropOffs` |
-| `/console/loads/{load}/add` | POST | `AddToLoad(load, drop_off, confirm_mismatch, by)` |
+| `/console/loads/{load}` | GET | `ViewLoad(load, all_firing_types=)` (its `waiting` rows are the filtered waiting list) |
+| `/console/loads/{load}/add` | POST | `AddToLoad(load, drop_off, confirmed=, staff=)`; text that isn't an ID: `FindDropOffs(text, waiting_only=True)` |
 | `/console/loads/{load}/remove` | POST | `RemoveFromLoad(load, drop_off, by)` |
 | `/console/loads/{load}/edit` | POST | `ChangeLoad(load, kiln, firing_type, date, version, by)`, while loading |
-| `/console/loads/{load}/start-firing` | POST | `StartFiring(load, by)` |
-| `/console/loads/{load}/fire` | POST | `MarkFired(load, by)` |
-| `/console/loads/{load}/emails/{drop_off}/retry` | POST | `RetryEmail(drop_off, "ready", "", staff)` |
+| `/console/loads/{load}/start-firing` | POST | `StartFiring(load, version, staff)` |
+| `/console/loads/{load}/fire` | POST | `MarkFired(load, version, staff)`, only with `confirm=1` (see below) |
+| `/console/loads/{load}/emails/{drop_off}/retry` | POST | `RetryEmail(drop_off, EmailKind.READY, "", staff)`, for a member of the load only (else 404) |
 
 `{load}` matches `L-[1-9][0-9]{0,8}`, `{drop_off}` `AC-[1-9][0-9]{0,8}`; anything else
 is 404.
@@ -154,7 +163,7 @@ is 404.
   - while loading, "Waiting · glaze": the waiting list filtered to the load's firing
     type, each row with thumbnail, ID, name, pieces and Add; "Show all firing types"
     (`?all=1`) lifts the filter;
-  - when fired: "Fired Nov 13 by <username>", the contents without Remove, and the
+  - when fired: "Fired Nov 13" (not by whom: see the hand-off), the contents without Remove, and the
     emails: "11 of 12 emails sent", then each failed one by ID, "Sending failed
     (code)", and "Try sending again"; pending ones "Waiting to send".
 - **Adding** (`POST .../add`, field `drop_off` as typed, optional `confirm=1`):
@@ -179,8 +188,12 @@ is 404.
   - success: "AC-61 added." and the field cleared and focused for the next scan.
     Logged `event=added_to_load`, `drop_off_id`, `load_id`, `user`.
 - **Removing**: "AC-61 is back in the waiting list."; refused once firing.
-- **Start firing / Mark fired**: each asks no question but is a POST button with a
-  plain label; `MarkFired` queues one `ready` email per drop-off in the same
+- **Start firing / Mark fired**: "Start firing" is a POST button with a plain label.
+  "Mark fired" asks first (prep's audit: a double tap on "Start firing" could otherwise
+  land on "Mark fired" and email everyone while the kiln has only started): its POST
+  without `confirm=1` shows the load again with a panel "Mark L-4 fired? This emails
+  12 people "Ready for pickup"." and "Yes, mark fired" (the same POST with `confirm=1`)
+  and "Not yet". Both carry the load's `version`; `MarkFired` queues one `ready` email per drop-off in the same
   transaction (phase 3). Marking fired again: `AlreadyFired`'s `.message`, "Load L-4 is
   already fired; nothing was sent again." Logged `event=load_firing` / `event=load_fired` with the load and the
   count.
@@ -192,14 +205,14 @@ is 404.
 
 | Path | Method | Calls |
 | --- | --- | --- |
-| `/console/settings` | GET | `ViewStudio` |
-| `/console/settings/email` | POST | `ChangeEmailSettings(sending_address, pickup_window_days, pickup_hours_text, by)` |
-| `/console/settings/test-email` | POST | `SendTestEmail(sending_address, to=member, by)` |
-| `/console/settings/{list}/add` | POST | `AddCatalogItem(list, name, by)` |
-| `/console/settings/{list}/retire` | POST | `RetireCatalogItem(list, item, by)` |
-| `/console/settings/{list}/restore` | POST | `RestoreCatalogItem(list, item, by)` |
-| `/console/settings/{list}/delete` | POST | `DeleteCatalogItem(list, item, by)` |
-| `/console/settings/history` | GET | `ViewStudio` (the full history, 50 a page) |
+| `/console/settings` | GET | `ViewStudio(limit=10)` |
+| `/console/settings/email` | POST | `ChangeEmailSettings(sending_address=, pickup_window_days=, pickup_hours_text=, version=, staff=)` |
+| `/console/settings/test-email` | POST | `SendTestEmail(sending_address=, staff=)` (it sends to `staff.email` only) |
+| `/console/settings/{list}/add` | POST | `AddCatalogItem(list, name, needs_glaze_type=, needs_message=, version=, staff=)` |
+| `/console/settings/{list}/retire` | POST | `RetireCatalogItem(list, item, version, staff)` |
+| `/console/settings/{list}/restore` | POST | `RestoreCatalogItem(list, item, version, staff)` |
+| `/console/settings/{list}/delete` | POST | `DeleteCatalogItem(list, item, version, staff)` |
+| `/console/settings/history` | GET | `ViewStudio(before, limit=50)` (the full history, 50 a page) |
 
 `{list}` is one of `kilns`, `firing-types`, `glaze-types`, `reasons`; anything else is
 404.
@@ -217,12 +230,12 @@ is 404.
     (it names the domain only, never an address; `check_sending_address` raises it for
     both, and the field's `type=email` catches most malformed ones in the browser).
   - A window outside 1 to 90: "Enter a number of days from 1 to 90."
-  - The test email when the staff member's token has no verified email: "Your staff
-    account has no email address to send to. Ask the Facilities Manager." A send that
-    SES refuses: "The test email couldn't be sent (code). Nothing was saved." Success:
+  - The test email when the staff member's token has no verified email: `NoStaffEmail`'s
+    `.message`; a send that SES refuses: `TestEmailFailed`'s `.message`, which names the
+    code (the domain's words win over earlier drafts here). Success:
     "A test email is on its way to you from the new address."
-  - Saved: "Email settings saved." Logged `event=settings_changed`, `user`,
-    `code=email`; never the address or the text.
+  - Saved: "Email settings saved." (`ChangeEmailSettings` logs `settings_changed` with
+    the user only; never the address or the text.)
 - **The studio's lists**: one section per list (Kilns, Firing types, Glaze types,
   Rejection reasons), each item with whether it is used from `ViewStudio` ("Used",
   "Not used yet", "Needs a message" for a reason that needs one; a use count such as
@@ -252,14 +265,14 @@ studio when it sends (phase 3's `SendPendingEmail`).
 
 ### web: weekly counts
 
-`GET /console/counts?week=2026-11-09` calls `WeeklyCounts(week_start)`; the week is
+`GET /console/counts?week=2026-11-09` calls `WeeklyCounts(day)` (it finds the day's Monday itself); the week is
 Monday to Sunday in Austin time, defaulting to the current week, with previous and next
 links. It shows, as the design's "Weekly counts":
 
 - first, the overdue drop-offs (waiting 60 days or more): ID, name, days waiting, each
   linking to its page;
 - drop-offs received and pieces, by firing type; loads fired per kiln; rejections by
-  reason; drop-offs closed;
+  reason (`WeekCounts` has no closed count, and #7 asks for none, so the page shows none);
 - a note: "Closing a drop-off deletes its name, email, phone, rejection message and
   photos. Its ID, dates, firing type, pieces, load and reason are kept for these
   counts."
@@ -274,124 +287,77 @@ def handler(event: Mapping[str, object], context: object) -> dict[str, int]:
     """Run by the daily schedule. Closes every drop-off whose pickup window has passed."""
 ```
 
-It builds `CloseFinished` once per container (`composition.build_closer()`), calls it
-with the clock's now, and returns `{"closed": <n>}`. It logs nothing of its own: the
+It configures logging and builds `CloseFinished` once per container
+(`composition.build_closer()`, as `entry/mailer.py` does), calls it (it reads the clock
+itself) and returns `{"closed": len(report.closed)}`; when `report.failed` is above 0 it
+raises after the run. It logs nothing of its own: the
 lines are `CloseFinished`'s (phase 3), one `event=drop_off_closed` with only the
 `drop_off_id` per drop-off and one `event=close_run` with `count` (how many closed), the
 fields `log_event` allows (phase 2a's `LOG_FIELDS`; `closed=` or `skipped=` would raise).
 `CloseFinished` (phase 3) is idempotent: a drop-off already closed is skipped, and a
 photo already deleted is not an error, so a retried or duplicated run does no harm. A
 failure on one drop-off is logged with its ID and the AWS error code and the run goes on;
-if any failed, the handler raises at the end so that the schedule's retry runs it again
-and, after the retries, the event lands in the dead-letter queue (alarmed). The event's
-content is ignored.
+if any failed, the handler raises at the end. EventBridge Scheduler invokes a Lambda
+target asynchronously, so its `RetryPolicy` and dead-letter queue cover only an invoke
+it couldn't make; a run that raises is retried by Lambda's own asynchronous retries (two)
+and then sent to the function's `DeadLetterQueue`, the same queue (settled at prep: the
+execution role can set a function's dead-letter config but not an `EventInvokeConfig`).
+`CloseErrorsAlarm` fires on the first error and `CloseDeadLettersAlarm` on the dead letter. The
+event's content is ignored.
 
 `build_closer()` builds `Records`, `PhotoStore`, `Clock` and a `CurrentStudio` that
 doesn't seed (as the mailer's, phase 7): the close sends no email and needs no secret.
 
 ### infra: `infra/app.yaml`
 
-The console's role gains the right to send the test email, and the right to count load
-IDs (`StartLoad` calls `IdNumbers.next_load_id`, phase 4's `DynamoDbIdNumbers`: one
-`UpdateItem` with `ADD` on `COUNTER#load`, the only `UpdateItem` the adapters send):
+Settled at prep against the template (phase 8's statements did not cover these writes):
+
+- The console's `WriteRecords` gains `LOAD#*` (a load's `Put` and `Update`s, which phase
+  4 sends as transactional `Put`s); `STUDIO` already covers the studio and its history
+  items (`PK` `STUDIO`, `SK` `HISTORY#…`).
+- The console's `QueryEmailsOfADropOff` becomes `QueryByPartition` with
+  `LeadingKeys: [EMAIL#*, STUDIO]`: the settings history is a `Query` of `PK = STUDIO`.
+- `CountLoadIds`: `dynamodb:UpdateItem` with `LeadingKeys: [COUNTER#load]` exactly, as
+  the form's `CountIds` names `COUNTER#dropoff`.
+- `SendFromAsmblyOrg` on the console: the mailer's statement word for word (both the
+  domain identity and `identity/*@${EmailDomain}`, `ses:FromAddress` `*@${EmailDomain}`).
+  Recipients can't be limited in IAM; `SendTestEmail` only ever sends to the signed-in
+  member's verified address.
+- The close function's statements carry the same conditions as the console's and the
+  mailer's: `GetItem` on `DROPOFF#*`, `EMAIL#*`, `STUDIO`; `Query` on the indexes;
+  `PutItem` on `DROPOFF#*` only inside `TransactWriteItems` with `ReturnValues NONE`;
+  `s3:DeleteObject` on `dropoffs/*` (one `DeleteObjects` of the known keys, no listing);
+  `sqs:SendMessage` on the close queue. No `UpdateItem`, `DeleteItem` or `s3:GetObject`.
+- The close function sets `DeadLetterQueue: {Type: SQS, TargetArn: <the close queue>}`
+  (Lambda's asynchronous dead-letter config, which `lambda:CreateFunction` and
+  `UpdateFunctionConfiguration` already allow the execution role to set).
+- The scheduler role has no `RoleName`: the stacks deploy with `CAPABILITY_IAM`, and the
+  generated name (`asmbly-ceramics-<env>-CloseSchedulerRole-…`) under
+  `/asmbly-ceramics-app/` already fits the bootstrap's `CreateStageFunctionRoles` /
+  `CreateProdFunctionRoles` and `PassFunctionRoles` (to `scheduler.amazonaws.com`). Its
+  path and its environment's boundary are set on it; the stack's five tags reach it.
+- Both new alarms carry the five tags explicitly, as every alarm does. The dead-letter
+  alarm counts `NumberOfMessagesSent` (each new dead letter), as the mailer's does, not
+  the queue's depth.
+
+The close function and its schedule (abridged; the template is the source):
 
 ```yaml
-            - Sid: SendTestEmail
-              Effect: Allow
-              Action: ses:SendEmail
-              Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${EmailDomain}'
-              Condition:
-                StringLike:
-                  ses:FromAddress: !Sub '*@${EmailDomain}'
-            - Sid: CountLoadIds
-              Effect: Allow
-              Action: dynamodb:UpdateItem
-              Resource: !GetAtt RecordsTable.Arn
-              Condition:
-                ForAllValues:StringLike: {dynamodb:LeadingKeys: ["COUNTER#*"]}
-```
-
-The load, settings and retry writes are commits, which phase 8's `Records` statement
-already covers with `dynamodb:PutItem` (phase 4 sends an `Update` as a conditional
-`Put`).
-
-It is the same statement as the mailer's (phase 7), on the same identity, agreed in
-AsmblyMCPs before phase 7. Recipients can't be limited in IAM (each staff member's own
-address); `SendTestEmail` only ever sends to the signed-in member's verified address.
-
-The close function and its schedule:
-
-```yaml
-  CloseLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${ProjectSlug}-${AppEnv}-close
-      RetentionInDays: !If [IsProd, 90, 14]
-
   CloseFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectSlug}-${AppEnv}-close
-      CodeUri: ../src
+      FunctionName: !Sub '${ProjectSlug}-${AppEnv}-close'
       Handler: asmbly_ceramics.entry.close.handler
       MemorySize: 512
       Timeout: 300
       ReservedConcurrentExecutions: 1
+      DeadLetterQueue: {Type: SQS, TargetArn: !GetAtt CloseDeadLetterQueue.Arn}
       LoggingConfig: {LogGroup: !Ref CloseLogGroup}
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            - Sid: Records                 # list (GSI1), re-read each drop-off and its ready
-              Effect: Allow                 # email by key, close it: a commit's Update is a
-              Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:PutItem]  # conditional Put (phase 4)
-              Resource: [!GetAtt RecordsTable.Arn, !Sub '${RecordsTable.Arn}/index/*']
-            - Sid: Transactions
-              Effect: Allow
-              Action: dynamodb:TransactWriteItems   # authorised per item action above (PutItem); listed for clarity
-              Resource: !GetAtt RecordsTable.Arn
-            - Sid: DeleteKeptPhotos          # delete_drop_off: one DeleteObjects of the 12 known
-              Effect: Allow                   # keys, without listing (phase 4), so no s3:ListBucket
-              Action: s3:DeleteObject
-              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
-
-  CloseDeadLetterQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${ProjectSlug}-${AppEnv}-close-dlq
-      SqsManagedSseEnabled: true
-      MessageRetentionPeriod: 1209600
-
-  CloseSchedulerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${ProjectSlug}-${AppEnv}-close-scheduler
-      Path: /asmbly-ceramics-app/
-      PermissionsBoundary: {'Fn::ImportValue': !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'}   # its environment's boundary (phase 5, decision 0003)
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: {Service: scheduler.amazonaws.com}
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals: {aws:SourceAccount: !Ref AWS::AccountId}
-      Policies:
-        - PolicyName: invoke-close
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: lambda:InvokeFunction
-                Resource: !GetAtt CloseFunction.Arn
-              - Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !GetAtt CloseDeadLetterQueue.Arn
 
   CloseSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
-      Name: !Sub ${ProjectSlug}-${AppEnv}-close
-      Description: Closes finished drop-offs and deletes their personal details (#7)
+      Name: !Sub '${ProjectSlug}-${AppEnv}-close'
       ScheduleExpression: cron(17 3 * * ? *)
       ScheduleExpressionTimezone: America/Chicago
       FlexibleTimeWindow: {Mode: 'OFF'}
@@ -402,39 +368,14 @@ The close function and its schedule:
         Input: '{}'
         RetryPolicy: {MaximumRetryAttempts: 3, MaximumEventAgeInSeconds: 3600}
         DeadLetterConfig: {Arn: !GetAtt CloseDeadLetterQueue.Arn}
-
-  CloseErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectSlug}-${AppEnv}-close-errors
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions: [{Name: FunctionName, Value: !Ref CloseFunction}]
-      Statistic: Sum
-      Period: 3600
-      EvaluationPeriods: 1
-      Threshold: 0
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref AlarmTopic]
-      OKActions: [!Ref AlarmTopic]
-
-  CloseDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectSlug}-${AppEnv}-close-dlq
-      Namespace: AWS/SQS
-      MetricName: ApproximateNumberOfMessagesVisible
-      Dimensions: [{Name: QueueName, Value: !GetAtt CloseDeadLetterQueue.QueueName}]
-      Statistic: Maximum
-      Period: 3600
-      EvaluationPeriods: 1
-      Threshold: 0
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref AlarmTopic]
-      OKActions: [!Ref AlarmTopic]
 ```
+
+Also `CloseLogGroup` (`/aws/lambda/${ProjectSlug}-${AppEnv}-close`, 90 days on prod, 14
+on stage), `CloseDeadLetterQueue` (`${ProjectSlug}-${AppEnv}-close-dlq`, SSE, 14 days),
+`CloseSchedulerRole` (`lambda:InvokeFunction` on the close function and
+`sqs:SendMessage` on the close queue only, trusted by `scheduler.amazonaws.com` for this
+account), `CloseErrorsAlarm` (the function's `Errors` above 0 in an hour) and
+`CloseDeadLettersAlarm`, both to the alarm topic with OK actions.
 
 The close role's path, boundary and the shared environment come from phase 7's
 `Globals`. The scheduler role is a plain IAM role, so it sets its path and boundary
@@ -491,8 +432,12 @@ first night's run is checked under Rollout.
 - `test_retry_from_the_load_sends_only_to_that_drop_off`
 - `test_past_loads_stay_viewable_with_their_contents`
 - `test_a_conflicting_change_is_reported_and_nothing_is_stored`
-- `test_load_pages_need_the_group_and_posts_need_csrf` (one parametrized test over
+- `test_auth.py`'s route walk (`test_every_console_route_is_not_allowed_outside_the_group`, `test_every_console_post_needs_this_session_s_csrf_token_and_this_origin`) over
   every load route)
+- `test_mark_fired_asks_first_and_fires_only_on_confirm`
+- `test_a_past_load_whose_drop_offs_closed_shows_them_closed`
+- `test_the_edit_form_keeps_a_retired_kiln_selected`
+- `test_start_a_load_from_a_drop_off_carries_its_id`
 
 `tests/web/console/test_settings.py`:
 
@@ -538,6 +483,7 @@ first night's run is checked under Rollout.
   nothing, raises nothing)
 - `test_a_failure_on_one_drop_off_does_not_stop_the_others_and_the_run_fails_at_the_end`
 - `test_the_event_content_is_ignored`
+- `test_the_close_function_has_a_dead_letter_queue_for_failed_runs` (in `test_app_template.py`)
 
 `tests/repo/test_app_template.py` additions:
 
@@ -549,9 +495,9 @@ first night's run is checked under Rollout.
   console's)
 - `test_the_close_role_writes_with_put_item_only` (no `UpdateItem`, `ConditionCheckItem`
   or `DeleteItem`: closing is a commit, a conditional `Put`)
-- `test_the_console_updates_only_the_id_counter` (`UpdateItem` only with
+- `test_the_console_writes_with_put_item_only_and_updates_only_the_load_counter` (`UpdateItem` only with
   `dynamodb:LeadingKeys` `COUNTER#*`)
-- `test_every_new_name_starts_with_the_prefix_and_every_alarm_has_actions`
+- `test_every_name_starts_with_the_project_slug` and `test_every_alarm_notifies_this_project_s_topic_and_ignores_missing_data` (extended)
 
 ## Acceptance criteria
 
@@ -609,9 +555,11 @@ the maintainer owns:
 3. In Settings, type an address outside `asmbly.org` (refused); send a test email from a
    new `asmbly.org` address to yourself; save; check the history shows your username.
    Retire Helios; it isn't offered for a new load and still shows on a past load.
-4. Set stage's pickup window to 1 day. The next morning, the close's log group has a
-   `close_run` line with `count` of at least the fired test drop-offs, and their pages
-   say "Closed" with no contact details or photos. Set the window back to 14.
+4. Set stage's pickup window to 1 day before marking the test load fired (a fired
+   drop-off keeps the window its sent ready email gave). On the second morning after
+   the firing, the close's log group has a `close_run` line with `count` of at least the
+   fired test drop-offs, and their pages say "Closed" with no contact details or photos.
+   Set the window back to 14.
 5. Open Weekly counts for this week: the test drop-offs, the load and the rejection are
    counted.
 
@@ -624,6 +572,13 @@ the maintainer owns:
   next morning's `close_run` line (with `count=0` until anything is due) in
   `/aws/lambda/asmbly-ceramics-prod-close`, read with a read-only
   `aws logs filter-log-events` for `close_run`, and no alarm.
+- **Check, the close role's Query:** its `dynamodb:LeadingKeys` condition on GSI1
+  (fired and rejected partitions only) relies on the key holding the index's partition
+  key on an index Query, which AWS's docs support only indirectly. Stage's first
+  `close_run` line (not `close_aborted`) proves it, before prod's first night. If it is
+  wrong, every run logs `close_aborted` with an `AccessDenied` code and raises, the
+  close-errors alarm fires, and nothing is deleted; the fix is a pull request that
+  drops that Condition and keeps the statement on `index/GSI1`.
 - **Who confirms:** the maintainer, and one ceramics staff member who runs the load
   cycle on stage.
 - **Undo:** a revert pull request. Its deploy removes the pages, the close function and
@@ -632,25 +587,54 @@ the maintainer owns:
 
 ## Admin actions
 
+- Before merge, the maintainer: #20's second question (should a rejected drop-off wait
+  for its rejected email to send before it closes?) is still open; this phase keeps
+  today's behaviour (it closes by the rejection's time).
+
 - After the first deploy, confirm the alarm topic's subscribers receive the close
   alarms (the same topic as phase 7; a test with
   `aws cloudwatch set-alarm-state` is a change, so the maintainer runs it only if asked).
-- If phase 5's execution role lacks the Scheduler, SQS or `PassRole` rights above, the
-  bootstrap is updated by its runbook before this phase merges.
+- Phase 5's execution role already has the Scheduler, SQS and `PassRole` rights (checked
+  at prep), so no bootstrap change is needed.
+- Known limits, accepted at prep: an empty load started by mistake (a double click on
+  "Start a load") stays in the open loads (no use case abandons a load); "Start firing"
+  can't be undone; a broken record that makes every close run fail keeps the alarm up
+  until the maintainer fixes it by hand. Each is a follow-up, not this phase's.
 
 ## Hand-off
 
 For this phase's `/prep` (from phase 1's whole-branch review): the retention of a fired
 drop-off whose ready email never sends was settled by the maintainer on 15 November 2026
-(#20): it closes 30 days after its firing (`UNSENT_READY_CLOSE_AFTER`, in the domain).
-A rejected drop-off still closes by the rejection whatever its email's status (#20's
-second question, still open); this phase's close and its "needs attention" lists follow whatever phase
+(#20): it closes 30 days after its firing (`UNSENT_EMAIL_CLOSE_AFTER`, in the domain).
+#20's second question was settled the same day: a rejected drop-off waits for its
+rejected email (the window starts when it is sent; never sent, it closes 30 days after
+the rejection); this phase's close and its "needs attention" lists follow whatever phase
 3's `/prep` settles, and the use counts on the settings page follow phase 3's decision
 on a count read.
 
-Filled in when the phase is done. Phase 10 relies on:
+Built on branch `feat/drop-off-and-firing-phases-7-9` (15 November 2026); it reaches AWS
+on the merge's deploy. Phase 10 relies on:
 
 - the console complete for #3 to #7 on both environments, at
-  `https://ceramics.asmbly.org/console` and `https://ceramics-stage.asmbly.org/console`;
-- the close running nightly on both;
+  `https://ceramics.asmbly.org/console` and `https://ceramics-stage.asmbly.org/console`:
+  `/console/loads` (and `/console/loads/L-n`), `/console/settings` (and
+  `/console/settings/history`) and `/console/counts`, every route behind
+  `require_staff` / `require_staff_post` (`tests/web/console/test_auth.py` walks them
+  all: no session, outside `ceramics`, no CSRF token, another origin);
+- `web/console/loads.py`, `settings.py` and `counts.py`; `ConsoleServices` holds every
+  use case of #3 to #7; `composition.build_console_services` takes `ConsoleClients`
+  (the form's three clients and SES with `SES_CLIENT_CONFIG`, for the test email only);
+- the close: `entry/close.py`'s `handler` (built by `composition.build_closer` from
+  `CloserClients`), function `asmbly-ceramics-<env>-close`, schedule
+  `asmbly-ceramics-<env>-close` (03:17 America/Chicago), queue
+  `asmbly-ceramics-<env>-close-dlq`, alarms `…-close-errors` and
+  `…-close-dead-letters`, log group `/aws/lambda/asmbly-ceramics-<env>-close`;
+- `scripts/smoke.py`'s new `console-pages` check;
 - the form's address `https://ceramics.asmbly.org/`, unpublished until the switch.
+
+Deferred, accepted at prep (Admin actions): abandoning an empty load, undoing "Start
+firing", a runbook entry for a close alarm that stays up; #20's second question is the
+maintainer's. The fired load's page says when it was fired, not by whom: `Load` has no `fired_by` (a domain change for later). The loads list shows each load's drop-off count, not its pieces (the
+pieces need every member read; the load's page shows them). The test email answers
+the page directly (no redirect), so the typed, unsaved address stays in the field; a
+browser refresh asks before sending it again.

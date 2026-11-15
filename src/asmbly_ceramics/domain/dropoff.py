@@ -196,12 +196,17 @@ def new_drop_off(id: DropOffId, details: DropOffDetails, photos: Sequence[PhotoR
     )
 
 
+def can_be_rejected(drop_off: DropOff) -> bool:
+    """Only a waiting drop-off can be rejected (#5): `reject`'s own state rule."""
+    return drop_off.state is DropOffState.WAITING
+
+
 def reject(drop_off: DropOff, reason: CatalogItem, message: str | None, by: str, at: datetime) -> DropOff:
     """Reject a waiting drop-off (#5). `reason` comes from `studio.item(CatalogList.REASONS, id)`."""
     _check_aware(at)
     if not by:
         raise ValueError("a rejection needs the staff username")
-    if drop_off.state is not DropOffState.WAITING:
+    if not can_be_rejected(drop_off):
         raise NotWaiting(drop_off.id, drop_off.state.label)
     if reason.status is not ItemStatus.ACTIVE:
         raise ItemRetired(reason.name)

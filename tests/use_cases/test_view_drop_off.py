@@ -159,3 +159,9 @@ def test_a_waiting_drop_off_has_no_rejection_reason(world: World) -> None:
     stored(world, a_drop_off(1))
 
     assert world.view(AC_1).rejection_reason is None
+
+
+@pytest.mark.parametrize("state", [DropOffState.WAITING, DropOffState.REJECTED, DropOffState.CLOSED])
+def test_the_view_says_whether_the_drop_off_can_be_rejected(world: World, state: DropOffState) -> None:
+    stored(world, a_drop_off(state=state))
+    assert world.view(AC_1).can_reject is (state is DropOffState.WAITING)

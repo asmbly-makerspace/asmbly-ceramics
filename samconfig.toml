@@ -1,0 +1,41 @@
+# The app stacks' deploy settings, one config environment each (deploy.yml passes
+# --config-env). No account ID, role ARN, address or secret: the roles and the artifacts
+# bucket come from the GitHub environment, and the two addresses are SSM parameters
+# named here, which CloudFormation resolves (infra/app.yaml).
+#
+# PhotoBucketSuffix is random, made once when phase 7 was built; changing it replaces
+# the bucket. scripts/sam_parameters.py turns parameter_overrides into the full list.
+version = 0.1
+
+[default.build.parameters]
+template = "infra/app.yaml"
+cached = true
+parallel = true
+
+[stage.build.parameters]
+template = "infra/app.yaml"
+cached = true
+parallel = true
+
+[stage.deploy.parameters]
+stack_name = "asmbly-ceramics-stage"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
+tags = "Project=asmbly-ceramics Component=App Environment=stage Owner=it-volunteers ManagedBy=sam"
+parameter_overrides = "AppEnv=stage SiteHost=ceramics-stage.asmbly.org PhotoBucketSuffix=faa1243f AlertEmail=/asmbly-ceramics/stage/alert-email InitialSendingAddress=/asmbly-ceramics/stage/initial-sending-address"
+
+[prod.build.parameters]
+template = "infra/app.yaml"
+cached = true
+parallel = true
+
+[prod.deploy.parameters]
+stack_name = "asmbly-ceramics-prod"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
+tags = "Project=asmbly-ceramics Component=App Environment=prod Owner=it-volunteers ManagedBy=sam"
+parameter_overrides = "AppEnv=prod SiteHost=ceramics.asmbly.org PhotoBucketSuffix=853de865 AlertEmail=/asmbly-ceramics/prod/alert-email InitialSendingAddress=/asmbly-ceramics/prod/initial-sending-address"

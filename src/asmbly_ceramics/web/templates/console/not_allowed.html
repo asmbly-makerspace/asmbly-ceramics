@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Not allowed{% endblock %}
+{% block heading %}Ceramics console{% endblock %}
+{% block content %}
+<div class="notice notice-error" role="alert">
+  <h2>{{ message }}</h2>
+</div>
+<p><a href="/">Go to the drop-off form</a></p>
+{% if csrf %}
+<form method="post" action="/console/sign-out">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit">Sign in as someone else</button>
+</form>
+{% elif logout_url %}
+<p><a class="button" href="{{ logout_url }}">Sign in as someone else</a></p>
+{% endif %}
+{% endblock %}

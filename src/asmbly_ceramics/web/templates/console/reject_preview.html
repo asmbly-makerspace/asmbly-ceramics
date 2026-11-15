@@ -1,0 +1,20 @@
+{% extends "console/layout.html" %}
+{% block title %}Preview: {{ drop_off.id }}{% endblock %}
+{% block content %}
+<h2>The rejection email for {{ drop_off.id }}</h2>
+<p class="hint">This is the email exactly as it will go out. Nothing is sent until you press Send rejection.</p>
+<dl class="summary">
+  <dt>To</dt><dd>{{ to }}</dd>
+  <dt>From</dt><dd>{{ from_name }} &lt;{{ from_address }}&gt;</dd>
+  <dt>Subject</dt><dd>{{ composed.subject }}</dd>
+</dl>
+<iframe class="email-preview" title="The rejection email" sandbox="allow-same-origin" srcdoc="{{ composed.html }}"></iframe>
+<form method="post" action="/console/drop-offs/{{ drop_off.id }}/reject" class="actions">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="version" value="{{ version }}">
+  <input type="hidden" name="reason" value="{{ reason }}">
+  <input type="hidden" name="message" value="{{ message }}">
+  <button type="submit">Send rejection</button>
+  <a class="cancel" href="/console/drop-offs/{{ drop_off.id }}">Cancel</a>
+</form>
+{% endblock %}

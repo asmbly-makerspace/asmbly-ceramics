@@ -40,6 +40,6 @@ SUBMISSION_LIFETIME = timedelta(days=1)
 OVERDUE_AFTER = timedelta(days=60)
 LOAD_CAPACITY = 48
 STALE_SENDING_AFTER = timedelta(minutes=15)  # an email sending, or pending, this long is stuck
-UNSENT_READY_CLOSE_AFTER = timedelta(days=30)  # a fired drop-off whose ready email never went (#20)
+UNSENT_EMAIL_CLOSE_AFTER = timedelta(days=30)  # fired or rejected, its email never went (#20)
 STUDIO_TZ = ZoneInfo("America/Chicago")
 SENDING_DOMAIN = "asmbly.org"

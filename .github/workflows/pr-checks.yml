@@ -13,10 +13,12 @@ concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Tool versions, spelled out only here (tests/repo/test_checks.py). CLAUDE.md, the
-# README and the pull request template name the same cfn-lint.
+# Tool versions, spelled out only here (tests/repo/test_checks.py); deploy.yml spells
+# the same SAM CLI. CLAUDE.md, the README and the pull request template name the same
+# cfn-lint.
 env:
   CFN_LINT_VERSION: '1.57.1'
+  SAM_CLI_VERSION: '1.172.1'
 
 # Named so every script runs with `-eo pipefail`.
 defaults:
@@ -29,8 +31,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
       - name: Install
@@ -41,16 +43,35 @@ jobs:
         run: uv run mypy
       - name: Tests (coverage floor in pyproject.toml)
         run: uv run pytest --cov --cov-report=term
+      # A Dependabot uv update changes uv.lock only: regenerate the file on its branch.
+      - name: Requirements match the lock
+        run: |
+          if ! { uv export --frozen --no-dev --no-emit-project -o src/requirements.txt && git diff --exit-code src/requirements.txt; }; then
+            echo "::error file=src/requirements.txt::src/requirements.txt does not match uv.lock. Run 'uv export --frozen --no-dev --no-emit-project -o src/requirements.txt' and commit the result."
+            exit 1
+          fi
 
   infra:
     name: Templates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Lint the CloudFormation templates
         run: uvx "cfn-lint==${CFN_LINT_VERSION}" infra/*.yaml
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: aws-actions/setup-sam@341eee193f458fa5aae5d52c94b0c5cf3a1c5a52 # v3
+        with:
+          version: ${{ env.SAM_CLI_VERSION }}
+          use-installer: true
+      # Both run without AWS credentials: --lint checks the template locally.
+      - name: Validate the app template
+        run: sam validate --lint -t infra/app.yaml --region us-east-2
+      - name: Build the functions
+        run: sam build -t infra/app.yaml
 
   pr-check:
     name: PR check

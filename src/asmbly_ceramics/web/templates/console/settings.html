@@ -1,0 +1,107 @@
+{% extends "console/layout.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
+{% if problem %}<div class="notice notice-error" role="alert"><h2>{{ problem }}</h2></div>{% endif %}
+
+<section class="panel" id="emails">
+  <h3>Emails</h3>
+  <form method="post" action="/console/settings/email">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ studio.version }}">
+    {# The form's default button, so Enter in a field saves rather than sending a test email. #}
+    <button type="submit" class="visually-hidden" tabindex="-1" aria-hidden="true">Save email settings</button>
+    <div class="field{% if email.error_field == 'sending_address' %} field-invalid{% endif %}">
+      <label for="sending_address">Sending address</label>
+      <p class="hint" id="sending_address-hint">Every drop-off, fired and rejection email comes from this address. Replies go to it too.</p>
+      {% if email.error_field == "sending_address" %}<p class="field-error" id="sending_address-error">{{ email.error }}</p>{% endif %}
+      <input type="email" id="sending_address" name="sending_address" value="{{ email.sending_address }}" maxlength="{{ email_max }}" autocomplete="off" aria-describedby="sending_address-hint{% if email.error_field == 'sending_address' %} sending_address-error{% endif %}">
+    </div>
+    <div class="actions">
+      <button type="submit" formaction="/console/settings/test-email" class="button-quiet" aria-describedby="test-hint">Send a test email to me</button>
+      <p class="hint" id="test-hint">Sends to the address on your staff account. Save after it arrives.</p>
+    </div>
+    <div class="field{% if email.error_field == 'pickup_window_days' %} field-invalid{% endif %}">
+      <label for="pickup_window_days">Pickup window</label>
+      <p class="hint" id="window-hint">Days after the pickup email. A shorter window also closes rejected drop-offs sooner, from the next night.</p>
+      {% if email.error_field == "pickup_window_days" %}<p class="field-error" id="window-error">{{ email.error }}</p>{% endif %}
+      <input type="number" id="pickup_window_days" name="pickup_window_days" value="{{ email.pickup_window_days }}" min="{{ window_min }}" max="{{ window_max }}" inputmode="numeric" aria-describedby="window-hint{% if email.error_field == 'pickup_window_days' %} window-error{% endif %}">
+    </div>
+    <div class="field{% if email.error_field == 'pickup_hours_text' %} field-invalid{% endif %}">
+      <label for="pickup_hours_text">Pickup hours, as shown in emails</label>
+      {% if email.error_field == "pickup_hours_text" %}<p class="field-error" id="hours-error">{{ email.error }}</p>{% endif %}
+      <textarea id="pickup_hours_text" name="pickup_hours_text" rows="5" maxlength="{{ hours_max }}"{% if email.error_field == 'pickup_hours_text' %} aria-describedby="hours-error"{% endif %}>{{ email.pickup_hours_text }}</textarea>
+    </div>
+    <button type="submit">Save email settings</button>
+  </form>
+</section>
+
+{% for list in lists %}
+<section class="panel" id="{{ list.slug }}">
+  <h3>{{ list.title }}</h3>
+  {% if list.form.error %}<div class="notice notice-error" role="alert"><h2>{{ list.form.error }}</h2></div>{% endif %}
+  {% if list.rows %}
+  <div class="table-box">
+  <table class="list">
+    <tbody>
+    {% for row in list.rows %}
+    {% set item = row.item %}
+    {% set retired = item.retired %}
+      <tr>
+        <td>{{ item.name }}{% if retired %} <span class="tag">Retired</span>{% endif %}{% if item.needs_message %} <span class="tag">Needs a message</span>{% endif %}{% if item.needs_glaze_type %} <span class="tag">Needs a glaze type</span>{% endif %}</td>
+        <td>{{ "Used" if row.used else "Not used yet" }}</td>
+        <td>
+          {% if not retired %}
+          <form method="post" action="/console/settings/{{ list.slug }}/retire" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="version" value="{{ studio.version }}">
+            <input type="hidden" name="item" value="{{ item.id }}">
+            <button type="submit" class="button-quiet">Retire</button>
+          </form>
+          {% else %}
+          <form method="post" action="/console/settings/{{ list.slug }}/restore" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="version" value="{{ studio.version }}">
+            <input type="hidden" name="item" value="{{ item.id }}">
+            <button type="submit" class="button-quiet">Bring back</button>
+          </form>
+          {% if row.can_delete %}
+          <form method="post" action="/console/settings/{{ list.slug }}/delete" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="version" value="{{ studio.version }}">
+            <input type="hidden" name="item" value="{{ item.id }}">
+            <button type="submit" class="button-quiet">Delete</button>
+          </form>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  <form method="post" action="/console/settings/{{ list.slug }}/add">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ studio.version }}">
+    <div class="field">
+      <label for="add-{{ list.slug }}">Add to {{ list.title | lower }}</label>
+      <input type="text" id="add-{{ list.slug }}" name="name" value="{{ list.form.name }}" maxlength="{{ name_max }}" autocomplete="off">
+    </div>
+    {% if list.slug == "firing-types" %}
+    <label class="choice"><input type="checkbox" name="needs_glaze_type" value="1"> <span>Needs a glaze type</span></label>
+    {% elif list.slug == "reasons" %}
+    <label class="choice"><input type="checkbox" name="needs_message" value="1"> <span>Needs a message</span></label>
+    {% endif %}
+    <button type="submit">Add</button>
+  </form>
+</section>
+{% endfor %}
+
+<section id="history">
+  <h3>Change history</h3>
+  {% include "console/_history.html" %}
+  {% if more_history %}<p><a href="/console/settings/history">Show all changes</a></p>{% endif %}
+</section>
+{% endblock %}

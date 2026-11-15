@@ -102,8 +102,9 @@ Ref: the plan's Ports table.
       drop-off, the sender from `Studio`; `SendFailed(code)` on refusal.
 - [ ] The outbox is claimed with a conditional update before sending, so the stream's
       at-least-once delivery sends each email once.
-- [ ] `composition.py` builds the adapters from environment variables and nothing else
-      reads `os.environ`.
+- [ ] `settings.py` reads the environment once and `composition.py` builds the adapters
+      from it; besides them only `web.app.create_from_environment` reads `os.environ`
+      (`APP_ROLE`).
 
 ### Email composer (BLOCK)
 

@@ -2,6 +2,9 @@
 
 Status: proposed, 13 November 2026, with the plan for epic #1
 ([.implementation_plans/drop-off-and-firing/](../../.implementation_plans/drop-off-and-firing/README.md)).
+Amended by [0003](0003-one-function-boundary-per-environment.md) (the boundaries) and,
+proposed, [0004](0004-the-form-role-and-the-photo-bucket-name.md) (the form's role and
+the photo bucket's name).
 It makes the choices [docs/architecture.md](../architecture.md#still-to-be-decided) left
 open after [0001](0001-the-ceramics-studio-has-its-own-repository.md). It becomes
 accepted when the maintainer approves the plan's pull request.

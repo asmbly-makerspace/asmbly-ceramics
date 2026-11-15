@@ -47,7 +47,7 @@
 ## After you merge
 
 - [ ] <what the merge deploys and the smoke test to watch, from the plan's Rollout; each
-  admin action the plan puts after the merge. "Nothing: a merge deploys nothing yet" if
+  admin action the plan puts after the merge. "Nothing new: a merge deploys stage then prod as always" if
   that is true.>
 
 ## Decisions made

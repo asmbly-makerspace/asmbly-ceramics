@@ -26,10 +26,15 @@ from asmbly_ceramics.domain.limits import LOAD_CAPACITY
 from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
+    accepts_drop_offs,
     add_to_load,
+    can_start_firing,
     change_load,
     fire,
+    firing_type_locked,
     remove_from_load,
+    require_firing,
+    require_loading,
     start_firing,
     start_load,
 )
@@ -273,6 +278,32 @@ def test_start_firing_only_from_loading(status: LoadStatus) -> None:
     assert caught.value.message == f"Load L-1 is {status}, not loading."
 
 
+@pytest.mark.parametrize("status", list(LoadStatus))
+@pytest.mark.parametrize("members", [[], [1]])
+def test_the_predicates_agree_with_the_refusals(status: LoadStatus, members: list[int]) -> None:
+    """What a page asks beforehand is what the rule then does."""
+    load = a_load(status=status, members=members)
+    try:
+        start_firing(load)
+    except EmptyLoad, WrongLoadStatus:
+        assert not can_start_firing(load)
+    else:
+        assert can_start_firing(load)
+    try:
+        require_loading(load)
+    except LoadNotLoading:
+        assert not accepts_drop_offs(load)
+    else:
+        assert accepts_drop_offs(load)
+    if status is LoadStatus.LOADING:
+        try:
+            change_load(load, load.kiln, GLAZE, TODAY, a_studio())
+        except FiringTypeLocked:
+            assert firing_type_locked(load)
+        else:
+            assert not firing_type_locked(load)
+
+
 def test_fire_marks_every_member_fired_and_queues_one_ready_email_each() -> None:
     load = a_load(status=LoadStatus.FIRING, members=[3, 1, 2])
     result = fire(load, [in_load(1), in_load(2), in_load(3)], LATER)
@@ -302,6 +333,20 @@ def test_fire_refuses_a_loading_load() -> None:
     with pytest.raises(WrongLoadStatus) as caught:
         fire(a_load(members=[1]), [in_load(1)], LATER)
     assert caught.value.message == "Load L-1 is loading, not firing."
+
+
+def test_the_page_s_checks_are_the_rules_the_changes_use() -> None:
+    """A page asks `require_loading` before its name search and `require_firing` before
+    "Mark L-1 fired?": the same refusals the changes raise, decided once here."""
+    require_loading(a_load())
+    for status in (LoadStatus.FIRING, LoadStatus.FIRED):
+        with pytest.raises(LoadNotLoading, match=f"L-1 is {status}"):
+            require_loading(a_load(status=status, members=[1]))
+    require_firing(a_load(status=LoadStatus.FIRING, members=[1]))
+    with pytest.raises(AlreadyFired):
+        require_firing(a_load(status=LoadStatus.FIRED, members=[1]))
+    with pytest.raises(WrongLoadStatus, match="L-1 is loading, not firing"):
+        require_firing(a_load(members=[1]))
 
 
 def test_fire_with_the_wrong_members_is_a_bug() -> None:

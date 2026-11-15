@@ -5,10 +5,17 @@
   (amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html), then the username's
   shape and the `ceramics` group in `cognito:groups`. The email is taken only from a
   verified claim (`email_verified` is the boolean true), since the test email is sent to
-  it as given.
+  it as given. `sign_in_url` asks for the scope `openid` alone: Cognito then puts every
+  attribute the client may read in the ID token, `email` and `email_verified` among them
+  (cognito-user-pools-define-resource-servers.html, "OpenID Connect (OIDC) scopes"), and
+  asmbly-staff-login's web clients allow only `openid`.
 - `sign_in_url`, `sign_out_url` and `exchange` are the managed login's
   `/oauth2/authorize`, `/logout` and `/oauth2/token` endpoints, with PKCE (S256) and no
   client secret (a public client).
+
+The pool's key set is fetched by `ThrottledSigningKeys`: once an hour, and again for a
+`kid` it doesn't hold at most once a minute, so a stream of forged tokens with made-up
+`kid`s can't make every request fetch the key set (phase 8).
 
 Nothing logged holds a token, a code, a verifier, the state or the email claim: a
 failure logs a fixed reason, or the OAuth error code.
@@ -19,8 +26,10 @@ import hmac
 import http.client
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Sequence
 from typing import Any, NoReturn, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -39,6 +48,8 @@ from asmbly_ceramics.use_cases.log import log_event
 
 TIMEOUT_SECONDS = 5
 KEYS_LIFESPAN_SECONDS = 3600
+KEYS_REFETCH_SECONDS = 60  # the soonest an unknown `kid` (or a failed fetch) fetches again
+KEYS_FIRST_RETRY_SECONDS = 5  # while no key set is held: a cold container retries sooner
 LEEWAY_SECONDS = 30
 _REQUIRED_CLAIMS = ["exp", "iat", "iss", "aud", "token_use", "cognito:username"]
 
@@ -47,6 +58,77 @@ class SigningKeys(Protocol):
     """What `verify` needs of `jwt.PyJWKClient`, so tests pass a key set of their own."""
 
     def get_signing_key_from_jwt(self, token: str) -> PyJWK: ...
+
+
+class ThrottledSigningKeys:
+    """`SigningKeys` from a key set fetched by `fetch`: again after `lifespan` seconds,
+    and for a `kid` it doesn't hold (a key rotated in, or a forged token) at most once
+    every `refetch` seconds, counting failed fetches; otherwise an unknown `kid` is
+    refused without a fetch (`PyJWKClientError`, which `verify` treats as not signed in).
+    A failed first fetch raises `PyJWKClientConnectionError` (sign-in unavailable) and is
+    tried again after `first_retry` seconds; a failed refresh (unreachable, or an empty or
+    malformed key set) keeps the set it holds."""
+
+    def __init__(
+        self,
+        fetch: Callable[[], Sequence[PyJWK]],
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        lifespan: float = KEYS_LIFESPAN_SECONDS,
+        refetch: float = KEYS_REFETCH_SECONDS,
+        first_retry: float = KEYS_FIRST_RETRY_SECONDS,
+    ) -> None:
+        self._fetch = fetch
+        self._clock = clock
+        self._lifespan = lifespan
+        self._refetch = refetch
+        self._first_retry = first_retry
+        self._keys: dict[str, PyJWK] = {}
+        self._fetched_at: float | None = None  # the last fetch that worked
+        self._tried_at: float | None = None  # the last fetch, worked or not
+
+    @classmethod
+    def for_issuer(cls, issuer: str) -> ThrottledSigningKeys:
+        client = PyJWKClient(f"{issuer}/.well-known/jwks.json", cache_jwk_set=False, timeout=TIMEOUT_SECONDS)
+        return cls(client.get_signing_keys)
+
+    def get_signing_key_from_jwt(self, token: str) -> PyJWK:
+        kid = jwt.get_unverified_header(token).get("kid")  # DecodeError for a malformed token
+        if not isinstance(kid, str) or not kid:
+            raise PyJWKClientError("no kid")
+        now = self._clock()
+        stale = self._fetched_at is None or now - self._fetched_at >= self._lifespan
+        if (stale or kid not in self._keys) and self._may_fetch(now):
+            self._tried_at = now
+            try:
+                # PyJWKClientConnectionError when it can't be reached; another PyJWTError
+                # for an empty or malformed key set; ValueError or OSError reading it.
+                fetched = {key.key_id: key for key in self._fetch() if key.key_id}
+                if not fetched:
+                    raise PyJWKClientError("no signing keys")
+            except (PyJWTError, ValueError, OSError) as failed:
+                if self._fetched_at is None:
+                    raise
+                # A refresh failed: keep the set held, and log a code, never the body.
+                unreachable = isinstance(failed, PyJWKClientConnectionError)
+                log_event(
+                    "jwks_refresh_failed",
+                    level=logging.WARNING,
+                    error_code="jwks_unreachable" if unreachable else "jwks_unreadable",
+                )
+            else:
+                self._fetched_at = now
+                self._keys = fetched
+        elif self._fetched_at is None:
+            raise PyJWKClientConnectionError("the key set was fetched without success just now")
+        key = self._keys.get(kid)
+        if key is None:
+            raise PyJWKClientError("no key with that kid")
+        return key
+
+    def _may_fetch(self, now: float) -> bool:
+        wait = self._first_retry if self._fetched_at is None else self._refetch
+        return self._tried_at is None or now - self._tried_at >= wait
 
 
 class TokenTransport(Protocol):
@@ -91,12 +173,7 @@ class CognitoStaffTokens:
         self._issuer = issuer.rstrip("/")
         self._origin = _https_origin(sign_in_origin, "sign-in address")
         self._client_id = client_id
-        self._keys: SigningKeys = keys or PyJWKClient(
-            f"{self._issuer}/.well-known/jwks.json",
-            cache_jwk_set=True,
-            lifespan=KEYS_LIFESPAN_SECONDS,
-            timeout=TIMEOUT_SECONDS,
-        )
+        self._keys: SigningKeys = keys or ThrottledSigningKeys.for_issuer(self._issuer)
         self._transport = transport or UrllibTransport()
 
     def verify(self, id_token: str) -> StaffMember:
@@ -118,7 +195,7 @@ class CognitoStaffTokens:
                 "response_type": "code",
                 "client_id": self._client_id,
                 "redirect_uri": redirect_uri,
-                "scope": "openid email",
+                "scope": "openid",  # alone, the ID token holds every claim the client may read: email too
                 "state": state,
                 "code_challenge": code_challenge,
                 "code_challenge_method": "S256",

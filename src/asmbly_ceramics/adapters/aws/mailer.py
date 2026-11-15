@@ -46,6 +46,13 @@ SES_CLIENT_CONFIG = Config(
 """The client phase 7 builds for this adapter: one attempt, so a refused code is the
 answer to the only try, with timeouts under API Gateway's 30 s (`clients`)."""
 
+STREAM_SES_READ_TIMEOUT_SECONDS = 30
+STREAM_SES_CLIENT_CONFIG = SES_CLIENT_CONFIG.merge(Config(read_timeout=STREAM_SES_READ_TIMEOUT_SECONDS))
+"""The mailer's: it runs from the stream with no gateway and a 300 s timeout, so a slow
+answer to a six-photo message gets 30 s before it becomes "may have been sent". Still
+one attempt and the same connect timeout; the console's test email keeps
+`SES_CLIENT_CONFIG`."""
+
 # SES counts a message's size after base64 (quotas.html: 40 MB through the v2 API); kept
 # well under it for the headers and the MIME parts.
 MAX_ENCODED_BYTES = 38 * 1024 * 1024

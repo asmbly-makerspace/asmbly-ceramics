@@ -42,6 +42,9 @@ from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.studio import CurrentStudio, StudioNotSeeded
 
+EMAIL_FAILED = "email_failed"
+"""The event a failed send logs; the template's email-failures alarm counts it."""
+
 # Failures before `Mailer.send` was called: the email certainly didn't go.
 PHOTO_MISSING = "photo_missing"
 PHOTOS_UNAVAILABLE = "photos_unavailable"
@@ -211,7 +214,7 @@ class SendPendingEmail:
         }
         if unexpected:
             fields["reason"] = "unexpected"
-        log_event("email_failed", level=logging.ERROR, **fields)
+        log_event(EMAIL_FAILED, level=logging.ERROR, **fields)
         try:
             self._records.commit([Update(mark_failed(email, code))])
         except Exception as error:  # logged; it shows as stuck sending
@@ -270,6 +273,9 @@ class EmailNeedingAttention:
     # page shows the time the staleness is counted from. None for a failed email, and for
     # a sending one with no claim's time ("Stuck sending").
     since: datetime | None
+    # False when the drop-off's record is missing (a broken record, shown rather than
+    # hidden): the console lists the row without a link to the drop-off.
+    drop_off_found: bool = True
 
 
 class EmailsNeedingAttention:
@@ -304,6 +310,7 @@ class EmailsNeedingAttention:
                     email.error_code,
                     email.created_at,
                     stuck_since(email),
+                    drop_off_found=drop_off is not None,
                 )
             )
         return tuple(rows)

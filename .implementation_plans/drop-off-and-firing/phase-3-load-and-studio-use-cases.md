@@ -732,12 +732,12 @@ questions left for the maintainer:
 - Retention: a fired drop-off whose ready email never sends stayed open, and its email
   shows as needing attention (failed, or stuck sending or pending). The maintainer
   settled this on 15 November 2026 (#20): it closes 30 days after its firing
-  (`UNSENT_READY_CLOSE_AFTER`). A rejected
-  drop-off closes by the rejection's time whatever its email's status, which is still an
-  open question for the maintainer in #20, to settle before phase 9 merges. A limit for
-  fired drop-offs touches `domain/closing.py` alone. Making a rejected drop-off wait for
-  its email also changes `is_due_to_close`'s signature and `CloseFinished`, which today
-  reads no email for a rejected drop-off.
+  (now `UNSENT_EMAIL_CLOSE_AFTER`). The maintainer settled #20's second question the
+  same day: a rejected drop-off waits for its rejected email the way a fired one does.
+  Its window (the studio's) starts when that email is sent, and if it never sends, it
+  closes 30 days after the rejection. `is_due_to_close` takes the rejected email of the
+  current rejection, which `CloseFinished` reads (built on branch
+  `feat/drop-off-and-firing-phases-7-9`).
 - `ViewStudio.used` stays a bool from `Records.is_item_used`. Phase 9 shows "Used" or
   "Not used yet", its own fallback; no story asks for a count.
 - Follow-ups in #21: the retire-then-delete race (a studio-version condition in

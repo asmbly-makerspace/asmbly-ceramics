@@ -57,9 +57,8 @@ Record the merge-base SHA as the base. A SHA given in the arguments is used as i
   refers to (`Refs #N`), from the arguments, the commits or the pull request
   (`gh pr view --json number,body`). Read each with `gh issue view <N>` if the scribe
   will need its wording; the scribe can read them too.
-- **What reached AWS.** Whether the work deploys anything or adds a runbook step. Today
-  a merge deploys nothing; once the plan's first deploy exists, a merge deploys stage
-  and then prod. A phase that reaches AWS is not complete until the maintainer has
+- **What reached AWS.** Whether the work deploys anything or adds a runbook step. A merge
+  deploys stage and then prod (`.github/workflows/deploy.yml`). A phase that reaches AWS is not complete until the maintainer has
   confirmed its rollout check.
 - **What the maintainer decided.** Anything the user said in this conversation that
   the docs must record: an accepted decision record, a rule change, a confirmed rollout.

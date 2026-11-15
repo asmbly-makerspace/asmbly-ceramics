@@ -21,7 +21,13 @@ from asmbly_ceramics.domain.studio import (
 )
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import Change, Conflict, Put, Update
-from asmbly_ceramics.use_cases.studio import CurrentStudio, StudioNotSeeded, ViewStudioChoices
+from asmbly_ceramics.use_cases.studio import (
+    DELETED_ITEM,
+    CurrentStudio,
+    StudioNotSeeded,
+    ViewStudioChoices,
+    item_name,
+)
 from tests.domain.builders import NOW, STAFF, a_sending_address, an_address
 from tests.use_cases.conftest import World
 
@@ -135,3 +141,11 @@ def test_studio_choices_list_only_active_items(world: World) -> None:
     assert choices.firing_types[0].needs_glaze_type
     assert [item.name for item in choices.glaze_types] == [studio.glaze_types[1].name]
     assert all(item.status is ItemStatus.ACTIVE for item in choices.glaze_types)
+
+
+def test_an_item_the_studio_no_longer_has_reads_as_a_deleted_item(world: World) -> None:
+    """One answer on every console page (the drop-off, the waiting list, a load, the
+    counts), never the item's slug."""
+    studio = world.studio()
+    assert item_name(studio, CatalogList.KILNS, studio.kilns[0].id) == studio.kilns[0].name
+    assert item_name(studio, CatalogList.KILNS, ItemId("long-gone-kiln")) == DELETED_ITEM == "a deleted item"

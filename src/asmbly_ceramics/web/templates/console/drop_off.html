@@ -1,0 +1,109 @@
+{% extends "console/layout.html" %}
+{% block title %}{{ drop_off.id }}{% endblock %}
+{% block content %}
+{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
+{% if problem %}<div class="notice notice-error" role="alert"><h2>{{ problem }}</h2></div>{% endif %}
+<div class="drop-off-head">
+  <h2 class="drop-off-title mono">{{ drop_off.id }}</h2>
+  {% if drop_off.contact %}<p class="lead">{{ drop_off.contact.name }}</p>{% endif %}
+  <p><span class="tag">{{ view.firing_type }}</span> <span class="state">{{ state }}</span></p>
+  {% if drop_off.rejection and drop_off.rejection.message %}
+  <p class="rejection-message">Message: {{ drop_off.rejection.message }}</p>
+  {% endif %}
+</div>
+
+<div class="drop-off-body">
+{% if drop_off.contact %}
+<div class="photos">
+  {% for ref in drop_off.photos %}
+  <img src="{{ photo_src(ref) }}" alt="Photo {{ ref.index }} of {{ drop_off.photos | length }}">
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="details">
+  <h3>Details</h3>
+  {% if not drop_off.contact %}
+  <p>Closed on {{ closed_on }}; its contact details and photos were deleted.</p>
+  {% endif %}
+  <dl class="summary">
+    <dt>Pieces</dt><dd>{{ drop_off.pieces }}</dd>
+    <dt>Firing</dt><dd>{{ view.firing_type }}</dd>
+    <dt>Glaze</dt><dd>{{ view.glaze_type or "—" }}</dd>
+    <dt>Dropped off</dt><dd>{{ dropped_off }}</dd>
+    {% if drop_off.contact %}
+    <dt>Email</dt><dd><a href="{{ mailto }}">{{ drop_off.contact.email }}</a></dd>
+    <dt>Phone</dt><dd><a href="tel:{{ drop_off.contact.phone }}">{{ phone }}</a></dd>
+    {% endif %}
+  </dl>
+</section>
+</div>
+
+<section class="emails">
+  <h3>Emails</h3>
+  {% if emails %}
+  <ul class="email-list">
+    {% for email, label, status in emails %}
+    <li>
+      <strong>{{ label }}</strong>: {{ status }}
+      {% if (email.kind, email.occasion) in retryable %}
+      <form method="post" action="/console/drop-offs/{{ drop_off.id }}/emails/{{ email.kind.value }}/retry" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="occasion" value="{{ email.occasion }}">
+        <button type="submit">Try sending again</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No emails yet.</p>
+  {% endif %}
+</section>
+
+{% if view.can_undo_rejection %}
+<section class="actions">
+  <form method="post" action="/console/drop-offs/{{ drop_off.id }}/undo-reject" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ drop_off.version }}">
+    <button type="submit">Undo rejection</button>
+  </form>
+  <p class="hint">Undoing sends no email; contact the person directly.</p>
+</section>
+{% endif %}
+
+{% if can_reject %}
+<section class="actions">
+  <a class="button" href="/console/loads?add={{ drop_off.id }}">Add to a load</a>
+  {% if not panel.open %}
+  <a class="button button-quiet" href="/console/drop-offs/{{ drop_off.id }}?reject=1#reject">Reject…</a>
+  {% endif %}
+</section>
+{% if panel.open %}
+<section id="reject" class="panel">
+  <h3>Reject {{ drop_off.id }}</h3>
+  <form method="post" action="/console/drop-offs/{{ drop_off.id }}/reject/preview" novalidate>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ drop_off.version }}">
+    <div class="field{% if panel.error_field == 'reason' %} field-invalid{% endif %}">
+      <label for="reason">Reason</label>
+      {% if panel.error_field == "reason" %}<p class="field-error" id="reason-error">{{ panel.error }}</p>{% endif %}
+      <select id="reason" name="reason"{% if panel.error_field == "reason" %} aria-describedby="reason-error"{% endif %}>
+        {% for item in view.reasons %}
+        <option value="{{ item.id }}"{% if panel.reason == item.id %} selected{% endif %}>{{ item.name }}{% if item.needs_message %} (needs a message){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field{% if panel.error_field == 'message' %} field-invalid{% endif %}">
+      <label for="message">Message</label>
+      <p class="hint" id="message-hint">Up to {{ "{:,}".format(message_max) }} characters: required for a reason that needs a message, optional otherwise. It goes in the email.</p>
+      {% if panel.error_field == "message" %}<p class="field-error" id="message-error">{{ panel.error }}</p>{% endif %}
+      <textarea id="message" name="message" rows="5" maxlength="{{ message_max }}" autocomplete="off" aria-describedby="message-hint{% if panel.error_field == 'message' %} message-error{% endif %}">{{ panel.message }}</textarea>
+    </div>
+    <button type="submit">Preview the email</button>
+    <a class="cancel" href="/console/drop-offs/{{ drop_off.id }}">Cancel</a>
+  </form>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

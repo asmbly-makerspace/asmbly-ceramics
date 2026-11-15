@@ -4,5 +4,9 @@
 <div class="notice notice-error" role="alert">
   <h2>{{ message }}</h2>
 </div>
+{% if request.url.path.startswith("/console") %}
+<p><a class="button" href="/console">Back to the console</a></p>
+{% else %}
 <p><a class="button" href="/">Back to the drop-off form</a></p>
+{% endif %}
 {% endblock %}

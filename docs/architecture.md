@@ -15,16 +15,27 @@ and its templates (`mail/`), the AWS adapters (`adapters/aws/`: DynamoDB records
 counters and rate limiter, the S3 photo store, the SES mailer, Cognito staff tokens,
 Parameter Store secrets), the system clock (`adapters/clock.py`), the photo
 inspector, which checks and re-encodes photos with Pillow (`adapters/images.py`), and the
-public drop-off form (`web/`: Starlette pages rendered with Jinja2, the photo upload
+public drop-off form and the staff console (`web/`, `web/console/`: Starlette pages rendered with Jinja2, the photo upload
 script, the Content-Security-Policy and other headers, same-origin checks and signed
-cookies; `web/local.py` runs it on the fakes on a laptop). The brand colours the pages
+cookies; the console adds sign-in through the staff sign-in, a CSRF check and the pages
+for the waiting list, search, one drop-off and its photos, rejection, loads, settings
+and their history, counts and the emails needing attention; `web/local.py` runs the
+form on the fakes on a laptop). The brand colours the pages
 and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap stack
 (deploy roles, boundaries, addresses), deployed by hand with
-[its runbook](runbooks/aws-bootstrap.md). Not built: the staff console's pages, the
-scheduled close's handler, the app's SAM template and the deploy. Nothing is in AWS
-yet. The rest is planned in
-[.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md). The studio takes
-drop-offs through a ClickUp form until #8 switches it over.
+[its runbook](runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's SAM template
+for one environment (the records table, the private photo bucket, the form and the console behind an
+HTTP API, the mailer on the table's stream, the daily close, the alarms); a merge to `main` deploys it to
+stage and then prod (`.github/workflows/deploy.yml`, [the operations runbook](runbooks/operations.md)).
+The deployed functions start from `entry/` (`run.sh` for the form and the console through the Lambda
+Web Adapter, `mailer.py` for the stream, `close.py` for the daily schedule), read their environment once in
+`settings.py`, are built on the AWS adapters in `composition.py`, log JSON lines through
+`logs.py`, and bound each web request with `deadline.py`. The bootstrap stack
+`asmbly-ceramics-bootstrap` exists in AWS and so do the GitHub environments `stage` and
+`prod`; the runbook's later steps are not done, so no app stack is deployed yet. The
+switch from ClickUp (#8) is planned in
+[.implementation_plans/drop-off-and-firing/](../.implementation_plans/drop-off-and-firing/README.md); the studio takes
+drop-offs through a ClickUp form until then.
 
 What the domain code settles, beyond the stories:
 
@@ -70,8 +81,8 @@ What the domain code settles, beyond the stories:
 ## The shape of the code
 
 [CLAUDE.md](../CLAUDE.md#the-shape-of-the-code) has the rules. The domain, the ports and
-the in-memory adapters, the use cases, the AWS adapters and the drop-off form's pages
-exist; the console's pages and the scheduled close's handler are planned. In short:
+the in-memory adapters, the use cases, the AWS adapters, the form's and the console's
+pages and the scheduled close's handler exist. In short:
 
 ```
 entry points (the form's and the console's pages, the scheduled close)
@@ -94,7 +105,7 @@ From epic #1's **Work in other repositories**:
 | Repository | What | For |
 | --- | --- | --- |
 | asmbly-staff-login | A sign-in client for this app that admits the `ceramics` group (the group comes from asmbly-staff-login#4) | #3 |
-| AsmblyMCPs | Sending rights on the `asmbly.org` email domain, whose SES identity its `mcp-bootstrap` stack owns, or the domain moved to shared infrastructure | #2, #4, #5, #6 |
+| AsmblyMCPs | Sending rights on the `asmbly.org` email domain, whose SES identity its `mcp-bootstrap` stack owns. The maintainer agreed this app sends from `asmbly.org`; he may move the identity's ownership separately, and nothing here depends on which stack holds it | #2, #4, #5, #6 |
 | The facilities repository | Its kiln drop-off viewer retired and pointed at the new form | #8 |
 
 ## Still to be decided

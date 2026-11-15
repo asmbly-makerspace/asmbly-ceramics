@@ -1,0 +1,11 @@
+{% extends "console/layout.html" %}
+{% block title %}Settings history{% endblock %}
+{% block content %}
+<h2>Settings history</h2>
+<p><a href="/console/settings">Back to settings</a></p>
+{% include "console/_history.html" %}
+<nav class="actions" aria-label="History pages">
+  {% if not first_page %}<a href="/console/settings/history">Newest changes</a>{% endif %}
+  {% if older %}<a href="/console/settings/history?before={{ older | urlencode }}">Older changes</a>{% endif %}
+</nav>
+{% endblock %}

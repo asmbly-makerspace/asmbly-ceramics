@@ -74,8 +74,8 @@ Ref: decision 0002, Hosting and The deploy.
 
 ### Data held safely (BLOCK)
 
-- [ ] The photo bucket (`asmbly-ceramics-<env>-photos-<account>`, the account from the
-      pseudo-parameter, never written): all four public access block settings,
+- [ ] The photo bucket (`asmbly-ceramics-<env>-photos-<suffix>`, a random suffix from
+      `samconfig.toml`, never the account ID: decision 0004): all four public access block settings,
       `BucketOwnerEnforced`, SSE-S3, a policy denying requests without TLS, a lifecycle
       rule expiring `uploads/` after a day, no public policy, ACL or website hosting.
 - [ ] The table (`asmbly-ceramics-<env>-records`): on demand, point-in-time recovery with

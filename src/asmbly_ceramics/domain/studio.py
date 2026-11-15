@@ -68,6 +68,10 @@ class CatalogItem:
     needs_glaze_type: bool = False  # firing types only
     needs_message: bool = False  # reasons only
 
+    @property
+    def retired(self) -> bool:
+        return self.status is ItemStatus.RETIRED
+
 
 @dataclass(frozen=True, slots=True)
 class Studio:
@@ -274,12 +278,17 @@ def delete_item(
     """
     _check_change(by, at)
     item = studio.item(which, id)
-    if item.status is ItemStatus.ACTIVE:
+    if not item.retired:
         raise InvalidSetting("status", f"Retire {item.name} before deleting it.")
     if used:
         raise ItemInUse(item.name)
     items = tuple(other for other in studio.items(which) if other.id != id)
     return _with_items(studio, which, items), SettingChange(at, by, f"Deleted {_KIND[which]} {item.name}")
+
+
+def can_delete_item(item: CatalogItem, *, used: bool) -> bool:
+    """`delete_item` accepts `item`: it is retired and nothing names it."""
+    return item.retired and not used
 
 
 def _catalog(*names: str) -> tuple[CatalogItem, ...]:

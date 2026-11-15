@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.studio import (
     SettingChange,
     Studio,
     add_item,
+    can_delete_item,
     change_email_settings,
     check_sending_address,
     delete_item,
@@ -375,6 +376,22 @@ def test_a_retired_unused_item_can_be_deleted() -> None:
     studio, record = delete_item(studio, CatalogList.KILNS, ItemId("helios"), used=False, by=STAFF, at=LATER)
     assert names(studio, CatalogList.KILNS) == ["Athena", "Vulcan"]
     assert record == SettingChange(LATER, STAFF, "Deleted kiln Helios")
+
+
+@pytest.mark.parametrize("retired", [False, True])
+@pytest.mark.parametrize("used", [False, True])
+def test_can_delete_item_agrees_with_delete_item(retired: bool, used: bool) -> None:
+    studio = a_studio()
+    if retired:
+        studio, _ = retire_item(studio, CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
+    item = studio.item(CatalogList.KILNS, ItemId("helios"))
+    assert item.retired is retired
+    try:
+        delete_item(studio, CatalogList.KILNS, item.id, used=used, by=STAFF, at=LATER)
+    except errors.InvalidSetting, errors.ItemInUse:
+        assert not can_delete_item(item, used=used)
+    else:
+        assert can_delete_item(item, used=used)
 
 
 def test_a_retired_item_can_be_deleted_even_when_one_active_item_remains() -> None:

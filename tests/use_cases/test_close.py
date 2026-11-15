@@ -46,9 +46,12 @@ def fired_and_emailed(world: World, *numbers: int) -> None:
     send_all(world)
 
 
-def rejected(world: World, number: int) -> None:
+def rejected(world: World, number: int, *, send: bool = True) -> None:
+    """This drop-off made and rejected at NOW, and (unless `send` is false) every email sent."""
     id = dropped_off(world, number)
     world.reject(RejectRequest(id, ItemId("other"), TEST_MESSAGE, version=1, staff=STAFF_MEMBER))
+    if send:
+        send_all(world)
 
 
 def test_a_fired_drop_off_closes_once_the_window_has_passed_since_the_ready_email(
@@ -95,6 +98,59 @@ def test_a_rejected_drop_off_closes_once_the_window_has_passed_since_the_rejecti
     assert world.close().closed == ()
     at(world, WINDOW_ENDS)
     assert world.close().closed == (AC_1,)
+
+
+def test_a_rejected_drop_off_waits_for_its_rejected_email(world: World) -> None:
+    """#20 question 2: the person is told before their details are deleted."""
+    id = dropped_off(world, 1)
+    send_all(world)
+    world.reject(RejectRequest(id, ItemId("other"), TEST_MESSAGE, version=1, staff=STAFF_MEMBER))
+    [email] = [e for e in world.records.emails_for(AC_1) if e.kind is EmailKind.REJECTED]
+    occasion = email.occasion
+    world.mailer.fail_with = "MessageRejected"
+    send_all(world)
+
+    at(world, WINDOW_ENDS)
+    assert world.close().closed == ()  # never told yet: kept
+    assert stored(world, AC_1).contact is not None
+
+    late = WINDOW_ENDS + timedelta(days=1)
+    at(world, late)
+    world.mailer.fail_with = None
+    world.retry_email(AC_1, EmailKind.REJECTED, occasion, STAFF_MEMBER)
+    send_all(world)
+    at(world, late + timedelta(days=14))
+    assert world.close().closed == ()  # the window runs from the email
+    at(world, late + timedelta(days=15))
+    assert world.close().closed == (AC_1,)
+
+
+def test_a_rejected_drop_off_whose_email_never_sends_closes_a_month_after_the_rejection(world: World) -> None:
+    id = dropped_off(world, 1)
+    send_all(world)
+    world.reject(RejectRequest(id, ItemId("other"), TEST_MESSAGE, version=1, staff=STAFF_MEMBER))
+    rejected_at = world.clock.now()
+    world.mailer.fail_with = "MessageRejected"
+    send_all(world)
+
+    at(world, rejected_at + timedelta(days=30) - SECOND)
+    assert world.close().closed == ()
+    at(world, rejected_at + timedelta(days=30))
+    assert world.close().closed == (AC_1,)  # #20: never kept without an end
+    assert stored(world, AC_1).contact is None
+
+
+def test_a_rejected_drop_off_without_its_rejected_email_is_reported(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    rejected(world, 1)
+    [email] = [e for e in world.records.emails_for(AC_1) if e.kind is EmailKind.REJECTED]
+    world.records._items.pop(("email", AC_1, EmailKind.REJECTED, email.occasion))  # a broken record
+    at(world, WINDOW_ENDS)
+
+    assert world.close().failed == 1
+    assert [e["drop_off_id"] for e in events(caplog, "close_failed")] == ["AC-1"]
+    assert stored(world, AC_1).state is DropOffState.REJECTED
 
 
 def test_closing_deletes_name_email_phone_message_and_photos_and_keeps_the_rest(world: World) -> None:

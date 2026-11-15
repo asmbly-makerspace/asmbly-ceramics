@@ -7,10 +7,10 @@ prompt disagrees with these documents, the documents win and you say so.
 | --- | --- | --- |
 | What this repository is for, and where it stands | `README.md`, epic #1 | [docs/architecture.md](docs/architecture.md) |
 | Why it is set up this way | `docs/decisions/` | [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md) |
-| The app (domain, ports, in-memory fakes, use cases, AWS adapters and the drop-off form's pages so far; the console, the AWS template and the deploy come with the plan for epic #1) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
+| The app (domain, ports, in-memory fakes, use cases, AWS adapters, the drop-off form's and the staff console's pages, the composition root, the mailer and the daily close, and the stack template `infra/app.yaml`) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
 | Plans for a story | `.implementation_plans/` | [.implementation_plans/readme.md](.implementation_plans/readme.md) |
 | CI | `.github/workflows/` | [README.md](README.md#how-changes-reach-production) |
-| Production tasks (the bootstrap so far) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/runbooks/aws-bootstrap.md](docs/runbooks/aws-bootstrap.md) |
+| Production tasks (the bootstrap, the deploy's rollback) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/README.md](docs/README.md#runbooks) |
 
 Past decisions are in [docs/decisions/](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md).
 Don't reverse one without writing a new decision record that says why.
@@ -66,10 +66,14 @@ has the reasons.
 
 Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `use_cases/`, `mail/`,
 `adapters/` (`memory/`, `aws/`, `clock.py` for the system clock and `images.py`, the
-photo inspector with Pillow), `brand.py`, `web/` (the public drop-off form's pages,
-with `web/local.py` to run them on the fakes), and `infra/bootstrap.yaml`, the bootstrap
-stack the maintainer deploys by hand ([its runbook](docs/runbooks/aws-bootstrap.md)).
-Nothing is in AWS yet: no console page, no app template and no deploy. This section says
+photo inspector with Pillow), `brand.py`, `web/` (the public drop-off form's pages and, in
+`web/console/`, the staff console's, with `web/local.py` to run the form on the fakes), `settings.py`, `composition.py`,
+`logs.py`, `deadline.py` and `entry/` (what Lambda starts), `infra/bootstrap.yaml`, the
+bootstrap stack the maintainer deploys by hand ([its runbook](docs/runbooks/aws-bootstrap.md)),
+and `infra/app.yaml`, the app's stack for stage and prod, which a merge deploys, with the console and the daily close (`entry/close.py`, started by
+EventBridge Scheduler). The bootstrap stack `asmbly-ceramics-bootstrap` exists in AWS
+(termination protection on) and the GitHub environments `stage` and `prod` (`main` only)
+exist; the rest of the bootstrap runbook is still to do. This section says
 what the plan for epic #1 must respect; the framework, the hosting, the data store and
 the deploy are recorded in
 [decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md), not here
@@ -98,12 +102,14 @@ uv run ruff check . && uv run ruff format --check .   # every change
 uv run mypy                                            # every change
 uv run pytest --cov                                    # every change; the coverage floor is in pyproject.toml
 uvx cfn-lint==1.57.1 infra/*.yaml                      # after a template change
+sam validate --lint -t infra/app.yaml && sam build -t infra/app.yaml   # after an app template change
+uv export --frozen --no-dev --no-emit-project -o src/requirements.txt  # after a dependency change
 ```
 
 `tests/repo/` checks the repository itself: that every relative link in the Markdown
 resolves, that these commands are the ones CI runs, that the skills and agents are
 well formed, that the ruleset file and CODEOWNERS say what this file says about `main`,
-that no workflow gets AWS credentials, that the bootstrap's roles and boundary
+that only `deploy.yml`'s two jobs get AWS credentials, that the bootstrap's roles and boundary
 (`infra/bootstrap.yaml`) keep their names, tags and limits, and that no personal
 detail, account ID or photo is committed. If you couldn't run a check, say which one and why.
 
@@ -228,5 +234,8 @@ once.
   a code owner's approving review.
 - Before a merge, the pull request's description or a comment on it must show what it
   finally contains: update it when commits are added after it was opened.
-- Today a merge deploys nothing. The plan that adds the first deploy also adds, here,
-  what a merge deploys and the smoke test to watch after it.
+- A merge to `main` deploys: **Deploy** (`.github/workflows/deploy.yml`) deploys
+  `asmbly-ceramics-stage`, runs `scripts/smoke.py` against
+  `https://ceramics-stage.asmbly.org`, then deploys `asmbly-ceramics-prod` and runs it
+  against `https://ceramics.asmbly.org`. Watch both smoke tests to the end; the rollback
+  is a revert pull request ([the operations runbook](docs/runbooks/operations.md)).

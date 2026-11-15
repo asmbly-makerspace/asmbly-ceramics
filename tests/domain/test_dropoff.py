@@ -408,3 +408,11 @@ def test_a_rejection_after_an_undo_is_a_new_rejection() -> None:
     )
     assert again.rejection is not None
     assert again.rejection.at == NOW + timedelta(2)
+
+
+@pytest.mark.parametrize("state", list(DropOffState))
+def test_only_a_waiting_drop_off_can_be_rejected(state: DropOffState) -> None:
+    from asmbly_ceramics.domain.dropoff import can_be_rejected
+    from tests.domain.builders import a_drop_off
+
+    assert can_be_rejected(a_drop_off(state=state)) is (state is DropOffState.WAITING)

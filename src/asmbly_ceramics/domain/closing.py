@@ -1,18 +1,19 @@
 """Closing a finished drop-off, which deletes the person's details (#7).
 
 The pickup window counts from the ready email for a fired drop-off (epic #1) and from
-the rejection for a rejected one. Closing keeps what the weekly counts need (the ID,
-dates, firing type, glaze type, pieces, load and reason) and drops the name, email,
-phone, the rejection's message and the photos' refs; the caller deletes the photos
-themselves through the `PhotoStore` port in the same run.
+the rejected email for a rejected one (#20), once that email is sent. Closing keeps
+what the weekly counts need (the ID, dates, firing type, glaze type, pieces, load and
+reason) and drops the name, email, phone, the rejection's message and the photos'
+refs; the caller deletes the photos themselves through the `PhotoStore` port in the
+same run.
 """
 
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
-from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
-from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_READY_CLOSE_AFTER
+from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, rejection_occasion
+from asmbly_ceramics.domain.limits import STUDIO_TZ, UNSENT_EMAIL_CLOSE_AFTER
 
 
 def pickup_day(start: datetime, pickup_window_days: int) -> date:
@@ -34,58 +35,72 @@ def pickup_deadline(start: datetime, pickup_window_days: int) -> datetime:
     return datetime.combine(following, time(0), tzinfo=STUDIO_TZ)
 
 
-def _is_closable(
-    drop_off: DropOff, ready_sent_at: datetime | None, pickup_window_days: int, now: datetime
-) -> bool:
-    """Whether the pickup window has passed (`pickup_deadline`, the end of the Austin day
-    the ready email named). Private: only `is_due_to_close` calls it, with the window a
-    fired drop-off's ready email gave (kept with it), so no caller can pass the studio's
-    later setting for a fired drop-off. A fired drop-off whose ready email never went out
-    is `is_due_to_close`'s to judge, by `UNSENT_READY_CLOSE_AFTER`."""
+def _window_passed(start: datetime, pickup_window_days: int, now: datetime) -> bool:
+    """Whether the pickup window that started at `start` has passed (`pickup_deadline`,
+    the end of the Austin day it names)."""
     _check_aware(now)
-    if ready_sent_at is not None:
-        _check_aware(ready_sent_at)
-    if pickup_window_days < 1:
+    return pickup_deadline(start, pickup_window_days) <= now
+
+
+def _unsent_limit_passed(since: datetime | None, what: str, drop_off: DropOff, now: datetime) -> bool:
+    """Whether `UNSENT_EMAIL_CLOSE_AFTER` has passed since the firing or the rejection,
+    for a drop-off whose email hasn't gone (failed, or stuck sending or pending) (#20)."""
+    if since is None:
+        raise ValueError(f"{drop_off.id} has no {what} time")
+    _check_aware(now)
+    _check_aware(since)
+    return since + UNSENT_EMAIL_CLOSE_AFTER <= now
+
+
+def is_due_to_close(drop_off: DropOff, email: Email | None, studio_window_days: int, now: datetime) -> bool:
+    """The close's whole rule (#7, #20). `email` is the drop-off's ready email when it is
+    fired, and the rejected email of its current rejection when it is rejected; any other
+    drop-off never closes and `email` is ignored.
+
+    The pickup window starts when that email is sent, so the person is told before their
+    details are deleted. A fired drop-off counts with the window its ready email gave
+    (kept with it), never the studio's later setting; a rejected one, whose email names no
+    date, with the studio's window. While the email hasn't gone (failed, or stuck sending
+    or pending) there is no window, and the console shows it for staff to send again; the
+    drop-off still closes `UNSENT_EMAIL_CLOSE_AFTER` after its firing or rejection, so the
+    person's details are never kept without an end.
+
+    `ValueError` for a broken record, which the close reports rather than skip silently: a
+    fired drop-off with no ready email or no firing time, a rejected one with no rejection
+    or no rejected email, an email of another drop-off or rejection, a sent email without
+    its time or (ready) its window."""
+    _check_aware(now)
+    if studio_window_days < 1:
         raise ValueError("the pickup window is at least a day")
-    match drop_off.state:
-        case DropOffState.FIRED:
-            return ready_sent_at is not None and pickup_deadline(ready_sent_at, pickup_window_days) <= now
-        case DropOffState.REJECTED:
-            rejection = drop_off.rejection
-            return rejection is not None and pickup_deadline(rejection.at, pickup_window_days) <= now
-        case DropOffState.WAITING | DropOffState.IN_LOAD | DropOffState.CLOSED:
-            return False
-
-
-def is_due_to_close(drop_off: DropOff, ready: Email | None, studio_window_days: int, now: datetime) -> bool:
-    """The close's whole rule (#7). A fired drop-off counts from its ready email, once
-    sent, with the window that email gave (kept with it), never the studio's later
-    setting; a rejected one counts from the rejection with the studio's window.
-    `ValueError` for a broken record, which the close reports rather than skip silently:
-    a fired drop-off with no ready email, a sent ready email without its window or of
-    another drop-off, a rejected drop-off with no rejection.
-
-    A fired drop-off whose ready email hasn't gone (failed, or stuck sending or pending)
-    has no pickup window, so the console shows the email for staff to send again; it
-    still closes `UNSENT_READY_CLOSE_AFTER` after its firing, so the person's details are
-    never kept without an end (#20). A fired drop-off without `fired_at` is reported."""
-    if drop_off.state is DropOffState.REJECTED and drop_off.rejection is None:
+    if drop_off.state in (DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.CLOSED):
+        return False
+    if drop_off.state is DropOffState.FIRED:
+        if email is None:
+            raise ValueError(f"{drop_off.id} is fired with no ready email")  # firing queues one
+        if email.status is not EmailStatus.SENT:
+            return _unsent_limit_passed(drop_off.fired_at, "firing", drop_off, now)
+        if email.kind is not EmailKind.READY or email.drop_off_id != drop_off.id:
+            raise ValueError(f"that isn't {drop_off.id}'s ready email")
+        if email.sent_at is None or email.pickup_window_days is None:
+            raise ValueError(f"{drop_off.id}'s sent ready email has no pickup window")
+        return _window_passed(email.sent_at, email.pickup_window_days, now)
+    # Rejected: the only state left.
+    rejection = drop_off.rejection
+    if rejection is None:
         raise ValueError(f"{drop_off.id} is rejected with no rejection")
-    if drop_off.state is not DropOffState.FIRED:
-        return _is_closable(drop_off, None, studio_window_days, now)
-    if ready is None:
-        raise ValueError(f"{drop_off.id} is fired with no ready email")  # firing queues one
-    if ready.status is not EmailStatus.SENT:
-        if drop_off.fired_at is None:
-            raise ValueError(f"{drop_off.id} is fired with no firing time")
-        _check_aware(now)
-        _check_aware(drop_off.fired_at)
-        return drop_off.fired_at + UNSENT_READY_CLOSE_AFTER <= now  # no window yet (#20)
-    if ready.kind is not EmailKind.READY or ready.drop_off_id != drop_off.id:
-        raise ValueError(f"that isn't {drop_off.id}'s ready email")
-    if ready.sent_at is None or ready.pickup_window_days is None:
-        raise ValueError(f"{drop_off.id}'s sent ready email has no pickup window")
-    return _is_closable(drop_off, ready.sent_at, ready.pickup_window_days, now)
+    if email is None:
+        raise ValueError(f"{drop_off.id} is rejected with no rejected email")  # rejecting queues one
+    if (
+        email.kind is not EmailKind.REJECTED
+        or email.drop_off_id != drop_off.id
+        or email.occasion != rejection_occasion(rejection.at)
+    ):
+        raise ValueError(f"that isn't the rejected email of {drop_off.id}'s rejection")
+    if email.status is not EmailStatus.SENT:
+        return _unsent_limit_passed(rejection.at, "rejection", drop_off, now)
+    if email.sent_at is None:
+        raise ValueError(f"{drop_off.id}'s sent rejected email has no time")
+    return _window_passed(email.sent_at, studio_window_days, now)
 
 
 def close(drop_off: DropOff, at: datetime) -> DropOff:

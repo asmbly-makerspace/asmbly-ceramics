@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Signed out{% endblock %}
+{% block heading %}Ceramics console{% endblock %}
+{% block content %}
+<div class="notice" role="status">
+  <p>You're signed out of the ceramics console.</p>
+</div>
+<p><a class="button" href="/console/auth/sign-in">Sign in</a></p>
+<p><a href="/">Go to the drop-off form</a></p>
+{% endblock %}

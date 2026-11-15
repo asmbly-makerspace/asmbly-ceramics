@@ -1,0 +1,400 @@
+{
+  "plan_name": "drop-off-and-firing",
+  "run": "drop-off-and-firing-phases-7-9",
+  "issue": 1,
+  "feature_branch": "feat/drop-off-and-firing-phases-7-9",
+  "worktree": ".claude/worktrees/offshore-drop-off-and-firing-phases-7-9",
+  "status": "complete",
+  "stage": "briefing",
+  "selected_phases": [
+    "7",
+    "8",
+    "9"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "gh",
+    "sam": true,
+    "aws_read": true
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-7-first-deploy",
+      "number": "7",
+      "title": "First deploy: stage and prod",
+      "domain": [
+        "infra",
+        "ci"
+      ],
+      "depends_on": [
+        "4",
+        "5",
+        "6"
+      ],
+      "status": "done",
+      "base_sha": "79fce2702fc799f5df41ab40bbe70254a0ef40f6",
+      "squashed_sha": "12665328f27be8694314ff67c4622d652166d521",
+      "review_rounds": 3,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2,
+        4
+      ],
+      "admin_actions": [
+        "maintainer: execute the bootstrap change set and finish runbook steps 4-8 before this pull request merges (a merge deploys)",
+        "maintainer: decision record amending 0002 before merge",
+        "AsmblyMCPs: agree the sending right before merge"
+      ],
+      "notes": "2389 tests 99.42%; cfn-lint, sam validate/build pass; opened #30 #31"
+    },
+    {
+      "id": "phase-8-console-waiting-and-reject",
+      "number": "8",
+      "title": "Console: sign-in, waiting list, rejection",
+      "domain": [
+        "web",
+        "infra"
+      ],
+      "depends_on": [
+        "3",
+        "7"
+      ],
+      "status": "done",
+      "base_sha": "12665328f27be8694314ff67c4622d652166d521",
+      "squashed_sha": "8493547a7ff7ab36576337441124242cff724275",
+      "review_rounds": 3,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [
+        3,
+        5
+      ],
+      "refs": [
+        4,
+        7
+      ],
+      "admin_actions": [
+        "asmbly-staff-login: ceramics group and ceramics-staff client (openid, email) before merge",
+        "maintainer: set session-key before merge",
+        "maintainer: prod reviewer on, or sign-in checks after prod"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "phase-9-console-loads-settings-close",
+      "number": "9",
+      "title": "Console: loads, settings, counts, the close",
+      "domain": [
+        "web",
+        "infra"
+      ],
+      "depends_on": [
+        "8"
+      ],
+      "status": "done",
+      "base_sha": "8493547a7ff7ab36576337441124242cff724275",
+      "squashed_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [
+        4,
+        6,
+        7
+      ],
+      "refs": [],
+      "admin_actions": [
+        "maintainer: answer #20 question 2 before merge",
+        "maintainer, after deploy: check close alarms reach the alarm topic",
+        "maintainer: stage first close_run proves the GSI1 LeadingKeys condition (fallback in phase 9 Rollout)",
+        "later: own schedule group for the close needs a bootstrap change"
+      ],
+      "notes": "2786 tests 99.12%; opened #32"
+    }
+  ],
+  "gate": {
+    "base_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
+    "result": "clean",
+    "squashed_sha": null,
+    "test_count": 2797,
+    "coverage": "99.15%",
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": "40553ed15bca95d1c5f3029943ee90f021d124cb",
+    "result": "fixed",
+    "squashed_sha": "10563be54706f6e8c465560126dc515bb08af083"
+  },
+  "docs": {
+    "base_sha": "10563be54706f6e8c465560126dc515bb08af083",
+    "squashed_sha": "1fb230745a5d03047a357a6b5f4d5a6c41e652b5"
+  },
+  "qa": {
+    "base_sha": "1fb230745a5d03047a357a6b5f4d5a6c41e652b5",
+    "squashed_sha": "391a320f58e9f39d499a193d9ce4dc21d2113a88",
+    "closes": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "refs": [
+      1
+    ]
+  },
+  "pr": {
+    "number": 33,
+    "result": "green",
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "decision",
+      "topic": "phase 5 as a dependency",
+      "choice": "counted as done for building 7-9",
+      "reason": "its code is merged (#28); [~] only waits on the hand-run bootstrap, which is a before-merge action for phase 7 since a merge deploys"
+    },
+    {
+      "ts": "2026-11-15T08:21:38Z",
+      "type": "decision",
+      "topic": "phase size",
+      "choice": "no split below about 5,000 changed lines",
+      "reason": "the maintainer accepts phases up to about 5,000 lines (13 Nov 2026); the repo still says 800"
+    },
+    {
+      "ts": "2026-11-15T08:21:45Z",
+      "type": "phase_start",
+      "phase": "7"
+    },
+    {
+      "ts": "2026-11-15T11:30:29Z",
+      "type": "decision",
+      "topic": "request bound",
+      "choice": "contextvar deadline + botocore hooks, 14s work/22s cleanup",
+      "reason": "sync use cases"
+    },
+    {
+      "ts": "2026-11-15T11:30:29Z",
+      "type": "decision",
+      "topic": "action SHA pinning",
+      "choice": "deferred to #31",
+      "reason": "SHAs unresolvable in the run"
+    },
+    {
+      "ts": "2026-11-15T11:42:24Z",
+      "type": "cold_review",
+      "phase": "7",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 4,
+      "privacy": "FLAG",
+      "pg_block": 0,
+      "pg_warn": 1
+    },
+    {
+      "ts": "2026-11-15T13:09:53Z",
+      "type": "decision",
+      "topic": "requirements.txt vs Dependabot",
+      "choice": "kept committed; CI error names the regen command",
+      "reason": "sam build reproducible from the lock"
+    },
+    {
+      "ts": "2026-11-15T13:09:53Z",
+      "type": "phase_done",
+      "phase": "7"
+    },
+    {
+      "ts": "2026-11-15T13:09:55Z",
+      "type": "squash",
+      "phase": "7",
+      "sha": "12665328f27be8694314ff67c4622d652166d521"
+    },
+    {
+      "ts": "2026-11-15T13:09:55Z",
+      "type": "phase_start",
+      "phase": "8"
+    },
+    {
+      "ts": "2026-11-15T15:20:03Z",
+      "type": "decision",
+      "topic": "session",
+      "choice": "sealed cookie",
+      "reason": "rotating the key signs everyone out"
+    },
+    {
+      "ts": "2026-11-15T15:29:20Z",
+      "type": "cold_review",
+      "phase": "8",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 2,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T16:07:53Z",
+      "type": "decision",
+      "topic": "JWKS refresh failure",
+      "choice": "keep held keys on refresh; first fetch still fails closed",
+      "reason": "a bad refresh must not sign a valid session out"
+    },
+    {
+      "ts": "2026-11-15T16:07:53Z",
+      "type": "phase_done",
+      "phase": "8"
+    },
+    {
+      "ts": "2026-11-15T16:07:55Z",
+      "type": "squash",
+      "phase": "8",
+      "sha": "8493547a7ff7ab36576337441124242cff724275"
+    },
+    {
+      "ts": "2026-11-15T16:07:55Z",
+      "type": "phase_start",
+      "phase": "9"
+    },
+    {
+      "ts": "2026-11-15T17:46:11Z",
+      "type": "decision",
+      "topic": "decision 0004",
+      "choice": "accepted by the maintainer (15 Nov 2026); docs step marks it accepted",
+      "reason": "maintainer said so in the conversation"
+    },
+    {
+      "ts": "2026-11-15T17:46:11Z",
+      "type": "decision",
+      "topic": "SES sending right",
+      "choice": "maintainer agrees the app sends from asmbly.org; the identity lives in AsmblyMCPs mcp-bootstrap; moving it (e.g. to staff-login) is the maintainer's separate task",
+      "reason": "maintainer said so; ARN is by name so a move needs no change here"
+    },
+    {
+      "ts": "2026-11-15T17:59:38Z",
+      "type": "decision",
+      "topic": "close retries",
+      "choice": "function DeadLetterQueue + Errors alarm",
+      "reason": "Scheduler invokes async; EventInvokeConfig needs a bootstrap change"
+    },
+    {
+      "ts": "2026-11-15T17:59:38Z",
+      "type": "decision",
+      "topic": "Mark fired",
+      "choice": "confirm first",
+      "reason": "a double tap would email everyone twice"
+    },
+    {
+      "ts": "2026-11-15T18:13:07Z",
+      "type": "cold_review",
+      "phase": "9",
+      "review_lead": "CHANGES REQUESTED",
+      "rl_block": 1,
+      "rl_warn": 3,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "decision",
+      "topic": "deleted-item label",
+      "choice": "one answer: a deleted item",
+      "reason": "review"
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "decision",
+      "topic": "close Query scope",
+      "choice": "LeadingKeys on GSI1, proven by stage first close",
+      "reason": "AWS docs indirect"
+    },
+    {
+      "ts": "2026-11-15T18:30:47Z",
+      "type": "phase_done",
+      "phase": "9"
+    },
+    {
+      "ts": "2026-11-15T18:30:49Z",
+      "type": "squash",
+      "phase": "9",
+      "sha": "40553ed15bca95d1c5f3029943ee90f021d124cb"
+    },
+    {
+      "ts": "2026-11-15T18:34:11Z",
+      "type": "gate_result",
+      "result": "clean",
+      "tests": 2797,
+      "coverage": "99.15%"
+    },
+    {
+      "ts": "2026-11-15T18:48:25Z",
+      "type": "final_review",
+      "review_lead": "APPROVED",
+      "rl_block": 0,
+      "rl_warn": 3,
+      "privacy": "CLEAR",
+      "pg_block": 0,
+      "pg_warn": 0
+    },
+    {
+      "ts": "2026-11-15T19:00:51Z",
+      "type": "decision",
+      "topic": "form paused",
+      "choice": "console serves /console/static and /console/health; smoke has a form-offline mode",
+      "reason": "the console must work while the form is paused"
+    },
+    {
+      "ts": "2026-11-15T19:00:54Z",
+      "type": "squash",
+      "unit": "final-review",
+      "sha": "10563be54706f6e8c465560126dc515bb08af083"
+    },
+    {
+      "ts": "2026-11-15T19:05:18Z",
+      "type": "decision",
+      "topic": "decision 0004",
+      "choice": "marked accepted in docs",
+      "reason": "maintainer accepted"
+    },
+    {
+      "ts": "2026-11-15T19:05:20Z",
+      "type": "squash",
+      "unit": "docs",
+      "sha": "1fb230745a5d03047a357a6b5f4d5a6c41e652b5"
+    },
+    {
+      "ts": "2026-11-15T19:08:22Z",
+      "type": "qa_written",
+      "steps": 52
+    },
+    {
+      "ts": "2026-11-15T19:08:24Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "391a320f58e9f39d499a193d9ce4dc21d2113a88"
+    },
+    {
+      "ts": "2026-11-15T19:13:21Z",
+      "type": "pr_opened",
+      "pr": 33
+    },
+    {
+      "ts": "2026-11-15T19:13:21Z",
+      "type": "complete"
+    }
+  ]
+}

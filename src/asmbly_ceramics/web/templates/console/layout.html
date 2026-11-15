@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block heading %}Ceramics console{% endblock %}
+{% block main_class %}page page-console{% endblock %}
+{% block header_extra %}
+<div class="staff-bar">
+  <div class="band-inner staff-bar-inner">
+    <p class="signed-in">Signed in as <strong>{{ staff.member.username }}</strong></p>
+    <form method="post" action="/console/sign-out" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="button-quiet">Sign out</button>
+    </form>
+  </div>
+</div>
+<nav class="tabs" aria-label="Console">
+  <div class="band-inner tabs-inner">
+    <a href="/console"{% if tab == "waiting" %} aria-current="page"{% endif %}>Waiting{% if waiting_count is defined %} ({{ waiting_count }}){% endif %}</a>
+    <a href="/console/loads"{% if tab == "loads" %} aria-current="page"{% endif %}>Loads</a>
+    <a href="/console/counts"{% if tab == "counts" %} aria-current="page"{% endif %}>Weekly counts</a>
+    <a href="/console/settings"{% if tab == "settings" %} aria-current="page"{% endif %}>Settings</a>
+  </div>
+</nav>
+{% if attention %}
+<div class="attention">
+  <div class="band-inner"><a href="/console/emails">Emails need attention ({{ attention }})</a></div>
+</div>
+{% endif %}
+{% endblock %}

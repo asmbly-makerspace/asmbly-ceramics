@@ -26,17 +26,24 @@ CACHE_STATIC = "public, max-age=3600"
 _BAD_SOURCE_CHARACTERS = frozenset(";, \r\n\t")
 
 
-def csp(photo_upload_origin: str) -> str:
+def csp(photo_upload_origin: str, *, email_preview: bool = False) -> str:
     """The Content-Security-Policy, from a fixed frame: `default-src 'none'` first and
     `base-uri`, `form-action`, `frame-ancestors` last. The one variable source is the
     photo bucket's upload origin, which may hold no `;`, `,`, space, tab, CR or LF, so
-    it can't add a directive or a second source."""
+    it can't add a directive or a second source.
+
+    `email_preview` is the console's rejection preview only (phase 8): it shows the
+    composed email in a sandboxed `srcdoc` frame, which inherits this policy, so it adds
+    `frame-src 'self'` and lets the email's own `style=` attributes apply
+    (`style-src-attr 'unsafe-inline'`); scripts stay `'self'` only."""
     if not photo_upload_origin or any(c in _BAD_SOURCE_CHARACTERS for c in photo_upload_origin):
         raise ValueError("a CSP source holds no separator or whitespace")
+    preview = ("style-src-attr 'unsafe-inline'", "frame-src 'self'") if email_preview else ()
     directives = (
         "default-src 'none'",
         "script-src 'self'",
         "style-src 'self'",
+        *preview,
         "img-src 'self' blob: data:",
         "font-src 'self'",
         f"connect-src 'self' {photo_upload_origin}",

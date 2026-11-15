@@ -85,13 +85,18 @@ class ViewStudioChoices:
         )
 
 
+# What every console page shows for an item the studio no longer has (phase 9).
+DELETED_ITEM = "a deleted item"
+
+
 def item_name(studio: Studio, which: CatalogList, id: ItemId) -> str:
     """The item's name, retired or not, for a console page. An item the studio doesn't have
-    (it never deletes a used one) shows as its ID, so one bad record can't hide a page."""
+    (it never deletes a used one) shows as `DELETED_ITEM`, so one bad record can't hide a
+    page."""
     try:
         return studio.item(which, id).name
     except UnknownItem:
-        return str(id)
+        return DELETED_ITEM
 
 
 def active_items(items: tuple[CatalogItem, ...]) -> tuple[CatalogItem, ...]:
