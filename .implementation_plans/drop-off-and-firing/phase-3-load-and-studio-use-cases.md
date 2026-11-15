@@ -432,8 +432,8 @@ class CloseFinished:
    shortening it afterwards must not delete details before an emailed date. A fired
    drop-off whose ready email never sent has no window; the
    console's load and drop-off pages show its failed email (phase 9), and it closes
-   once the email is sent and the window has passed, or 30 days after its firing,
-   whichever comes first (#20, settled by the maintainer on 15 November 2026).
+   once the email is sent and the window has passed, or, while the email is still
+   unsent, 30 days after its firing (#20, settled by the maintainer on 15 November 2026).
 3. For each closable one: first `photos.delete_drop_off(id)` (idempotent), then commit
    `Update(close(drop_off, now))` with the version read. Photos first, so a failure
    between the two leaves a drop-off that the next run closes again, never a closed
@@ -733,8 +733,8 @@ questions left for the maintainer:
   shows as needing attention (failed, or stuck sending or pending). The maintainer
   settled this on 15 November 2026 (#20): it closes 30 days after its firing
   (`UNSENT_READY_CLOSE_AFTER`). A rejected
-  drop-off closes by the rejection's time whatever its email's status. Both are open
-  questions for the maintainer in #20, to settle before phase 9 merges. A limit for
+  drop-off closes by the rejection's time whatever its email's status, which is still an
+  open question for the maintainer in #20, to settle before phase 9 merges. A limit for
   fired drop-offs touches `domain/closing.py` alone. Making a rejected drop-off wait for
   its email also changes `is_due_to_close`'s signature and `CloseFinished`, which today
   reads no email for a rejected drop-off.
