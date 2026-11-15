@@ -88,8 +88,10 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   deleted.
 - **Load**: `id: LoadId` (`L-n`), `kiln: ItemId`, `firing_type: ItemId`, `date`
   (today by default), `status`, `members: tuple[DropOffId, ...]`, `started_by`
-  (username), `fired_at`, `version`. `loading → firing → fired`; members are added and
-  removed only while `loading`; a fired load and its drop-offs never change. At most 48
+  (username), `fired_at`, `deleted_by` (username), `deleted_at`, `version`.
+  `loading → firing → fired`, or `deleted` from `loading` or `firing` (a load started by
+  mistake: its members go back to `waiting`, and it is kept but shown nowhere); members
+  are added and removed only while `loading`; a fired load and its drop-offs never change. At most 48
   members (a fire is one transaction: the load, each drop-off and each email, within
   DynamoDB's 100-item limit).
 - **Studio** (the settings, data not code): `sending_address` (must end in
@@ -118,6 +120,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | Waiting oldest first; bisque and glaze totals in pieces (#3); overdue at 60 days waiting, in whole Austin days (#7) | `domain/waiting.py` |
 | Add only a waiting drop-off not in a load; a different firing type needs confirming; nothing changes once firing; at most 48 (#4) | `domain/load.py` |
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
+| A load started by mistake is deleted only while loading or firing, never once fired; its drop-offs go back to waiting (added after #4) | `domain/load.py`, `delete_load` |
 | A message is required for a reason that needs one; at most 1,000 characters; undo the same Austin day only (#5) | `domain/dropoff.py`, `reject` and `undo_rejection` |
 | The sending address is at `asmbly.org`; used items are retired, not deleted; every change is recorded (#6) | `domain/studio.py` |
 | Close once the pickup window has passed since the ready email (fired, with the window that email gave) or since the rejected email (rejected, with the studio's window); a drop-off whose email never sent closes 30 days after its firing or rejection (#20); delete the details, keep the rest (#7) | `domain/closing.py`, `is_due_to_close` and `close` |

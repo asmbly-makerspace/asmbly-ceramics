@@ -712,7 +712,14 @@ def test_the_load_pages_build_no_refusal_of_their_own() -> None:
     from asmbly_ceramics.web.console import loads as page
 
     source = inspect.getsource(page)
-    for error in ("LoadNotLoading(", "AlreadyFired(", "WrongLoadStatus(", "NotWaiting(", "EmptyLoad("):
+    for error in (
+        "LoadNotLoading(",
+        "AlreadyFired(",
+        "WrongLoadStatus(",
+        "NotWaiting(",
+        "EmptyLoad(",
+        "FiredLoadNotDeletable(",
+    ):
         assert error not in source, error
 
 

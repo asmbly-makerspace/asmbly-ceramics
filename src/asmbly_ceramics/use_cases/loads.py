@@ -14,7 +14,7 @@ from types import MappingProxyType
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, needs_acting_on
-from asmbly_ceramics.domain.errors import AlreadyFired, NotFound
+from asmbly_ceramics.domain.errors import AlreadyFired, FiredLoadNotDeletable, NotFound
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import STUDIO_TZ
 from asmbly_ceramics.domain.load import (
@@ -202,6 +202,13 @@ class DeleteLoad:
         `NotFound` (deleted already), `FiredLoadNotDeletable`, `Conflict`."""
         load = _load(self._records, load_id)
         members = [_drop_off(self._records, id) for id in load.members] if can_delete(load) else []
+        # Another action landed between the load's read and its members' (a fire, a remove,
+        # another delete): let the load as it is now answer, not the members it no longer has.
+        if any(d.state is not DropOffState.IN_LOAD or d.load_id != load.id for d in members):
+            now = _load(self._records, load_id)  # `NotFound` once deleted
+            if now.status is LoadStatus.FIRED:
+                raise FiredLoadNotDeletable(load.id)
+            raise Conflict([str(load.id)])
         deleted, waiting = delete_load(load, members, staff.username, self._clock.now())
         _check_version(load, version)
         changes: list[Change] = [Update(deleted)]

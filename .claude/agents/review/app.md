@@ -48,8 +48,9 @@ Ref: `CLAUDE.md`, Planned shape; the plan's Domain model.
       `DomainError` subclass naming the reason and the IDs, never contact details.
 - [ ] The transitions match the plan: a drop-off `waiting → in_load → fired → closed`,
       `waiting → rejected → closed`, undo only the same Austin day; a load
-      `loading → firing → fired`, members changed only while `loading`, at most 48; a
-      fired load and its drop-offs never change. Every transition the story forbids is
+      `loading → firing → fired`, or `deleted` from `loading` or `firing` (its members
+      back to `waiting`), members changed only while `loading`, at most 48; a fired load
+      and its drop-offs never change. Every transition the story forbids is
       refused, with a test.
 - [ ] The fixed numbers the stories state (1 to 50 pieces, 1 to 6 photos, 10 MB, 10 and
       30 per 10 minutes, 60 days overdue, 1,000 characters, 48, `America/Chicago`) are

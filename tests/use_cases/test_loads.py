@@ -1,6 +1,7 @@
 """The load use cases (#4), against the fakes: what is stored, queued and logged."""
 
 import logging
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
@@ -530,6 +531,68 @@ def test_a_deleted_load_no_longer_keeps_its_kiln_in_use(world: World) -> None:
     assert world.records.is_item_used(CatalogList.KILNS, HELIOS)
     world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
     assert not world.records.is_item_used(CatalogList.KILNS, HELIOS)
+
+
+def delete_after(world: World, load_id: LoadId, other: Callable[[], object]) -> None:
+    """Delete `load_id` as a page shown before `other` landed: the delete's first read of
+    the load is from before `other`, its reads after that see what `other` committed."""
+    stale = world.records.load(load_id)
+    assert stale is not None
+    other()
+    read = world.records.load
+    reads = 0
+
+    def first_read_stale(id: LoadId) -> object:
+        nonlocal reads
+        reads += 1
+        return stale if reads == 1 else read(id)
+
+    world.records.load = first_read_stale  # type: ignore[assignment,method-assign]  # the fake read replaced to stage a race
+    try:
+        world.delete_load(load_id, stale.version, STAFF_MEMBER)
+    finally:
+        world.records.load = read  # type: ignore[method-assign]  # restored
+
+
+def test_delete_load_losing_to_a_fire_says_fired(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = firing(world, AC_1)
+    with pytest.raises(FiredLoadNotDeletable):
+        delete_after(world, load_id, lambda: world.mark_fired(load_id, version(world, load_id), STAFF_MEMBER))
+    assert state(world, AC_1) is DropOffState.FIRED
+
+
+def test_delete_load_losing_to_a_remove_is_a_conflict(world: World) -> None:
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    load_id = loaded(world, AC_1, AC_2)
+    with pytest.raises(Conflict):
+        delete_after(world, load_id, lambda: world.remove_from_load(load_id, AC_1, STAFF_MEMBER))
+    assert world.view_load(load_id).load.members == (AC_2,)
+    assert state(world, AC_2) is DropOffState.IN_LOAD
+
+
+def test_two_staff_deleting_at_once_one_gets_not_found(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    commits = len(world.records.commits)
+    with pytest.raises(NotFound):
+        delete_after(
+            world, load_id, lambda: world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+        )
+    assert len(world.records.commits) == commits + 1  # the first delete only
+    assert state(world, AC_1) is DropOffState.WAITING
+
+
+def test_a_delete_that_cant_reach_the_store_stores_nothing(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    commits = len(world.records.commits)
+    world.records.fail_next_commit_with = RecordsUnavailable("InternalServerError")
+    with pytest.raises(RecordsUnavailable):
+        world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)
+    assert len(world.records.commits) == commits
+    assert state(world, AC_1) is DropOffState.IN_LOAD
 
 
 def test_a_store_that_cant_be_reached_stores_nothing(world: World) -> None:
