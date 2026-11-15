@@ -84,10 +84,25 @@ def test_the_pull_request_template_and_the_docs_give_the_same_checks() -> None:
 
 def test_every_document_names_the_versions_the_workflows_use() -> None:
     pip_audit = workflow_version("dependency-audit.yml", "PIP_AUDIT_VERSION")
+    cfn_lint = workflow_version("pr-checks.yml", "CFN_LINT_VERSION")
     for document in DOCUMENTS:
         text = document.read_text()
         name = document.relative_to(REPO)
         assert pinned("pip-audit", text) <= {pip_audit}, f"{name} names another pip-audit"
+        assert pinned("cfn-lint", text) <= {cfn_lint}, f"{name} names another cfn-lint"
+
+
+def test_claude_md_and_ci_use_the_same_cfn_lint() -> None:
+    cfn_lint = workflow_version("pr-checks.yml", "CFN_LINT_VERSION")
+    linting = [command for command in claude_md_commands() if "cfn-lint" in command]
+    assert linting == [f"uvx cfn-lint=={cfn_lint} infra/*.yaml"]
+    assert re.search(r'run: uvx "cfn-lint==\$\{CFN_LINT_VERSION\}" infra/\*\.yaml', PR_CHECKS)
+    for document in (
+        REPO / "README.md",
+        REPO / "CONTRIBUTING.md",
+        REPO / ".github" / "PULL_REQUEST_TEMPLATE.md",
+    ):
+        assert linting[0] in document.read_text(), f"{document.relative_to(REPO)} doesn't give {linting[0]}"
 
 
 def test_each_workflow_spells_a_version_out_only_in_its_env() -> None:

@@ -10,7 +10,7 @@ prompt disagrees with these documents, the documents win and you say so.
 | The app (domain, ports, in-memory fakes, use cases, AWS adapters and the drop-off form's pages so far; the console, the AWS template and the deploy come with the plan for epic #1) | `src/asmbly_ceramics/` | [The shape of the code](#the-shape-of-the-code) |
 | Plans for a story | `.implementation_plans/` | [.implementation_plans/readme.md](.implementation_plans/readme.md) |
 | CI | `.github/workflows/` | [README.md](README.md#how-changes-reach-production) |
-| Production tasks (none yet) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/README.md](docs/README.md#runbooks) |
+| Production tasks (the bootstrap so far) | Asmbly's AWS account, profile `asmbly`, us-east-2 | [docs/runbooks/aws-bootstrap.md](docs/runbooks/aws-bootstrap.md) |
 
 Past decisions are in [docs/decisions/](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md).
 Don't reverse one without writing a new decision record that says why.
@@ -66,12 +66,14 @@ has the reasons.
 
 Built so far: `src/asmbly_ceramics/domain/`, `ports/`, `use_cases/`, `mail/`,
 `adapters/` (`memory/`, `aws/`, `clock.py` for the system clock and `images.py`, the
-photo inspector with Pillow), `brand.py` and `web/` (the public drop-off form's pages,
-with `web/local.py` to run them on the fakes). Nothing is in AWS yet: no console page,
-no AWS template and no deploy. This section says what the plan for
-epic #1 must respect; the framework, the hosting, the data store and the deploy are
-recorded in [decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md),
-not here ([the choices](docs/architecture.md#still-to-be-decided)).
+photo inspector with Pillow), `brand.py`, `web/` (the public drop-off form's pages,
+with `web/local.py` to run them on the fakes), and `infra/bootstrap.yaml`, the bootstrap
+stack the maintainer deploys by hand ([its runbook](docs/runbooks/aws-bootstrap.md)).
+Nothing is in AWS yet: no console page, no app template and no deploy. This section says
+what the plan for epic #1 must respect; the framework, the hosting, the data store and
+the deploy are recorded in
+[decision 0002](docs/decisions/0002-how-the-app-is-built-and-deployed.md), not here
+([the choices](docs/architecture.md#still-to-be-decided)).
 
 - **A domain model at the center.** Drop-offs, loads, kilns, firing types, glaze types,
   rejection reasons and settings, with their states (a drop-off is waiting, in a load,
@@ -95,13 +97,15 @@ real results, including failures:
 uv run ruff check . && uv run ruff format --check .   # every change
 uv run mypy                                            # every change
 uv run pytest --cov                                    # every change; the coverage floor is in pyproject.toml
+uvx cfn-lint==1.57.1 infra/*.yaml                      # after a template change
 ```
 
 `tests/repo/` checks the repository itself: that every relative link in the Markdown
 resolves, that these commands are the ones CI runs, that the skills and agents are
 well formed, that the ruleset file and CODEOWNERS say what this file says about `main`,
-that no workflow gets AWS credentials, and that no personal detail, account ID or photo
-is committed. If you couldn't run a check, say which one and why.
+that no workflow gets AWS credentials, that the bootstrap's roles and boundary
+(`infra/bootstrap.yaml`) keep their names, tags and limits, and that no personal
+detail, account ID or photo is committed. If you couldn't run a check, say which one and why.
 
 ## Rules
 

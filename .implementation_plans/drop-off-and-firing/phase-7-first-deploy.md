@@ -20,7 +20,8 @@ estimated_size: L
   [decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md).
 - [Phase 4](phase-4-aws-adapters.md): the table's keys and indexes, the adapters' AWS
   calls and the rights each needs. [Phase 5](phase-5-aws-bootstrap.md): the bootstrap's
-  exports, the execution role's rights and the boundary. [Phase 6](phase-6-drop-off-form.md):
+  exports, the execution role's rights and the two boundaries (its Hand-off, and
+  [decision 0003](../../docs/decisions/0003-one-function-boundary-per-environment.md)). [Phase 6](phase-6-drop-off-form.md):
   `create_app`, the routes, the S3 CORS rule.
 - [Phase 3](phase-3-load-and-studio-use-cases.md): `SendPendingEmail` and the
   `email_failed` log line the alarm counts.
@@ -55,7 +56,8 @@ estimated_size: L
     unverified in the template's comment.
   - "Specification: Embedded metric format" and "PutMetricAlarm"
     (`TreatMissingData`), CloudWatch user guide and API reference.
-  - "HttpApi" and "AWS::Serverless::HttpApi" (SAM developer guide), "DeletionPolicy
+  - "AWS::ApiGatewayV2::Api", "::Integration", "::Route", "::Stage" and
+    "AWS::Lambda::Permission" (CloudFormation template reference), "DeletionPolicy
     attribute" and "UpdateReplacePolicy attribute" (CloudFormation template reference),
     "sam deploy" (tags propagate to resources that support them).
 
@@ -122,14 +124,17 @@ address isn't published until phase 10.
 | `SiteHost` | String | samconfig: `ceramics-stage.asmbly.org` or `ceramics.asmbly.org` |
 | `EmailDomain` | String, `asmbly.org` | default |
 | `PhotoBucketSuffix` | String, `AllowedPattern ^[a-z0-9]{8}$` | samconfig: 8 random lowercase hex characters per environment, made once when this phase is built (`python -c "import secrets; print(secrets.token_hex(4))"`); it keeps the bucket's global name unique without the account ID, and changing it replaces the bucket |
-| `WebAdapterLayerArn` | String, `AllowedPattern ^arn:aws:lambda:us-east-2:[0-9]+:layer:LambdaAdapterLayerArm64:[0-9]+$` | the GitHub variable `WEB_ADAPTER_LAYER_ARN` (AWS's published ARN for the arm64 layer, version 27 or later; it holds AWS's account number, which the repository's test refuses in a file) |
+| `WebAdapterLayerArn` | String, `AllowedPattern ^arn:aws:lambda:us-east-2:[0-9]+:layer:LambdaAdapterLayerArm64:[0-9]+$` | the GitHub variable `WEB_ADAPTER_LAYER_ARN` (the arm64 layer's published ARN, version 27 or later; it holds its publisher's account number, which the repository's test refuses in a file). The execution role reads the layer only from the publisher account the maintainer set in the bootstrap (`WebAdapterPublisherAccount`), so a wrong variable fails the deploy |
 | `AlertEmail` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/alert-email` (a String the maintainer sets by hand) |
 | `InitialSendingAddress` | `AWS::SSM::Parameter::Value<String>` | samconfig: the parameter's name, `/asmbly-ceramics/<env>/initial-sending-address` (a String the maintainer sets by hand; the domain refuses an address outside `asmbly.org`) |
 
-The two addresses are not in GitHub and not in the deploy command: `sam deploy` and the
-change set print the parameters' names, never their values, so the public Actions logs
-hold neither. CloudFormation resolves them with the execution role's
-`ssm:GetParameters` on `parameter/asmbly-ceramics/*` (phase 5).
+The two addresses are not in GitHub and not in the deploy command: samconfig and the
+deploy command hold only the parameters' names. CloudFormation resolves them with the
+execution role's `ssm:GetParameters` on `parameter/asmbly-ceramics/*/alert-email` and
+`parameter/asmbly-ceramics/*/initial-sending-address` only (phase 5; never the keys).
+`describe-stacks` and `describe-change-set` show the **resolved values**, so the deploy
+workflow never runs either for an app stack, and nothing it runs prints a change set's
+parameters (the Actions logs are public; runbook step 7).
 
 The staff sign-in values (`StaffIssuer`, `StaffSignInUrl`, `StaffClientId`) are added
 by phase 8, which uses them.
@@ -137,7 +142,9 @@ by phase 8, which uses them.
 **Conditions**: `IsProd` (`AppEnv` = prod).
 
 **Globals.Function**: `Runtime: python3.14`, `Architectures: [arm64]`,
-`CodeUri: ../src/`, `PermissionsBoundary: !ImportValue asmbly-ceramics-function-boundary-arn`,
+`CodeUri: ../src/`, `PermissionsBoundary: {'Fn::ImportValue': !Sub '${ProjectSlug}-${AppEnv}-function-boundary-arn'}`
+(its own environment's boundary, phase 5 and decision 0003; the long form, as for the
+API mapping below), `RolePath: /asmbly-ceramics-app/`,
 `Tracing: PassThrough`, `LoggingConfig: {LogFormat: JSON}` is not used (the app logs its
 own JSON), `Environment.Variables` (all functions):
 
@@ -159,7 +166,10 @@ agree). Which keys a function may read is set by its role alone: the form's role
 reads no key.
 
 Tags come from the stack (`sam deploy --tags`, below); `PropagateTags: true` on every
-SAM resource that has it, so the generated roles and the API carry them too.
+SAM resource that has it, so the generated roles and the event-source mapping carry
+them too. CloudFormation must send them in each create request: the execution role
+can't tag an API afterwards, and tags a mapping only with the five tags, never by
+import (phase 5, decision 0003).
 
 **Resources**
 
@@ -228,15 +238,35 @@ parameter in `samconfig.toml`, which holds no account detail.
 when `aws:SecureTransport` is `false`. No `Allow`: access comes only from the functions'
 roles.
 
-`HttpApi` (`AWS::Serverless::HttpApi`): `DisableExecuteApiEndpoint: true`;
-`DefaultRouteSettings: {ThrottlingBurstLimit: 20, ThrottlingRateLimit: 5}`;
-`AccessLogSettings` to `HttpApiLogGroup` with fields `requestId`, `routeKey`, `status`,
-`responseLength`, `integrationLatency`, and no source address, user agent or query string;
-`PropagateTags: true`.
+The HTTP API is plain CloudFormation, not `AWS::Serverless::HttpApi`: SAM's imports an
+OpenAPI body (`PUT /apis`, which takes no tags) and tags the API afterwards, and phase 5's
+execution role has no API Gateway tagging right ([decision 0003](../../docs/decisions/0003-one-function-boundary-per-environment.md)).
+So no function has an `HttpApi` event:
+
+- `HttpApi` (`AWS::ApiGatewayV2::Api`): `Name: !Sub ${ProjectSlug}-${AppEnv}`,
+  `ProtocolType: HTTP`, `DisableExecuteApiEndpoint: true`, no `Body` or `BodyS3Location`,
+  `Tags` with the five tags (a map).
+- `FormIntegration` (`AWS::ApiGatewayV2::Integration`): `IntegrationType: AWS_PROXY`,
+  `IntegrationUri: !GetAtt FormFunction.Arn`, `PayloadFormatVersion: "2.0"`.
+- `DefaultRoute` (`AWS::ApiGatewayV2::Route`): `RouteKey: $default`,
+  `Target: !Sub integrations/${FormIntegration}`.
+- `HttpApiStage` (`AWS::ApiGatewayV2::Stage`): `StageName: $default`, `AutoDeploy: true`,
+  `DefaultRouteSettings: {ThrottlingBurstLimit: 20, ThrottlingRateLimit: 5}`,
+  `AccessLogSettings` to `HttpApiLogGroup` with fields `requestId`, `routeKey`, `status`,
+  `responseLength`, `integrationLatency`, and no source address, user agent or query
+  string; `Tags` with the five tags. No `AWS::Logs::ResourcePolicy`: the bootstrap's
+  `asmbly-ceramics-log-delivery` policy lets log delivery write
+  `/aws/apigateway/asmbly-ceramics-*`, and the execution role is denied
+  `logs:PutResourcePolicy` (decision 0003, with the fallback if the stage still asks
+  for it). If the integration or route is refused because it doesn't see the API's
+  tags, decision 0003's fallback applies (the API's ID as a bootstrap parameter).
+- `FormInvokePermission` (`AWS::Lambda::Permission`): `Action: lambda:InvokeFunction`,
+  `Principal: apigateway.amazonaws.com` (the only principal the execution role may
+  grant), `SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*`.
 
 `HttpApiMapping` (`AWS::ApiGatewayV2::ApiMapping`): `DomainName: {'Fn::ImportValue': !Sub '${ProjectSlug}-${AppEnv}-domain-name'}`
 (phase 5's export; the long form, because CloudFormation refuses `!ImportValue` around a short-form `!Sub`), `ApiId: !Ref HttpApi`,
-`Stage: !Ref HttpApi.Stage`.
+`Stage: !Ref HttpApiStage`.
 
 `FormFunction` (`AWS::Serverless::Function`):
 
@@ -250,9 +280,7 @@ Layers: [!Ref WebAdapterLayerArn]
 Environment:
   Variables: {APP_ROLE: form, AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap, PORT: "8080",
               AWS_LWA_READINESS_CHECK_PATH: /health}
-Events:
-  Default: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: $default, Method: ANY,
-                                        PayloadFormatVersion: "2.0"}}
+# No Events: the API reaches it through FormIntegration and FormInvokePermission.
 LoggingConfig: {LogGroup: !Ref FormLogGroup}
 Policies: [the statements below]
 ```
@@ -405,7 +433,7 @@ Mailer function:
   Resource: !GetAtt RecordsTable.Arn
 - Sid: ReadTheStream
   Effect: Allow
-  Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator, dynamodb:ListStreams]
+  Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator]   # no ListStreams: it takes no resource, and the boundary leaves it out
   Resource: !GetAtt RecordsTable.StreamArn
 - Sid: ReadKeptPhotos
   Effect: Allow
@@ -626,7 +654,9 @@ Steps of each job:
    it deploys itself." (the same text in both jobs; a test checks).
 2. `actions/checkout@v7`, `actions/setup-python@v7` (`python-version-file: .python-version`),
    `aws-actions/setup-sam@v3` (`version: ${{ env.SAM_CLI_VERSION }}`, `use-installer: true`).
-3. `aws-actions/configure-aws-credentials@v6` with `role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}`,
+3. `aws-actions/configure-aws-credentials@v6` with `role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}`
+   (an environment secret: a role ARN holds the account ID, and GitHub prints a step's
+   `with:` inputs in the public log),
    `aws-region: ${{ vars.AWS_REGION }}`, `mask-aws-account-id: true`; then, before any
    step that prints, `echo "::add-mask::$(aws sts get-caller-identity --query Account
    --output text)"`, so the account ID (in role ARNs) is masked in
@@ -643,7 +673,8 @@ Steps of each job:
 5. `sam deploy --config-env "$CONFIG_ENV" --no-progressbar --role-arn "$EXECUTION_ROLE"
    --s3-bucket "$ARTIFACTS_BUCKET" --parameter-overrides "$(python3 scripts/sam_parameters.py
    "$CONFIG_ENV" "AppVersion=${GITHUB_SHA::7}" "WebAdapterLayerArn=$WEB_ADAPTER_LAYER_ARN")"`,
-   with those values from `vars.*` in `env:`. The addresses are SSM-typed parameters
+   with those values in `env:`: `EXECUTION_ROLE` from `secrets.AWS_CFN_EXECUTION_ROLE_ARN`,
+   the bucket and the layer ARN from `vars.*`. The addresses are SSM-typed parameters
    named in samconfig, so no address is in the command or its output.
 6. **Smoke test**: `python3 scripts/smoke.py "https://<site host>" "${GITHUB_SHA::7}"`,
    no credentials needed (the step runs after the deploy; the job's credentials expire
@@ -698,8 +729,16 @@ checks:
   `VersioningConfiguration` (versioning stays off: `delete_drop_off` deletes without
   version IDs, so versions would outlive the close, #7);
 - the bucket's four public-access settings are true, ownership is `BucketOwnerEnforced`,
-  encryption is set, the policy denies non-TLS, the lifecycle expires `uploads/` after 1
-  day, CORS allows only `POST` from the site;
+  encryption is set, the policy denies non-TLS and has no `Allow` and no `Principal: "*"`
+  other than in that Deny, the lifecycle expires `uploads/` after 1 day, CORS allows
+  only `POST` from `https://${SiteHost}`. This test is the fence: phase 5's execution
+  role changes the photo bucket by name, and no IAM condition sees these settings;
+- no `AWS::Serverless::HttpApi`, no `HttpApi` event, no `Body` on the
+  `AWS::ApiGatewayV2::Api`; every `AWS::Lambda::Permission` has
+  `Principal: apigateway.amazonaws.com`; no `AWS::Logs::ResourcePolicy`;
+- every IAM role's `AssumeRolePolicyDocument` trusts only `lambda.amazonaws.com` (or
+  `scheduler.amazonaws.com` for phase 9's scheduler role): IAM has no condition on a
+  trust policy's content, so this test is the fence;
 - no statement in any role has `Resource: "*"`, `s3:*` with an `Allow`, or `iam:*`;
 - the form's role has no `s3:GetObject` on `dropoffs/*`, no `s3:ListBucket` except with
   `s3:prefix` `uploads/*`, no `dynamodb:Scan`, no `dynamodb:Query`, no `ses:*`; the
@@ -717,12 +756,15 @@ checks:
   `EmailFailuresAlarm` counts the `email_failed` event;
 - the template holds no 12-digit number and no address with an `@` other than the
   `*@${EmailDomain}` pattern;
-- every function has `PermissionsBoundary` from the bootstrap export and a log group with
-  retention.
+- every function has `PermissionsBoundary` from its own environment's bootstrap export
+  (`${ProjectSlug}-${AppEnv}-function-boundary-arn`), `RolePath: /asmbly-ceramics-app/`,
+  and a log group with retention.
 
 And `tests/repo/test_deploy_workflow.py`: the two jobs, `prod` needs `stage`, both have
-the tip-of-main step with identical text, the smoke step, `cancel-in-progress: false`,
-and use only `vars.*` (no `secrets.*`).
+the tip-of-main step with identical text, the smoke step, `cancel-in-progress: false`;
+the role ARNs come only from `secrets.AWS_DEPLOY_ROLE_ARN` and
+`secrets.AWS_CFN_EXECUTION_ROLE_ARN`, never `vars.*`, and no other secret is read; no
+step echoes a secret or writes one to `GITHUB_STEP_SUMMARY`.
 
 ## Tests
 
@@ -830,6 +872,35 @@ and doesn't test this alarm.
 | A real drop-off on stage | the maintainer, with made-up details | the ID, the email with photos, no location in them | none: the drop-off closes like any other (phase 9) or stays waiting on stage |
 | The alarm | the maintainer, on stage | the notification arrives | the alarm returns to OK by itself |
 
+### If the first create of a stack fails
+
+A first create that is refused (a right the bootstrap lacks, decision 0003's
+fail-closed cases) rolls back to `ROLLBACK_COMPLETE`. That stack can't be updated, only
+deleted, and the deploy roles have no `cloudformation:DeleteStack` and no import. The
+rollback keeps the table and the bucket (`Retain`), whose fixed names make the next
+create fail too. So the maintainer recovers by hand, with his own credentials, as a
+step he asks for in the conversation (the example is stage; prod is the same with
+`prod`):
+
+| Step | Check | Undo |
+| --- | --- | --- |
+| Read why it failed | `aws cloudformation describe-stack-events --stack-name asmbly-ceramics-stage --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceStatusReason]"`; the status is `ROLLBACK_COMPLETE` (`describe-stacks`) | none: read only |
+| Check the retained table and bucket are empty | `aws dynamodb scan --table-name asmbly-ceramics-stage-records --select COUNT` gives `Count: 0`; `aws s3api list-objects-v2 --bucket <the photo bucket> --max-keys 1 --query KeyCount` gives `0`. A first create stores nothing; if either isn't empty, stop and write it up: nothing below runs | none: read only, counts only |
+| Delete the failed stack | `aws cloudformation delete-stack --stack-name asmbly-ceramics-stage`, then `aws cloudformation wait stack-delete-complete`; `describe-stacks` then says it doesn't exist | none needed: it held nothing; the next deploy creates it again |
+| Delete the empty table and bucket | `aws dynamodb update-table --table-name asmbly-ceramics-stage-records --no-deletion-protection-enabled`, `aws dynamodb delete-table --table-name asmbly-ceramics-stage-records`, `aws s3api delete-bucket --bucket <the photo bucket>`; `describe-table` and `head-bucket` then say they don't exist | none needed: both were empty; the next create makes them again |
+| Fix the cause | a reviewed pull request (to the bootstrap, then deployed by the runbook's "Later changes to the bootstrap stack", or to this template) | revert that pull request |
+| Run **Deploy** again | the change set is all `Add`; the smoke test passes | as in the table above |
+
+When decision 0003's API fallback applies (an integration, route or stage refused on
+the API's tags), the maintainer, after the steps above up to the fix, recreates the
+stack by hand with rollback disabled (`sam deploy --disable-rollback`, passing the
+execution role), so it stops at `CREATE_FAILED` with its API kept, and reads the API's
+ID from the stack's resources. The fix is then the reviewed bootstrap change that
+allows that ID, and the next **Deploy** updates the stack in place (a stack whose
+create failed with rollback disabled can be updated); it isn't deleted again, since a
+new API would have a new ID. Undo: delete the stack and its empty table and bucket as
+above.
+
 Removing an environment entirely is a step for the maintainer by hand: delete the
 stack, then, only if the data is truly not wanted, the retained table (turn deletion
 protection off first) and the bucket. Nothing in the workflow deletes data.
@@ -863,10 +934,11 @@ that), and no QR code points to it. Nobody is told yet.
   `/asmbly-ceramics/<env>/initial-sending-address` (the studio's sending address at
   `asmbly.org`, used until staff change it in the console), all set by the maintainer by
   hand (phase 5's runbook; values never shown or committed).
-- Before merging: in both GitHub environments, the variables `AWS_REGION`,
-  `AWS_DEPLOY_ROLE_ARN`, `AWS_CFN_EXECUTION_ROLE_ARN`, `SAM_ARTIFACTS_BUCKET` (from
-  phase 5's outputs) and `WEB_ADAPTER_LAYER_ARN` (AWS's published arm64 layer ARN for
-  us-east-2). No address is a GitHub variable.
+- Before merging: in both GitHub environments, the secrets `AWS_DEPLOY_ROLE_ARN` and
+  `AWS_CFN_EXECUTION_ROLE_ARN` and the variables `AWS_REGION`, `SAM_ARTIFACTS_BUCKET`
+  (from phase 5's outputs) and `WEB_ADAPTER_LAYER_ARN` (the arm64 layer's published ARN
+  for us-east-2, from the publisher account set in the bootstrap). No address is in
+  GitHub.
 - After the first deploy: confirm the SNS subscription from the email AWS sends to
   `/asmbly-ceramics/<env>/alert-email` for each environment.
 
@@ -875,12 +947,14 @@ that), and no QR code points to it. Nobody is told yet.
 Filled in when the phase is done. Phases 8 and 9 rely on:
 
 - **Template logical IDs**: `RecordsTable`, `PhotoBucket`, `PhotoBucketPolicy`, `HttpApi`,
+  `FormIntegration`, `DefaultRoute`, `HttpApiStage`, `FormInvokePermission`,
   `HttpApiMapping`, `FormFunction`, `MailerFunction`, `MailerDeadLetterQueue`,
   `FormLogGroup`, `MailerLogGroup`, `HttpApiLogGroup`, `AlarmTopic`,
   `AlarmEmailSubscription`, `EmailFailuresAlarm`, `LoggedErrorsAlarm`,
   `MailerDeadLettersAlarm`, `FunctionErrorsAlarm`, `Api5xxAlarm`. Phase 8 adds
-  `ConsoleFunction` with `HttpApi` events on `ANY /console` and `ANY /console/{proxy+}`
-  (more specific than `$default`), and the parameters `StaffIssuer`, `StaffSignInUrl`,
+  `ConsoleFunction` with its own `AWS::ApiGatewayV2::Integration`, `Route`s
+  `ANY /console` and `ANY /console/{proxy+}` (more specific than `$default`) and
+  `AWS::Lambda::Permission` (no `HttpApi` events, decision 0003), and the parameters `StaffIssuer`, `StaffSignInUrl`,
   `StaffClientId`; phase 9 adds `CloseFunction`, `CloseSchedule`, `CloseDeadLetterQueue`.
 - **Environment variables**: `APP_ENV`, `APP_VERSION`, `TABLE_NAME`, `PHOTO_BUCKET`,
   `SITE_URL`, `INITIAL_SENDING_ADDRESS`, `LOG_LEVEL` (no key's parameter name: `SsmSecrets`

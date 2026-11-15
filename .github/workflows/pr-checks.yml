@@ -13,6 +13,11 @@ concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Tool versions, spelled out only here (tests/repo/test_checks.py). CLAUDE.md, the
+# README and the pull request template name the same cfn-lint.
+env:
+  CFN_LINT_VERSION: '1.57.1'
+
 # Named so every script runs with `-eo pipefail`.
 defaults:
   run:
@@ -37,10 +42,20 @@ jobs:
       - name: Tests (coverage floor in pyproject.toml)
         run: uv run pytest --cov --cov-report=term
 
+  infra:
+    name: Templates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Lint the CloudFormation templates
+        run: uvx "cfn-lint==${CFN_LINT_VERSION}" infra/*.yaml
+
   pr-check:
     name: PR check
     if: ${{ !cancelled() }}
-    needs: [python]
+    needs: [python, infra]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

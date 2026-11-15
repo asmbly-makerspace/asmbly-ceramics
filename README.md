@@ -19,9 +19,11 @@ in-memory fakes, the use cases (submit a drop-off, the email composer and outbox
 waiting list, search, rejection, kiln loads, settings, the daily close, counts), AWS
 adapters (DynamoDB, S3, SES, Cognito tokens, Parameter Store) and the public drop-off
 form (`web/`: Starlette pages, the photo upload script and the security headers). They
-are tested without AWS. The staff console's pages, the AWS template and the deploy
-aren't built yet, so no story is delivered and nothing is in AWS. The plan's next
-phases are in
+are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
+permissions boundary, the two addresses), which the maintainer deploys by hand with
+[its runbook](docs/runbooks/aws-bootstrap.md). The staff console's pages, the app
+template and the deploy aren't built yet, so no story is delivered and nothing is in
+AWS. The plan's next phases are in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
 
 | Story | What changes for people |
@@ -46,6 +48,7 @@ CLAUDE.md               the rules, for people and AI agents
 CONTRIBUTING.md         how a change gets to main
 SECURITY.md             how to report a security problem
 docs/                   architecture, decisions, runbooks (docs/README.md is the index)
+infra/                  CloudFormation templates: bootstrap.yaml, deployed by hand
 .implementation_plans/  how each story is built, written by /plan-tech
 .claude/                Claude Code's settings, skills and agents
 .github/                pull request template, code owners, Dependabot, the ruleset, CI
@@ -69,6 +72,7 @@ uv sync
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov
+uvx cfn-lint==1.57.1 infra/*.yaml   # after a template change
 ```
 
 None of them needs AWS credentials.
