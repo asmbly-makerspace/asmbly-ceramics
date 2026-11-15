@@ -409,17 +409,17 @@ for env in stage prod; do
   for from in "studio@$DOMAIN" "studio@$OTHER"; do
     aws iam simulate-custom-policy --policy-input-list "$DOCUMENT" \
       --action-names ses:SendEmail \
-      --resource-arns "arn:aws:ses:us-east-2:$ACCOUNT:identity/$DOMAIN" \
+      --resource-arns "arn:aws:ses:us-east-2:${ACCOUNT}:identity/$DOMAIN" \
       --context-entries "ContextKeyName=ses:FromAddress,ContextKeyValues=$from,ContextKeyType=string" \
       --query 'EvaluationResults[0].EvalDecision' --output text
   done
   for table in "$env" "$other"; do
     aws iam simulate-custom-policy --policy-input-list "$DOCUMENT" \
       --action-names dynamodb:GetItem \
-      --resource-arns "arn:aws:dynamodb:us-east-2:$ACCOUNT:table/asmbly-ceramics-$table-records" \
+      --resource-arns "arn:aws:dynamodb:us-east-2:${ACCOUNT}:table/asmbly-ceramics-$table-records" \
       --query 'EvaluationResults[0].EvalDecision' --output text
   done
-done   # read only
+done   # read only; ${ACCOUNT} in braces, since zsh reads $ACCOUNT:t and :r as modifiers
 # expect, for each environment: allowed, implicitDeny, allowed, implicitDeny
 unset ACCOUNT
 ```
