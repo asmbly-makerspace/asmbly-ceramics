@@ -229,6 +229,24 @@ def test_the_api_is_plain_cloudformation_with_no_body_and_no_sam_events() -> Non
     assert mapping["DomainName"] == {"Fn::ImportValue": {"Fn::Sub": "${ProjectSlug}-${AppEnv}-domain-name"}}
 
 
+def test_every_integration_is_a_lambda_proxy_to_this_stacks_own_functions() -> None:
+    # ApisById lets the execution role add any integration to the two APIs (decision
+    # 0005): only a proxy to this stack's functions, never a VPC link to another
+    # project's private backend or an AWS service call with its own credentials.
+    integrations = {
+        n: r["Properties"] for n, r in RESOURCES.items() if r["Type"] == "AWS::ApiGatewayV2::Integration"
+    }
+    assert set(integrations) == {"FormIntegration", "ConsoleIntegration"}
+    for name, properties in integrations.items():
+        assert properties["IntegrationType"] == "AWS_PROXY", name
+        assert properties["IntegrationUri"]["Fn::GetAtt"][0] in FUNCTIONS, name
+        for key in ("ConnectionId", "ConnectionType", "CredentialsArn", "IntegrationSubtype"):
+            assert key not in properties, (name, key)
+    for name, resource in RESOURCES.items():
+        if resource["Type"] == "AWS::ApiGatewayV2::ApiMapping":
+            assert resource["Properties"]["Stage"] == {"Ref": "HttpApiStage"}, name
+
+
 def test_every_invoke_permission_is_for_api_gateway_on_this_api_only() -> None:
     permissions = [r for r in RESOURCES.values() if r["Type"] == "AWS::Lambda::Permission"]
     assert permissions

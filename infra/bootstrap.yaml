@@ -757,8 +757,6 @@ Resources:
               - logs:DeleteLogDelivery
             Resource: '*'
 
-  # One boundary per environment (decision 0003): the most a function or
-  # scheduler role there can do, on its environment's names only.
   ApisAndNamesPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -853,6 +851,8 @@ Resources:
               - iam:DeleteRole
             Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectSlug}-app/${ProjectSlug}-*'
 
+  # One boundary per environment (decision 0003): the most a function or
+  # scheduler role there can do, on its environment's names only.
   FunctionBoundaryStage:
     Type: AWS::IAM::ManagedPolicy
     Properties:
