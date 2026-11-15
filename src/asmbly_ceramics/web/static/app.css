@@ -46,7 +46,8 @@
   --surface: var(--asmbly-white);
   --muted: var(--midnight-black-70); /* secondary text: 4.5:1 or more on both */
   --line-soft: var(--asmbly-purple-20); /* decorative edges of cards and rows, not controls */
-  --row-hover: var(--ceramics-10);
+  --control-edge: var(--muted); /* quiet buttons, chips, the weeks: 3:1 or more (WCAG 1.4.11) */
+  --row-hover: var(--canvas);
   --tag-bg: var(--ceramics-10);
   --tag-text: var(--ceramics-shade-60);
 
@@ -252,8 +253,10 @@ a { color: var(--accent-strong); }
 
 /* The staff console (phase 8). It is used at a desk as much as at the kiln, so it is
    laid out for a wide screen first: a quiet canvas, content on cards, hairline rows,
-   small muted labels, and forms in rows. Every rule is scoped to body.console, so the
-   public form (phone first) is unchanged. Tap targets stay 44px for the kiln's tablet. */
+   small muted labels, and forms in rows. A rule here either starts at .console or
+   .page-console, or starts at a class only the console uses, so the public form (phone
+   first) is unchanged; tests/web/test_style.py checks it. Tap targets stay 44px for the
+   kiln's tablet. */
 .console { background: var(--canvas); }
 .page-console { max-width: var(--console-wide); padding-top: var(--space-6); padding-bottom: var(--space-6); }
 
@@ -272,7 +275,7 @@ a { color: var(--accent-strong); }
 .signed-in { margin: var(--none); overflow-wrap: anywhere; }
 .inline-form { display: inline-flex; margin: var(--none); }
 .button-quiet { color: var(--accent-strong); background: var(--surface); border: var(--border-width) solid var(--accent-strong); }
-.console .button-quiet { border-color: var(--asmbly-purple-40); font-weight: var(--weight-strong); }
+.console .button-quiet { border-color: var(--control-edge); font-weight: var(--weight-strong); }
 
 /* Tabs: a light bar under the band; the current tab is dark with a ceramics underline. */
 .tabs { background: var(--surface); border-bottom: var(--border-width) solid var(--line-soft); overflow-x: auto; }
@@ -288,6 +291,7 @@ a { color: var(--accent-strong); }
   text-decoration: none;
   border-bottom: var(--tab-bar) solid transparent;
 }
+.tabs a:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
 .tabs a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent-strong); }
 .attention { background: var(--error-bg); border-bottom: var(--border-width) solid var(--error-edge); }
 .attention a { display: inline-flex; align-items: center; min-height: var(--tap-target); color: var(--text); font-weight: var(--weight-strong); }
@@ -304,7 +308,7 @@ a { color: var(--accent-strong); }
   padding: var(--none) var(--space-4);
   color: var(--text);
   background: var(--surface);
-  border: var(--border-width) solid var(--line-soft);
+  border: var(--border-width) solid var(--control-edge);
   text-decoration: none;
   font-weight: var(--weight-strong);
 }
@@ -321,14 +325,11 @@ a { color: var(--accent-strong); }
 }
 .panel { padding: var(--space-5); margin: var(--none) var(--none) var(--space-5); }
 .page-console .panel > h3:first-child, .page-console .card > h3:first-child { margin-top: var(--none); }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
-.panel-head h3 { margin-top: var(--none); }
-.count { color: var(--muted); font-size: var(--font-size-small); }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--card-min-width), 1fr)); gap: var(--space-4); margin: var(--none) var(--none) var(--space-5); }
 .card { padding: var(--space-4) var(--space-5); }
 .page-console .card h3 {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-small);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--muted);
@@ -362,7 +363,7 @@ a { color: var(--accent-strong); }
   padding: var(--none) var(--space-4);
   color: var(--text);
   background: var(--surface);
-  border: var(--border-width) solid var(--line-soft);
+  border: var(--border-width) solid var(--control-edge);
   border-radius: var(--radius-pill);
   text-decoration: none;
   font-weight: var(--weight-strong);
@@ -390,8 +391,8 @@ a { color: var(--accent-strong); }
 }
 .list tbody tr:last-child > * { border-bottom: var(--none); }
 .list tbody th { font-weight: var(--weight-strong); }
-.panel .list th:first-child, .panel .list td:first-child { padding-left: var(--none); }
-.panel .list th:last-child, .panel .list td:last-child { padding-right: var(--none); }
+.panel .list th:first-child, .panel .list td:first-child { padding-left: var(--space-1); }
+.panel .list th:last-child, .panel .list td:last-child { padding-right: var(--space-1); }
 .list td a { display: inline-flex; align-items: center; min-height: var(--tap-target); }
 .list .muted { color: var(--muted); font-size: var(--font-size-small); }
 .list .row-actions { text-align: right; white-space: nowrap; }
@@ -444,7 +445,7 @@ a { color: var(--accent-strong); }
   background: var(--field-bg);
 }
 .input-narrow { max-width: var(--field-narrow); }
-.field-invalid select, .field-invalid textarea { border-color: var(--error-edge); border-width: var(--border-width-accent); }
+.console .field-invalid select, .console .field-invalid textarea { border-color: var(--error-edge); border-width: var(--border-width-accent); }
 .add-form { margin-top: var(--space-4); padding-top: var(--space-4); border-top: var(--border-width) solid var(--line-soft); }
 .add-form > label { display: block; font-weight: var(--weight-strong); margin-bottom: var(--space-2); }
 .add-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
@@ -473,8 +474,8 @@ a { color: var(--accent-strong); }
 .drop-off-head p { margin: var(--space-1) var(--none); }
 .drop-off-title { color: var(--ceramics-shade); font-size: var(--font-size-id); margin: var(--none); }
 .drop-off-body { display: grid; gap: var(--space-5); align-items: start; }
-.photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--photo-min), 1fr)); gap: var(--space-3); }
-.photos img { display: block; width: var(--full); height: auto; border-radius: var(--radius-card); }
+.console .photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--photo-min), var(--full)), 1fr)); gap: var(--space-3); }
+.console .photos img { display: block; width: var(--full); height: auto; border-radius: var(--radius-card); }
 .details h3 { margin-top: var(--none); }
 .email-list { margin: var(--none); padding-left: var(--space-5); }
 .email-list li { margin-bottom: var(--space-2); }

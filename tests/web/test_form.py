@@ -20,6 +20,13 @@ def test_the_form_lists_the_active_firing_and_glaze_types(site: Site) -> None:
     assert STAFF not in page
 
 
+def test_the_form_s_body_has_no_console_class(site: Site) -> None:
+    """The console's styles hang on <body class="console">; the public form never gets it."""
+    page = site.client.get("/").text
+    assert "<body>" in page
+    assert 'class="console"' not in page
+
+
 def test_the_form_sets_a_device_cookie_once(site: Site) -> None:
     first = site.client.get("/")
     [cookie] = first.headers.get_list("set-cookie")
