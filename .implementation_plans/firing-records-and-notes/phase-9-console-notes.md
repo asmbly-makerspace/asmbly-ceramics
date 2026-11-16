@@ -75,7 +75,10 @@ messages (422) and the values typed kept.
 ### web: the note form
 
 - `text`: a `<textarea maxlength="2000">` (from `NOTE_TEXT_MAX`, passed in), with the hint
-  "No names, emails, phone numbers or photos. 2,000 characters at most." above it.
+  "No names, emails, phone numbers or photos. 2,000 characters at most. Write a ramp
+  with units or commas (250 °F, 400 °F, 2232 °F)." above it: three numbers shaped like
+  a phone number (three numbers of 3, 3 and 4 digits with spaces between) are refused (phase 3's decision), so the hint says how
+  to write one that is kept.
 - `ruling`: radio buttons "No ruling" (empty value), "Allowed", "Allowed with conditions",
   "Not allowed"; any other value is refused with "Pick a ruling from the list."
 - `glaze_types`, `clay_bodies`: checkbox lists (better on a phone than a multi-select),
@@ -133,6 +136,8 @@ the search, kept with the load and never deleted by the close).
 - Each route: `..._needs_csrf` (POSTs), `..._not_in_group_not_allowed`,
   `..._signed_out_redirects`.
 - `test_notes_form_limits_match_domain`.
+- `test_note_form_says_no_personal_details` (the add and the edit form show "No names,
+  emails, phone numbers or photos." above the text box).
 
 `tests/web/console/test_firing_log.py`: `test_notes_column`; `test_csv_notes_columns`.
 

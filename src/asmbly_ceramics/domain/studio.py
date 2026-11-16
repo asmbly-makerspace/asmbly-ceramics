@@ -60,6 +60,17 @@ _KIND = {
     CatalogList.CONES: "cone",
     CatalogList.CLAY_BODIES: "clay body",
 }
+_KINDS = {CatalogList.CLAY_BODIES: "clay bodies"}
+
+
+def kind_name(which: CatalogList) -> str:
+    """What one item of the list is called in a message: "glaze type", "clay body"."""
+    return _KIND[which]
+
+
+def kinds_name(which: CatalogList) -> str:
+    """The plural: "glaze types", "clay bodies"."""
+    return _KINDS.get(which, f"{_KIND[which]}s")
 
 
 class ItemStatus(StrEnum):

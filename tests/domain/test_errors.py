@@ -3,15 +3,17 @@ from types import MappingProxyType
 import pytest
 
 from asmbly_ceramics.domain import errors
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 
 AC12 = DropOffId(12)
 L4 = LoadId(4)
+N12 = NoteId(12)
 
 EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.InvalidDetails({"email": "email.invalid"}), "The drop-off has errors."),
     (errors.NotFound(AC12), "AC-12 doesn't exist."),
     (errors.NotFound(L4), "Load L-4 doesn't exist."),
+    (errors.NotFound(N12), "Note N-12 doesn't exist."),
     (errors.NotWaiting(AC12, "fired"), "AC-12 isn't waiting: it is fired."),
     (
         errors.DropOffNotDeletable(AC12, "in load"),
@@ -34,6 +36,8 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
         "Load L-4 has drop-offs in it: remove them before changing its firing type.",
     ),
     (errors.InvalidRecord({"max_temp_f": "Enter a whole number from 0 to 2,500."}), "Check the firing"),
+    (errors.InvalidNote({"text": "Write the note."}), "Check the note."),
+    (errors.LoadNotNotable(L4), "Load L-4 was deleted: it takes no notes."),
     (errors.StepNotReached(L4, "firing"), "Load L-4 hasn't reached firing, or its time wasn't recorded."),
     (
         errors.StepTimeOutOfOrder(L4, "firing"),
@@ -96,8 +100,18 @@ def test_invalid_details_needs_an_error() -> None:
         errors.InvalidDetails({})
 
 
+def test_invalid_note_holds_messages_and_is_read_only() -> None:
+    error = errors.InvalidNote({"text": "Write the note.", "glaze_types": "Pick each glaze type once."})
+    assert dict(error.errors) == {"text": "Write the note.", "glaze_types": "Pick each glaze type once."}
+    assert isinstance(error.errors, MappingProxyType)
+    with pytest.raises(ValueError, match="at least one"):
+        errors.InvalidNote({})
+
+
 def test_errors_keep_the_ids_they_name() -> None:
     assert errors.NotFound(L4).id == L4
+    assert errors.NotFound(N12).id == N12
+    assert errors.LoadNotNotable(L4).load_id == L4
     mismatch = errors.FiringTypeMismatch(AC12, ItemId("bisque"), ItemId("glaze"))
     assert (mismatch.drop_off_id, mismatch.drop_off_firing_type, mismatch.load_firing_type) == (
         AC12,

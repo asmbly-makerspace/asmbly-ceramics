@@ -64,7 +64,13 @@ class WriteNote:
 
     def __call__(self, load_id: LoadId, note: NoteInput, staff: StaffMember) -> FiringNote:
         """A new note on the load: `write_note` is checked before a number is spent, then
-        `Put(note)`. `NotFound` (no load, or deleted), `LoadNotNotable`, `InvalidNote`,
+        one commit of `Put(note)` and `Update(load)` with the load as it was read, so the
+        commit fails with `Conflict` if the load's version moved since: otherwise a
+        `ChangeLoad` moving the load to another kiln between the read and the commit
+        (phase 5, which rewrites the notes it finds) would leave this note under the old
+        kiln. The cost: the load's version goes up by one, so a load page open elsewhere
+        gets "changed by someone else" on its next save, and reloads. A `Conflict` here
+        is shown as on any other page ("reload and try again"), with no number reused. `NotFound` (no load, or deleted), `LoadNotNotable`, `InvalidNote`,
         `UnknownItem`, `ItemRetired`. Log: `note_written` with load_id, note_id, user,
         and `outcome` (the ruling's value, or `none`); never the text or the tags' names.
         `note_id` is not in `use_cases/log.py`'s `LOG_FIELDS`: this phase adds it to
@@ -150,12 +156,22 @@ A note on a load that was later deleted: `LoadNotes` isn't reached (the load pag
 set of the deleted loads' IDs from `loads_in({DELETED})`, whichever reads less; say which
 in the hand-off).
 
+### Privacy
+
+The note use cases log note IDs (`N-12`), load IDs (`L-4`), staff usernames and the
+ruling's value only: never a note's text or its tags' names, and no error message that
+quotes them (phase 3's messages never do). A note's history line, if one is written,
+names the note by its ID and never quotes its text.
+
 ## Tests
 
 `tests/use_cases/test_notes.py`:
 
 - `test_write_note`; `test_write_on_fired_load`; `test_write_on_deleted_load_not_found`;
   `test_write_invalid_text_spends_no_number`; `test_write_retired_tag_refused`.
+- `test_write_conflicts_when_the_load_moved_kiln` (the load is read in kiln A, a
+  `ChangeLoad` to kiln B commits before the note's commit: `WriteNote` raises
+  `Conflict` and no note is stored under kiln A); `test_write_bumps_the_load_version`.
 - `test_edit_note`; `test_edit_keeps_written_by`; `test_edit_conflict`;
   `test_edit_removed_not_found`; `test_edit_wrong_load_not_found` (a note ID under
   another load).

@@ -22,6 +22,8 @@ from asmbly_ceramics.domain.studio import (
     delete_item,
     describe_program,
     is_valid_email,
+    kind_name,
+    kinds_name,
     names_cone,
     record_new_elements,
     restore_item,
@@ -616,3 +618,15 @@ def test_record_new_elements_resets_since() -> None:
 def test_describe_program_names_a_cone_it_does_not_know_by_its_id() -> None:
     program = Program(cone=ItemId("item-99"), hold_minutes=5)
     assert describe_program(a_studio(), program) == "item-99, hold 5 min"
+
+
+@pytest.mark.parametrize(
+    ("which", "one", "many"),
+    [
+        (CatalogList.GLAZE_TYPES, "glaze type", "glaze types"),
+        (CatalogList.CLAY_BODIES, "clay body", "clay bodies"),
+        (CatalogList.KILNS, "kiln", "kilns"),
+    ],
+)
+def test_kind_names(which: CatalogList, one: str, many: str) -> None:
+    assert (kind_name(which), kinds_name(which)) == (one, many)

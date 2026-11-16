@@ -14,7 +14,7 @@ The class names are the plan's contract with the later phases and read as what h
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 
 FieldErrors = Mapping[str, str]
 """A field's name mapped to its message key (`email.invalid`), never to the field's value."""
@@ -46,9 +46,11 @@ class InvalidDetails(DomainError):
 
 
 class NotFound(DomainError):
-    def __init__(self, id: DropOffId | LoadId) -> None:
+    def __init__(self, id: DropOffId | LoadId | NoteId) -> None:
         if isinstance(id, LoadId):
             super().__init__(f"Load {id} doesn't exist.")
+        elif isinstance(id, NoteId):
+            super().__init__(f"Note {id} doesn't exist.")
         else:
             super().__init__(f"{id} doesn't exist.")
         self.id = id
@@ -148,6 +150,23 @@ class InvalidRecord(DomainError):
         fields = "1 field needs" if count == 1 else f"{count} fields need"
         super().__init__(f"Check the firing record: {fields} fixing.")
         self.errors: Mapping[str, str] = MappingProxyType(dict(errors))
+
+
+class InvalidNote(DomainError):
+    """A firing note with refused fields (#17). As `InvalidRecord`'s, `errors` maps each
+    field's name to its message, fixed text: never the note's text or anything sent."""
+
+    def __init__(self, errors: Mapping[str, str]) -> None:
+        if not errors:
+            raise ValueError("InvalidNote needs at least one field error")
+        super().__init__("Check the note.")
+        self.errors: Mapping[str, str] = MappingProxyType(dict(errors))
+
+
+class LoadNotNotable(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__(f"Load {load_id} was deleted: it takes no notes.")
+        self.load_id = load_id
 
 
 class StepNotReached(DomainError):

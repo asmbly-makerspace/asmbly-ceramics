@@ -178,6 +178,27 @@ class FiringLog:
 go in `domain/limits.py`; `InvalidLogRange` in `domain/errors.py` ("Choose a date range
 of at most 5 years, ending after it starts.").
 
+### Privacy
+
+The use cases log load IDs (`L-4`) and note IDs (`N-12`) and staff usernames only. An
+event's wording (`what`) names loads, studio items, steps, times and record values: a
+use case never words one with a person's name, email address or phone number, a
+rejection message's text, or a note's text, since the history is kept with the load
+after the close (#7) deletes those details.
+
+### app: a kiln change carries the load's notes with it
+
+`FiringNote.kiln` is copied from the load when the note is written (phase 3), and
+`ChangeLoad` can move a loading load to another kiln. So when `ChangeLoad` changes the
+kiln it reads the load's notes (phase 4's `notes_for`, which leaves removed ones out: a removed note is listed nowhere, so it needs no new kiln) and adds
+an `Update` of each, with `kiln` set to the new kiln, to the same commit as the load
+and its history line, so the notes search by kiln (phase 8) finds them under the kiln
+the load is now in. Chosen over phase 8 reading each note's kiln from its load, which
+would read a load for every note a search returns. A loading load holds few notes; the
+commit stays within DynamoDB's 100 items per transaction as long as a loading load has
+at most 98 notes (the load and its history line are the other two), and `ChangeLoad` refuses a kiln change past that with a message
+(prep picks the error).
+
 ## Tests
 
 `tests/use_cases/test_loads.py`:
@@ -185,6 +206,8 @@ of at most 5 years, ending after it starts.").
 - One per row of the history table: the line is in the same commit (a commit failure
   writes neither), with the username and the clock's time.
 - `test_change_load_without_changes_writes_no_line`.
+- `test_change_load_kiln_moves_its_notes` (each of the load's notes, removed ones
+  included, has the new kiln after the same commit; another load's notes don't change).
 - `test_mark_fired_full_load_commits_98_changes`.
 - `test_save_firing_record`; `..._unchanged_no_commit`; `..._invalid_names_fields`;
   `..._conflict`; `..._on_fired_load_keeps_members_and_sends_nothing` (no email `Put`);
@@ -241,6 +264,7 @@ None.
 ## Hand-off
 
 - [ ] Every load use case writes its history line; `MarkFired` is ≤ 98 changes.
+- [ ] `ChangeLoad` rewrites its notes' `kiln` in the same commit when the kiln changes.
 - [ ] `SaveFiringRecord(load_id, values, version, staff)`,
       `CorrectStepTime(load_id, step, at, version, staff)`, wired.
 - [ ] `LoadView.steps`, `history`, `suggested`, `cones`, `record_fields`; `StepView`.

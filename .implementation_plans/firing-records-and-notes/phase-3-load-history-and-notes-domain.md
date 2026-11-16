@@ -5,12 +5,12 @@ epic: 1
 implements: [42, 17]
 depends_on: [2]
 domain: [app]
-estimated_size: M
+estimated_size: L
 ---
 
 # Phase 3: The domain: a load's history and firing notes
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-16 on branch feat/firing-records-and-notes
 
 ## Required reading
 
@@ -41,11 +41,14 @@ stores them; phases 5 and 8 write them.
 
 ## Files to modify
 
-- `src/asmbly_ceramics/domain/ids.py`: `NoteId`.
+- `src/asmbly_ceramics/domain/ids.py`: `NoteId`, `is_note_id`.
 - `src/asmbly_ceramics/domain/errors.py`: `InvalidNote`, `LoadNotNotable`.
 - `src/asmbly_ceramics/domain/limits.py`: `NOTE_TEXT_MAX = 2000`, `NOTE_TAGS_MAX = 20`.
 - `tests/domain/builders.py`: `a_note(...)`, `an_event(...)`.
 - `tests/domain/test_ids.py`: `NoteId`.
+- `tests/domain/test_errors.py`: `InvalidNote`, `LoadNotNotable` and `NotFound(NoteId)` in
+  `EXPECTED` (`test_every_domain_error_class_is_checked` fails without them), and
+  `InvalidNote`'s read-only, non-empty `errors`.
 
 ## Implementation details
 
@@ -74,7 +77,8 @@ only builds and checks.
 ### app: `domain/ids.py`
 
 `NoteId`, formatted `N-12`, parsed like `LoadId` (`N-` then a number, no leading zero, at
-most 12 digits, nothing around it). `IdNumbers.next_note_id` comes in phase 4.
+most 12 digits, nothing around it), with `is_note_id(text)` beside `is_load_id`.
+`IdNumbers.next_note_id` comes in phase 4.
 
 ### app: `domain/notes.py`
 
@@ -107,12 +111,28 @@ class FiringNote:
 
 
 def check_note_text(text: str) -> str:
-    """The text to store: CRLF to LF, stripped, NFC. `InvalidNote("text", message)` when
+    """The text to store: CRLF to LF, stripped, NFC. `InvalidNote({"text": message})` when
     empty ("Write the note."), longer than NOTE_TEXT_MAX, holding a control character but
     newline or tab ("Write the note as plain text."), or holding something shaped like an
-    email address (`\\S+@\\S+\\.\\S+`) or a phone number (10 or more digits, allowing
-    spaces, dots, dashes, parentheses and a leading +, between them): "Notes can't hold
-    an email address or phone number." The message never quotes the text."""
+    email address (`\\S+@\\S+\\.\\S+`) or a phone number: "Notes can't hold an email
+    address or phone number." A phone number is found by its shape, not by counting
+    digits, so a note's dates and temperatures, and ramps written with units or commas,
+    are kept (a ramp shaped 3-3-4, three numbers of 3, 3 and 4 digits with spaces or slashes between, is refused as a
+    phone number: a decision, pinned in `test_ramp_shaped_like_a_phone_number_refused`):
+    on a copy of the text made NFKC, with every Unicode decimal digit as its ASCII digit,
+    every dash (and the minus sign) as `-` and every space, tab or newline as ` `, it is
+    a North American 3-3-4
+    number with an optional leading 1 (area code and exchange starting 2 to 9, the area
+    code never N00 or N11; leaving out toll-free N00 numbers is intended), one unbroken group of `PHONE_DIGITS_MIN` (10) or more
+    digits, or a `+` and that many digits; the groups may be joined by any number of
+    spaces, dots, dashes, slashes, colons, underscores and brackets. A clock time (an
+    hour of one or two digits, `:`, two-digit minutes, optional seconds) is cut out
+    first, so `2026-11-16 10:30` is kept, and `NNNNNNNNNN:N` is still refused.
+    The email shape is looked for on the same copy, so a fullwidth or small `@` and a
+    fullwidth dot count. Before any check, a line or paragraph separator (Zl, Zp) becomes
+    a newline and an invisible character (Cf, Co, Cn, Cs: a zero-width space, soft
+    hyphen, word joiner, bidi override) is dropped, as a drop-off's name drops them.
+    The length is checked after NFC. The message never quotes the text."""
 
 
 def write_note(
@@ -127,8 +147,10 @@ def write_note(
     studio: Studio,
 ) -> FiringNote:
     """A new note on `load`. `LoadNotNotable(load.id)` for a deleted load. Each tag must
-    be an active item of its list (`UnknownItem`, `ItemRetired`), each list without
-    repeats and at most NOTE_TAGS_MAX (`InvalidNote`). Text by `check_note_text`."""
+    be an active item of its list (`UnknownItem`, `ItemRetired`: only a tampered form
+    sends one), each list without repeats and at most NOTE_TAGS_MAX. The text's, the
+    repeats' and the counts' refusals are gathered into one `InvalidNote`, keyed `text`,
+    `glaze_types` and `clay_bodies`. Text by `check_note_text`."""
 
 
 def edit_note(
@@ -143,7 +165,8 @@ def edit_note(
 ) -> FiringNote:
     """Text, tags and ruling replaced, stamped `edited_by`/`edited_at`; `written_*` kept.
     A tag already on the note may be retired since; a new one must be active.
-    `NotFound(note.id)` for a removed note."""
+    `NotFound(note.id)` for a removed note. When text, tags and ruling are all the same
+    as the note's, the note is returned unchanged (no stamp)."""
 
 
 def remove_note(note: FiringNote, by: str, at: datetime) -> FiringNote:
@@ -165,10 +188,13 @@ def matches(note: FiringNote, f: NoteFilter) -> bool:
 
 ### app: `domain/errors.py`
 
-- `InvalidNote(errors: FieldErrors)`: "Check the note." with a message per field.
-- `LoadNotNotable(load_id)`: "L-4 was deleted: it takes no notes."
+- `InvalidNote(errors: Mapping[str, str])`: "Check the note." with a message per field,
+  as `InvalidRecord`'s: each field's name mapped to fixed text, never the value sent;
+  read only, and at least one.
+- `LoadNotNotable(load_id)`: "Load L-4 was deleted: it takes no notes."
 
-`NotFound` already takes an ID; it gains `NoteId` in its accepted types.
+`NotFound` already takes an ID; it gains `NoteId` in its accepted types ("Note N-12
+doesn't exist.").
 
 ## Tests
 
@@ -183,14 +209,19 @@ def matches(note: FiringNote, f: NoteFilter) -> bool:
   `test_text_with_phone_refused` (ten-digit numbers written with spaces, with an area
   code in parentheses and a dash, and with a leading `+1` and dots, each built in code
   from digits, never a literal in the test file); `test_text_with_cone_and_temperature_numbers_kept`
-  (`^6 at 2,236 °F for 7 min` is fine); `test_messages_never_quote_text`.
+  (`^6 at 2,236 °F for 7 min` is fine); `test_text_with_date_and_time_kept`
+  (`2026-11-16 10:30`); `test_messages_never_quote_text`; `test_errors_gathered_in_one`.
 - `test_tags_must_be_active_items`; `test_repeated_tag_refused`; `test_too_many_tags`.
 - `test_edit_note_keeps_written_and_stamps_edited`; `test_edit_keeps_retired_tag`;
-  `test_edit_removed_not_found`.
+  `test_edit_removed_not_found`; `test_edit_with_no_change_is_unchanged`.
 - `test_remove_note`; `test_remove_twice_not_found`.
 - `test_matches_each_filter_part`; `test_matches_no_ruling`; `test_removed_never_matches`.
 
-`tests/domain/test_ids.py`: `test_note_id_round_trip`; `test_note_id_refuses_other_shapes`.
+`tests/domain/test_ids.py`: `test_note_id_round_trip`; `test_note_id_refuses_other_shapes`;
+`is_note_id` agrees with `NoteId.parse`.
+
+`tests/domain/test_errors.py`: the three new messages in `EXPECTED`; `InvalidNote` needs
+an error and is read only.
 
 ## Acceptance criteria
 
@@ -221,8 +252,22 @@ None.
 
 ## Hand-off
 
-- [ ] `domain/history.py`: `LoadEvent`, `event(load_id, by, at, what)`.
-- [ ] `domain/ids.py`: `NoteId`.
-- [ ] `domain/notes.py`: `Ruling`, `FiringNote`, `check_note_text`, `write_note`,
-      `edit_note`, `remove_note`, `NoteFilter`, `matches`.
-- [ ] Errors `InvalidNote`, `LoadNotNotable`; `NotFound` takes a `NoteId`.
+- [x] `domain/history.py`: `LoadEvent(load_id, at, by, what)`, `event(load_id, by, at, what)`
+      (`ValueError` for an empty `by` or `what`, or a naive `at`). The use cases word each
+      event.
+- [x] `domain/ids.py`: `NoteId` (`N-12`, parsed like `LoadId`) and `is_note_id(text)`.
+- [x] `domain/limits.py`: `NOTE_TEXT_MAX = 2000`, `NOTE_TAGS_MAX = 20`.
+- [x] `domain/notes.py`: `Ruling`, `FiringNote` (`removed` property), `check_note_text`,
+      `write_note`, `edit_note`, `remove_note`, `NoteFilter`, `matches`, and the text
+      messages `TEXT_REQUIRED`, `TEXT_PLAIN`, `TEXT_TOO_LONG`, `TEXT_PERSONAL`.
+      `InvalidNote.errors` is keyed `text`, `glaze_types` and `clay_bodies`, gathered in
+      one refusal; an unknown or retired tag raises `UnknownItem` or `ItemRetired` after
+      those. An edit that changes nothing returns the same note, unstamped (phase 8
+      writes nothing then); so does one that only reorders the tags. A phone number is
+      found by its shape (see `check_note_text`), never by a digit count.
+      `FiringNote.text` and `LoadEvent.what` are left out of their `repr`.
+- [x] Errors `InvalidNote(errors)`, `LoadNotNotable(load_id)` ("Load L-4 was deleted: it
+      takes no notes."); `NotFound` takes a `NoteId` ("Note N-12 doesn't exist.").
+- [x] `tests/domain/builders.py`: `an_event(...)`, `a_note(...)`, `TEST_NOTE_TEXT`.
+- Deferred to phase 8: refusing an edit or removal of a note whose load was deleted
+  afterwards (the domain's `edit_note` takes no load).

@@ -102,7 +102,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 | --- | --- | --- | --- | --- |
 | [1](phase-1-load-record-and-steps.md) | The load: test firings, who moved it, the firing record | app | L | [~] In progress |
 | [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app, web | L | [~] In progress |
-| [3](phase-3-load-history-and-notes-domain.md) | The domain: a load's history and firing notes | app | M | [ ] Pending |
+| [3](phase-3-load-history-and-notes-domain.md) | The domain: a load's history and firing notes | app | L | [x] Complete |
 | [4](phase-4-records-events-notes-ranges.md) | Records: events, notes and date ranges, in the fake and DynamoDB | app, infra | L | [ ] Pending |
 | [5](phase-5-use-cases-record-and-log.md) | Use cases: test loads, history, the firing record, corrections, the firing log | app | L | [ ] Pending |
 | [6](phase-6-console-load-page.md) | Console: the load page's steps, firing record, test and history | web | L | [ ] Pending |

@@ -173,6 +173,13 @@ place of `loads_in({FIRED})`.
 `tests/repo/test_app_template.py` updates its pins for the two statements and checks the
 form's and the close's statements are unchanged.
 
+### Privacy
+
+The adapters log a note by its ID (`N-12`) and a load by its ID (`L-4`), and AWS's
+errors by their code only: never a note's text, an event's `what`, or a request or item
+that holds them. `FiringNote.text` and `LoadEvent.what` are left out of their `repr`
+(phase 3), so a traceback of either doesn't show them either.
+
 ## Tests
 
 - Contract (fake, and adapter against stubs): `test_event_put_and_listed_oldest_first`;

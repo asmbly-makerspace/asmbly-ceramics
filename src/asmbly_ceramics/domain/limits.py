@@ -32,6 +32,9 @@ PREHEAT_HOURS_MAX = 48  # whole hours
 HOLD_MINUTES_MAX = 600
 FIRING_MINUTES_MAX = 72 * 60  # "72:00"
 FIRING_NUMBER_MIN, FIRING_NUMBER_MAX = 1, 100_000
+# A firing note (#17): its text, and the glaze types or clay bodies it is tagged with, each.
+NOTE_TEXT_MAX = 2000
+NOTE_TAGS_MAX = 20
 
 
 @dataclass(frozen=True, slots=True)
