@@ -21,6 +21,7 @@ from asmbly_ceramics.adapters.memory.staff_tokens import MemoryStaffTokens
 from asmbly_ceramics.mail.compose import JinjaComposer
 from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
+from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
@@ -79,6 +80,7 @@ class World:
     find: FindDropOffs
     view: ViewDropOff
     view_photo: ViewPhoto
+    delete_drop_off: DeleteDropOff
     preview: PreviewRejection
     reject: RejectDropOff
     undo: UndoRejection
@@ -146,6 +148,7 @@ def world() -> World:
         find=FindDropOffs(records, clock, studio),
         view=ViewDropOff(records, clock, studio),
         view_photo=ViewPhoto(records, photos),
+        delete_drop_off=DeleteDropOff(records, photos, clock),
         preview=PreviewRejection(records, clock, studio, composer),
         reject=RejectDropOff(records, clock, studio),
         undo=UndoRejection(records, clock),

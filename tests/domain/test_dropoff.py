@@ -8,8 +8,11 @@ from asmbly_ceramics.domain import errors
 from asmbly_ceramics.domain.dropoff import (
     DropOff,
     DropOffState,
+    can_be_deleted,
+    delete_drop_off,
     new_drop_off,
     reject,
+    require_deletable,
     undo_rejection,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
@@ -416,3 +419,51 @@ def test_only_a_waiting_drop_off_can_be_rejected(state: DropOffState) -> None:
     from tests.domain.builders import a_drop_off
 
     assert can_be_rejected(a_drop_off(state=state)) is (state is DropOffState.WAITING)
+
+
+# delete_drop_off
+
+
+def test_delete_a_waiting_drop_off_erases_its_details_and_photo_refs() -> None:
+    later = NOW + timedelta(minutes=5)
+    deleted = delete_drop_off(a_drop_off(1), "alex", later)
+    assert (deleted.state, deleted.contact, deleted.photos) == (DropOffState.DELETED, None, ())
+    assert (deleted.deleted_by, deleted.deleted_at) == ("alex", later)
+    assert (deleted.pieces, deleted.firing_type) == (3, ItemId("bisque"))  # what isn't personal stays
+    assert TEST_NAME not in repr(deleted)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        DropOffState.IN_LOAD,
+        DropOffState.FIRED,
+        DropOffState.REJECTED,
+        DropOffState.CLOSED,
+        DropOffState.DELETED,
+    ],
+)
+def test_only_a_waiting_drop_off_can_be_deleted(state: DropOffState) -> None:
+    drop_off = a_drop_off(1, state)
+    with pytest.raises(errors.DropOffNotDeletable) as caught:
+        delete_drop_off(drop_off, "alex", NOW)
+    assert caught.value.message == f"AC-1 is {state.label}: only a waiting drop-off can be deleted."
+    assert TEST_NAME not in caught.value.message
+
+
+@pytest.mark.parametrize("state", list(DropOffState))
+def test_can_be_deleted_agrees_with_require_deletable(state: DropOffState) -> None:
+    drop_off = a_drop_off(1, state)
+    try:
+        require_deletable(drop_off)
+    except errors.DropOffNotDeletable:
+        assert not can_be_deleted(drop_off)
+    else:
+        assert can_be_deleted(drop_off)
+
+
+def test_delete_drop_off_needs_the_staff_username_and_an_aware_time() -> None:
+    with pytest.raises(ValueError, match="staff username"):
+        delete_drop_off(a_drop_off(1), "", NOW)
+    with pytest.raises(ValueError, match="aware"):
+        delete_drop_off(a_drop_off(1), "alex", NOW.replace(tzinfo=None))

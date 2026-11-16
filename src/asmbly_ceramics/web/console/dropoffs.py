@@ -1,5 +1,5 @@
-"""One drop-off's page, its photos, the rejection preview, reject, undo, and retrying an
-email (#3, #4, #5).
+"""One drop-off's page, its photos, the rejection preview, reject, undo, retrying an
+email (#3, #4, #5), and deleting one made by mistake or as a test.
 
 The use cases decide every rule (who can be rejected, the message, the same-day undo,
 which email can be retried) and log what they did; a page turns their result or refusal
@@ -16,10 +16,11 @@ from urllib.parse import quote
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from asmbly_ceramics.domain.dropoff import DropOffState
+from asmbly_ceramics.domain.dropoff import DropOffState, require_deletable
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_email_occasion
 from asmbly_ceramics.domain.errors import (
     DomainError,
+    DropOffNotDeletable,
     EmailNotRetryable,
     ItemRetired,
     MessageRequired,
@@ -36,6 +37,7 @@ from asmbly_ceramics.domain.photos import PhotoRef, PhotoSize
 from asmbly_ceramics.domain.waiting import days_waiting
 from asmbly_ceramics.mail.compose import austin_day, austin_time
 from asmbly_ceramics.ports.composer import FROM_NAME
+from asmbly_ceramics.ports.errors import PhotosUnavailable
 from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict
 from asmbly_ceramics.use_cases.reject import RejectRequest, UndoRequest
 from asmbly_ceramics.use_cases.view_drop_off import DropOffView
@@ -58,6 +60,8 @@ KIND_LABELS = {
     EmailKind.REJECTED: "Rejected",
 }
 MAYBE_SAVED = "That may or may not have been saved. Reload the drop-off to check before trying again."
+TYPE_THE_ID = "Type {id} exactly to delete this drop-off."
+PHOTOS_NOT_DELETED = "Its photos couldn't be deleted, so nothing was. Try again in a minute."
 # After a change, the page says what happened from a fixed word in its address: never the
 # message or anything the person typed.
 DONE = {
@@ -67,6 +71,7 @@ DONE = {
         "{id} is waiting again. The rejection email went, or may have: contact the person directly."
     ),
     "retried": "The email to {id} will be sent again.",
+    "deleted": "{id} was deleted: its contact details and photos are gone. No one was emailed about it.",
 }
 _FIELD_OF = {
     UnknownItem: "reason",
@@ -105,6 +110,11 @@ def state_text(view: DropOffView, now: datetime) -> str:
             when = "today" if view.can_undo_rejection else ("" if at is None else _day(at))
             return (
                 f"Rejected {when}: {view.rejection_reason}" if when else f"Rejected: {view.rejection_reason}"
+            )
+        case DropOffState.DELETED:
+            by = f" by {drop_off.deleted_by}" if drop_off.deleted_by else ""
+            return (
+                f"Deleted{by}" if drop_off.deleted_at is None else f"Deleted{by} {_day(drop_off.deleted_at)}"
             )
         case _:
             return "Closed"
@@ -148,6 +158,8 @@ def _drop_off_page(
     panel: Panel | None = None,
     notice: str | None = None,
     problem: str | None = None,
+    confirm_delete: bool = False,
+    delete_error: str | None = None,
     status: int = 200,
 ) -> Response:
     now = services(request).clock.now()
@@ -172,6 +184,10 @@ def _drop_off_page(
         "problem": problem,
         "message_max": MESSAGE_MAX,
         "can_reject": view.can_reject,
+        "deleted": view.drop_off.state is DropOffState.DELETED,
+        "can_delete": view.can_delete,
+        "confirm_delete": confirm_delete and view.can_delete,
+        "delete_error": delete_error,
     }
     return render(request, "console/drop_off.html", context, staff, status=status)
 
@@ -199,6 +215,7 @@ async def drop_off_page(request: Request) -> Response:
         "undone": view.drop_off.state is DropOffState.WAITING,
         "undone-contact": view.drop_off.state is DropOffState.WAITING,
         "retried": True,
+        "deleted": view.drop_off.state is DropOffState.DELETED,
     }
     notice = DONE[done].format(id=id) if agrees.get(done) else None
     panel = Panel(open=request.query_params.get("reject") == "1" and view.can_reject)
@@ -382,3 +399,48 @@ async def retry(request: Request) -> Response:
     if back_to_list:
         return RedirectResponse(f"/console/emails?done=retried&id={id}", status_code=303)
     return RedirectResponse(f"/console/drop-offs/{id}?done=retried", status_code=303)
+
+
+# --- POST .../delete ---------------------------------------------------------------------------
+
+
+def _not_deletable(
+    request: Request, staff: Staff, view: DropOffView, refused: DropOffNotDeletable
+) -> Response:
+    problem = refused.message
+    if view.drop_off.state is DropOffState.IN_LOAD and view.drop_off.load_id is not None:
+        problem += f" Remove it from load {view.drop_off.load_id} first."
+    return _drop_off_page(request, staff, view, problem=problem, status=400)
+
+
+async def delete(request: Request) -> Response:
+    """Asks first and asks hard: without `confirm=1` the page shows "Delete AC-12?" and
+    changes nothing, and the delete runs only when the drop-off's ID is typed into that
+    question exactly. What staff type is compared, never shown back or logged."""
+    staff, form = await require_staff_post(request)
+    id = drop_off_id(request)
+    version = form_version(form)
+    view = _view(request, id)
+    try:
+        require_deletable(view.drop_off)
+    except DropOffNotDeletable as refused:
+        return _not_deletable(request, staff, view, refused)
+    if form.get("confirm") != "1":
+        return _drop_off_page(request, staff, view, confirm_delete=True)
+    if form.get("typed_id", "").strip().upper() != str(id):
+        error = TYPE_THE_ID.format(id=id)
+        return _drop_off_page(request, staff, view, confirm_delete=True, delete_error=error, status=400)
+    try:
+        services(request).delete_drop_off(id, version, staff.member)
+    except NotFound:
+        raise not_found(id) from None
+    except DropOffNotDeletable as refused:
+        return _not_deletable(request, staff, _view(request, id), refused)
+    except Conflict:
+        problem = f"{id} changed while you were looking. Check it, and delete it again if you still mean to."
+        return _drop_off_page(request, staff, _view(request, id), problem=problem, status=409)
+    except PhotosUnavailable:
+        return _drop_off_page(request, staff, _view(request, id), problem=PHOTOS_NOT_DELETED, status=503)
+    except CommitOutcomeUnknown:
+        raise PageError(503, MAYBE_SAVED) from None
+    return RedirectResponse(f"/console/drop-offs/{id}?done=deleted", status_code=303)

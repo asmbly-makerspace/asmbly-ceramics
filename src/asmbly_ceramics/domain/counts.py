@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from types import MappingProxyType
 
-from asmbly_ceramics.domain.dropoff import DropOff
+from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.domain.limits import STUDIO_TZ
 from asmbly_ceramics.domain.load import Load
@@ -61,12 +61,13 @@ class WeekCounts:
 def count_week(
     week: Week, created: Iterable[DropOff], fired_loads: Iterable[Load], rejected: Iterable[DropOff]
 ) -> WeekCounts:
-    """Counts what falls in `week`; anything outside it, a load not fired, or a drop-off
-    without a rejection (an undone one) is left out, whatever the caller passed."""
+    """Counts what falls in `week`; anything outside it, a load not fired, a deleted
+    drop-off (made by mistake or as a test), or a drop-off without a rejection (an undone
+    one) is left out, whatever the caller passed."""
     drop_offs: Counter[ItemId] = Counter()
     pieces: Counter[ItemId] = Counter()
     for drop_off in created:
-        if week.holds(drop_off.created_at):
+        if week.holds(drop_off.created_at) and drop_off.state is not DropOffState.DELETED:
             drop_offs[drop_off.firing_type] += 1
             pieces[drop_off.firing_type] += drop_off.pieces
     loads: Counter[ItemId] = Counter(

@@ -60,6 +60,12 @@ class NotWaiting(DomainError):
         self.drop_off_id = drop_off_id
 
 
+class DropOffNotDeletable(DomainError):
+    def __init__(self, drop_off_id: DropOffId, state: str) -> None:
+        super().__init__(f"{drop_off_id} is {state}: only a waiting drop-off can be deleted.")
+        self.drop_off_id = drop_off_id
+
+
 class AlreadyInLoad(DomainError):
     def __init__(self, drop_off_id: DropOffId, load_id: LoadId) -> None:
         super().__init__(f"{drop_off_id} is already in load {load_id}.")

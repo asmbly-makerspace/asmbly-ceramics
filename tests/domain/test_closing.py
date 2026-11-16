@@ -85,7 +85,9 @@ def test_the_window_is_the_studios_setting() -> None:
     assert not is_closable(rejected, None, 30, NOW + timedelta(days=30))
 
 
-@pytest.mark.parametrize("state", [DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.CLOSED])
+@pytest.mark.parametrize(
+    "state", [DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.CLOSED, DropOffState.DELETED]
+)
 def test_waiting_never_closes(state: DropOffState) -> None:
     assert not is_closable(a_drop_off(state=state), READY, WINDOW, NOW + timedelta(days=365))
 

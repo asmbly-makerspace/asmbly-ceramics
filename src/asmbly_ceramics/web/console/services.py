@@ -7,6 +7,7 @@ from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.secrets import Secrets
 from asmbly_ceramics.ports.staff import StaffTokens
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
+from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
@@ -51,6 +52,7 @@ class ConsoleServices:
     preview_rejection: PreviewRejection
     reject_drop_off: RejectDropOff
     undo_rejection: UndoRejection
+    delete_drop_off: DeleteDropOff
     retry_email: RetryEmail
     emails_needing_attention: EmailsNeedingAttention
     # Loads (#4)

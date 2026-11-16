@@ -234,7 +234,9 @@ class DynamoDbRecords:
         return HistoryPage(changes, older)
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
-        drop_off_partitions = [keys.drop_off_partition(s) for s in _ALL_STATES]
+        drop_off_partitions = [
+            keys.drop_off_partition(s) for s in _ALL_STATES if s is not DropOffState.DELETED
+        ]
         load_partitions = [keys.load_partition(s) for s in _ALL_STATUSES if s in LIVE_STATUSES]
         match which:
             case CatalogList.KILNS:

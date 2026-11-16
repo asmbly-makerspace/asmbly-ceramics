@@ -10,7 +10,14 @@ from datetime import UTC, datetime
 from typing import TypedDict, Unpack
 
 from asmbly_ceramics.domain.closing import close
-from asmbly_ceramics.domain.dropoff import DropOff, DropOffDetails, DropOffState, Rejection, new_drop_off
+from asmbly_ceramics.domain.dropoff import (
+    DropOff,
+    DropOffDetails,
+    DropOffState,
+    Rejection,
+    delete_drop_off,
+    new_drop_off,
+)
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email, rejection_occasion
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
@@ -110,6 +117,8 @@ def a_drop_off(
             )
         case DropOffState.CLOSED:
             return close(a_drop_off(number, DropOffState.REJECTED, at=at, reason=reason), at)
+        case DropOffState.DELETED:
+            return delete_drop_off(drop_off, STAFF, at)
 
 
 def a_load(

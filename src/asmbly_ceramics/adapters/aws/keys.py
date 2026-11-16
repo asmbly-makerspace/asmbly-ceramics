@@ -281,6 +281,8 @@ def _drop_off(d: DropOff) -> dict[str, object]:
         "load_id": None if d.load_id is None else str(d.load_id),
         "fired_at": _iso_or_none(d.fired_at),
         "closed_at": _iso_or_none(d.closed_at),
+        "deleted_by": d.deleted_by,
+        "deleted_at": _iso_or_none(d.deleted_at),
     }
     if any(ref.drop_off_id != d.id for ref in d.photos):
         raise ValueError(f"{d.id}'s photos must be its own")
@@ -416,6 +418,8 @@ def _to_drop_off(values: dict[str, Any]) -> DropOff:
         rejection=rejection,
         fired_at=_time_or_none(values.get("fired_at")),
         closed_at=_time_or_none(values.get("closed_at")),
+        deleted_by=values.get("deleted_by"),
+        deleted_at=_time_or_none(values.get("deleted_at")),
         version=values["version"],
     )
 

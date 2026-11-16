@@ -26,6 +26,7 @@ from asmbly_ceramics.ports.staff import StaffTokens
 from asmbly_ceramics.settings import Settings, StaffSignIn
 from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
+from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
@@ -151,6 +152,7 @@ def build_console_services(
         preview_rejection=PreviewRejection(records, clock, studio, JinjaComposer()),
         reject_drop_off=RejectDropOff(records, clock, studio),
         undo_rejection=UndoRejection(records, clock),
+        delete_drop_off=DeleteDropOff(records, photos, clock),
         retry_email=RetryEmail(records, clock),
         emails_needing_attention=EmailsNeedingAttention(records, clock),
         list_loads=ListLoads(records, clock),

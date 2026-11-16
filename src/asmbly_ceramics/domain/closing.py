@@ -72,7 +72,12 @@ def is_due_to_close(drop_off: DropOff, email: Email | None, studio_window_days: 
     _check_aware(now)
     if studio_window_days < 1:
         raise ValueError("the pickup window is at least a day")
-    if drop_off.state in (DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.CLOSED):
+    if drop_off.state in (
+        DropOffState.WAITING,
+        DropOffState.IN_LOAD,
+        DropOffState.CLOSED,
+        DropOffState.DELETED,
+    ):
         return False
     if drop_off.state is DropOffState.FIRED:
         if email is None:

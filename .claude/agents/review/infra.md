@@ -52,8 +52,9 @@ Ref: decision 0002, Hosting and The deploy.
       permissions boundary, with only what decision 0002's table allows: the form
       function creates new drop-offs, their outbox emails and submissions, issues upload
       slots, reads settings and its own submissions, and never reads a photo or a
-      drop-off; the console reads and changes records and reads photos; the mailer sends
-      and reads photos; the close deletes details and photos.
+      drop-off; the console reads and changes records, reads photos, and deletes a
+      drop-off's photos when staff delete it (decision 0006); the mailer sends and reads
+      photos; the close deletes details and photos.
 - [ ] Every statement names its resources. `Resource: "*"` only for actions without
       resource-level permissions, with a comment saying so.
 - [ ] SES: `ses:SendEmail`/`SendRawEmail` on the `asmbly.org` identity only, with a

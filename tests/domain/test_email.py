@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.email import (
     Email,
     EmailKind,
     EmailStatus,
+    cancel_unsent,
     claim,
     is_email_occasion,
     is_history,
@@ -203,6 +204,14 @@ def test_a_move_from_a_status_it_doesnt_allow_is_a_bug(
         move(make())
 
 
+def test_cancel_unsent_cancels_pending_sending_and_failed_only() -> None:
+    for make in (pending, sending, failed):
+        assert cancel_unsent(make()).status is EmailStatus.CANCELLED
+    for make in (sent, cancelled):
+        with pytest.raises(ValueError, match="email is"):
+            cancel_unsent(make())
+
+
 def test_cancel_from_pending_or_sending_only() -> None:
     assert mark_cancelled(pending()).status is EmailStatus.CANCELLED
     assert mark_cancelled(sending()).status is EmailStatus.CANCELLED
@@ -262,6 +271,7 @@ def test_is_history_for_a_closed_drop_off_or_an_undone_rejection() -> None:
     stale = new_email(DropOffId(1), EmailKind.REJECTED, NOW, rejection_occasion(NOW - timedelta(hours=1)))
 
     assert is_history(a_drop_off(1, DropOffState.CLOSED), received)
+    assert is_history(a_drop_off(1, DropOffState.DELETED), received)  # its address is gone too
     assert not is_history(a_drop_off(1, DropOffState.FIRED), received)
     assert not is_history(rejected_drop_off, current)
     assert is_history(rejected_drop_off, stale)

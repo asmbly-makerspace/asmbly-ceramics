@@ -13,6 +13,10 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.NotFound(AC12), "AC-12 doesn't exist."),
     (errors.NotFound(L4), "Load L-4 doesn't exist."),
     (errors.NotWaiting(AC12, "fired"), "AC-12 isn't waiting: it is fired."),
+    (
+        errors.DropOffNotDeletable(AC12, "in load"),
+        "AC-12 is in load: only a waiting drop-off can be deleted.",
+    ),
     (errors.AlreadyInLoad(AC12, L4), "AC-12 is already in load L-4."),
     (errors.NotInLoad(AC12, L4), "AC-12 isn't in load L-4."),
     (errors.LoadNotLoading(L4, "firing"), "Load L-4 is firing: nothing can be added or removed."),

@@ -580,14 +580,17 @@ LOADS = _partition_prefix(keys.load_key(LoadId(1)), "L-1")
 LOAD_COUNTER_PK = keys.counter_key("load")["PK"]["S"]
 
 
-def test_the_console_reads_only_kept_photos_and_its_session_key() -> None:
+def test_the_console_reads_and_deletes_only_kept_photos_and_reads_its_session_key() -> None:
     console = statements("ConsoleFunction")
     [read] = granted("ConsoleFunction", "s3:GetObject")
     assert sub(read["Resource"]) == "${PhotoBucket.Arn}/" + KEPT
     [listing] = granted("ConsoleFunction", "s3:ListBucket")
     assert listing["Condition"] == {"StringLike": {"s3:prefix": KEPT}}
     assert not granted("ConsoleFunction", "s3:PutObject")
-    assert not granted("ConsoleFunction", "s3:DeleteObject")
+    # Deleting a drop-off made by mistake: its kept photos only, never an upload.
+    [delete] = granted("ConsoleFunction", "s3:DeleteObject")
+    assert actions(delete) == ["s3:DeleteObject"]
+    assert sub(delete["Resource"]) == "${PhotoBucket.Arn}/" + KEPT
     [key] = granted("ConsoleFunction", "ssm:GetParameter")
     assert [sub(r) for r in resources(key)] == [
         "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectSlug}/${AppEnv}/session-key"

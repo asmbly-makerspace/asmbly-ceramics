@@ -20,6 +20,7 @@ number.
 | [0002](decisions/0002-how-the-app-is-built-and-deployed.md) | Proposed: Starlette pages on Lambda behind an HTTP API, one DynamoDB table, photos uploaded straight to a private S3 bucket, email through an outbox and SES, sign-in checked by the app, SAM with a bootstrap stack, stage then prod |
 | [0003](decisions/0003-one-function-boundary-per-environment.md) | Accepted: one function boundary per environment, each on its own names; the HTTP API and event-source mappings take their tags in the create request (mappings' tags only on create, no import); the bootstrap owns the access-log policy |
 | [0004](decisions/0004-the-form-role-and-the-photo-bucket-name.md) | Accepted: amends 0002: the form's role may delete photos under `dropoffs/` (the submit's cleanup) and put the studio's first settings; its `PutItem` on drop-offs and emails can't require a new item; the photo bucket is named with a random suffix, not the account ID |
+| [0006](decisions/0006-the-console-may-delete-a-drop-offs-photos.md) | Accepted: amends 0002: the console's role may delete photos under `dropoffs/`, so staff can delete a waiting drop-off made by mistake and its photos go at once |
 | [0005](decisions/0005-the-http-apis-are-the-bootstraps.md) | Proposed: amends 0003: the bootstrap creates the stage and prod HTTP APIs and the execution role changes only their routes, stages and mappings, by ID; reads and deletes CloudFormation makes before a create or in a rollback are allowed by name; the bootstrap template is uploaded to S3 |
 
 ## Runbooks

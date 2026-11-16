@@ -20,10 +20,10 @@ class ViewPhoto:
 
     def __call__(self, id: DropOffId, index: int, size: PhotoSize) -> bytes:
         """The photo's JPEG bytes. `NotFound` when there is no such drop-off, it is closed
-        (its photos were deleted), it has no photo `index`, or the photo is gone;
+        or deleted (its photos were deleted), it has no photo `index`, or the photo is gone;
         `RecordsUnavailable`, `PhotosUnavailable`."""
         drop_off = self._records.drop_off(id)
-        if drop_off is None or drop_off.state is DropOffState.CLOSED:
+        if drop_off is None or drop_off.state in (DropOffState.CLOSED, DropOffState.DELETED):
             raise NotFound(id)
         ref = next((ref for ref in drop_off.photos if ref.index == index), None)
         if ref is None:

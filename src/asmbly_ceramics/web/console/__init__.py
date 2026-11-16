@@ -30,6 +30,7 @@ def console_routes() -> list[BaseRoute]:
         Route(drop_off + "/reject/preview", dropoffs.preview, methods=["POST"]),
         Route(drop_off + "/reject", dropoffs.reject, methods=["POST"]),
         Route(drop_off + "/undo-reject", dropoffs.undo, methods=["POST"]),
+        Route(drop_off + "/delete", dropoffs.delete, methods=["POST"]),
         Route(drop_off + "/emails/{kind}/retry", dropoffs.retry, methods=["POST"]),
         Route("/console/loads", loads.loads_page, methods=["GET"]),
         Route("/console/loads", loads.start_load, methods=["POST"]),

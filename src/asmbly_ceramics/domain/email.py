@@ -147,6 +147,17 @@ def mark_cancelled(email: Email) -> Email:
     return replace(email, status=EmailStatus.CANCELLED)
 
 
+UNSENT = frozenset({EmailStatus.PENDING, EmailStatus.SENDING, EmailStatus.FAILED})
+"""What `cancel_unsent` cancels: every email that hasn't (or may not have) gone."""
+
+
+def cancel_unsent(email: Email) -> Email:
+    """An email whose drop-off was deleted, cancelled whether it is pending, sending or
+    failed, so no copy of it waits in the unfinished index for staff or the mailer."""
+    _require(email, *UNSENT)
+    return replace(email, status=EmailStatus.CANCELLED)
+
+
 def retry(email: Email, at: datetime) -> Email:
     """A failed email, or one stuck sending or pending, back to PENDING, queued again."""
     _check_aware(at)
@@ -163,10 +174,10 @@ def needs_attention(email: Email, now: datetime) -> bool:
 
 
 def is_history(drop_off: DropOff, email: Email) -> bool:
-    """`email` is past acting on: its drop-off is closed (its address is gone, #7), or it is
+    """`email` is past acting on: its drop-off is closed or deleted (its address is gone), or it is
     a rejected email whose rejection was undone (`is_still_rejected`). The console lists
     no such email as needing attention, and none is retried or sent."""
-    return drop_off.state is DropOffState.CLOSED or (
+    return drop_off.state in (DropOffState.CLOSED, DropOffState.DELETED) or (
         email.kind is EmailKind.REJECTED and not is_still_rejected(drop_off, email.occasion)
     )
 

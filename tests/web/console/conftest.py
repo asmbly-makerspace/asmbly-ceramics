@@ -49,6 +49,7 @@ def console_services(world: World) -> ConsoleServices:
         preview_rejection=world.preview,
         reject_drop_off=world.reject,
         undo_rejection=world.undo,
+        delete_drop_off=world.delete_drop_off,
         retry_email=world.retry_email,
         emails_needing_attention=world.emails_needing_attention,
         list_loads=world.list_loads,

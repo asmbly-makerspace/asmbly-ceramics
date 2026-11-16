@@ -58,7 +58,8 @@ Read what the feature touches, not everything:
 ## What to look for
 
 - **The model's states and rules.** A drop-off is waiting, in a load, fired, rejected
-  or closed; a load is loading, firing or fired, or deleted if it was started by
+  or closed, or deleted if it was made by mistake (only while waiting; its details and
+  photos go at once); a load is loading, firing or fired, or deleted if it was started by
   mistake (only while loading or firing; its drop-offs go back to waiting). What can change in each state, and
   what can't (a fired load and its drop-offs are fixed; a rejection can be undone the
   same day; closing deletes personal details). A feature that adds a state or an
