@@ -28,7 +28,13 @@ from asmbly_ceramics.domain.errors import (
 )
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import FIRING_NUMBER_MAX, LOAD_CAPACITY
+from asmbly_ceramics.domain.limits import (
+    FIRING_NUMBER_MAX,
+    LOAD_CAPACITY,
+    NUMBERS_DATE_MARGIN,
+    NUMBERS_LOOKBACK,
+    NUMBERS_READ_AHEAD,
+)
 from asmbly_ceramics.domain.load import (
     LIVE_STATUSES,
     Load,
@@ -36,6 +42,7 @@ from asmbly_ceramics.domain.load import (
     Step,
     accepts_drop_offs,
     add_to_load,
+    can_correct_step,
     can_delete,
     can_start_firing,
     change_load,
@@ -43,6 +50,7 @@ from asmbly_ceramics.domain.load import (
     delete_load,
     fire,
     firing_type_locked,
+    numbers_window,
     remove_from_load,
     require_deletable,
     require_firing,
@@ -720,6 +728,14 @@ def test_correct_step_time_naive_time_refused() -> None:
         correct_step_time(load, Step.FIRED, LATER, (NOW + timedelta(days=1)).replace(tzinfo=None))
 
 
+def test_can_correct_step_only_a_step_with_a_time_on_a_live_load() -> None:
+    assert [can_correct_step(a_load(), step) for step in Step] == [True, False, False]
+    assert all(can_correct_step(a_fired_load(), step) for step in Step)
+    old = a_load(status=LoadStatus.FIRED, members=[1], before_42=True)
+    assert [can_correct_step(old, step) for step in Step] == [True, False, True]
+    assert not can_correct_step(a_load(status=LoadStatus.DELETED), Step.STARTED)
+
+
 def test_correct_step_time_deleted_load_not_found() -> None:
     with pytest.raises(NotFound):
         correct_step_time(a_load(status=LoadStatus.DELETED), Step.STARTED, NOW, LATER)
@@ -782,6 +798,23 @@ def test_suggest_after_new_elements_is_1() -> None:
 def test_suggest_never_above_the_limit() -> None:
     top = KilnCounts(FIRING_NUMBER_MAX, FIRING_NUMBER_MAX, NOW)
     assert suggest_numbers(top, []) == (FIRING_NUMBER_MAX, FIRING_NUMBER_MAX)
+
+
+def test_numbers_window_from_the_counts_day_less_the_margin_within_the_lookback() -> None:
+    late = NOW.replace(hour=3)  # 03:00 UTC is still the day before in Austin
+    counts = KilnCounts(since_elements=1, all_time=1, as_of=late)
+    at = NOW + timedelta(days=90)
+    ahead = at.date() + NUMBERS_READ_AHEAD
+    assert numbers_window(counts, at) == (date(2026, 11, 12) - NUMBERS_DATE_MARGIN, ahead)
+    assert numbers_window(None, late) == (
+        date(2026, 11, 12) - NUMBERS_LOOKBACK,
+        date(2026, 11, 12) + NUMBERS_READ_AHEAD,
+    )
+    # Counts set years ago: the read still goes back only the lookback, not to them.
+    years_on = NOW + timedelta(days=3 * 365)
+    assert numbers_window(counts, years_on)[0] == years_on.date() - NUMBERS_LOOKBACK
+    with pytest.raises(ValueError, match="aware"):
+        numbers_window(None, NOW.replace(tzinfo=None))
 
 
 def test_change_from_a_deleted_firing_type_swaps_only_an_empty_program() -> None:

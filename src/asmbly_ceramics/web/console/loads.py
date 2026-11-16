@@ -31,6 +31,7 @@ from asmbly_ceramics.domain.errors import (
     NotFound,
     NotInLoad,
     NotWaiting,
+    TooManyNotesToMove,
     UnknownItem,
     WrongLoadStatus,
 )
@@ -489,7 +490,7 @@ async def change_load(request: Request) -> Response:
     except UnknownItem, ItemRetired:
         current = _view(request, id).load
         return _refused(request, staff, id, problem=_item_problem(console.studio(), kiln, current.kiln))
-    except (FiringTypeLocked, LoadNotLoading) as refused:
+    except (FiringTypeLocked, LoadNotLoading, TooManyNotesToMove) as refused:
         return _refused(request, staff, id, problem=refused.message)
     except Conflict as conflict:
         return _conflicted(request, staff, id, conflict)

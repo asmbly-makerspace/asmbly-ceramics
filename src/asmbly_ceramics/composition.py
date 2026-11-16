@@ -28,14 +28,17 @@ from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
 from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    CorrectStepTime,
     DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
+    SaveFiringRecord,
     StartFiring,
     StartLoad,
     ViewLoad,
@@ -161,12 +164,15 @@ def build_console_services(
         list_loads=ListLoads(records, clock),
         start_load=StartLoad(records, ids, clock, studio),
         view_load=ViewLoad(records, clock, studio),
-        change_load=ChangeLoad(records, studio),
+        change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),
         delete_load=DeleteLoad(records, clock),
+        save_firing_record=SaveFiringRecord(records, clock, studio),
+        correct_step_time=CorrectStepTime(records, clock),
+        firing_log=FiringLog(records, clock, studio),
         view_studio=ViewStudio(records, studio),
         change_email_settings=ChangeEmailSettings(records, clock, studio),
         send_test_email=SendTestEmail(SesMailer(clients.ses), studio, JinjaComposer()),

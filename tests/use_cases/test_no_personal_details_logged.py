@@ -6,14 +6,19 @@ and checks every captured record's message and every attribute on it, extras inc
 """
 
 import logging
+from datetime import timedelta
 
 import pytest
 
 from asmbly_ceramics.domain.errors import InvalidDetails
+from asmbly_ceramics.domain.firing import record_values
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
+from asmbly_ceramics.domain.load import Step
 from asmbly_ceramics.ports.staff import StaffMember
+from asmbly_ceramics.use_cases.firing_log import FiringKind
 from asmbly_ceramics.use_cases.reject import RejectRequest, UndoRequest
 from tests.domain.builders import (
+    NOW,
     STAFF,
     TEST_EMAIL,
     TEST_MESSAGE,
@@ -67,4 +72,31 @@ def test_nothing_logged_holds_personal_details(world: World, caplog: pytest.LogC
         for secret in secrets:
             assert not any(secret.casefold() in text.casefold() for text in logged), (
                 f"{record.getMessage()} holds a personal detail or a token"
+            )
+
+
+def test_the_firing_record_logs_field_names_never_values(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    staff = StaffMember(STAFF, STAFF_EMAIL)
+    load = world.start_load(ItemId("athena"), ItemId("glaze"), None, staff, test=True)
+    typed = {"max_temp_f": "2236", "board_temp_f": "157", "cost": "8.19", "firing_time": "11:38"}
+
+    saved = world.save_firing_record(load.id, record_values(load.record) | typed, load.version, staff)
+    world.clock.advance(timedelta(minutes=5))
+    world.correct_step_time(load.id, Step.STARTED, NOW - timedelta(minutes=42), saved.version, staff)
+    world.firing_log(None, None, None, FiringKind.ALL)
+    world.view_load(load.id)
+
+    [saved_line] = [vars(r) for r in caplog.records if r.getMessage() == "firing_record_saved"]
+    assert saved_line["fields"] == "firing_time,max_temp_f,board_temp_f,cost"
+    assert any(r.getMessage() == "step_time_corrected" for r in caplog.records)
+    standard = set(vars(logging.makeLogRecord({})))  # a record's own attributes: times, paths
+    values = {"2236", "2,236", "157", "8.19", "819", "11:38", "698", "12:30", "11:48", "Started", "Corrected"}
+    for record in caplog.records:
+        extras = [repr(value) for key, value in vars(record).items() if key not in standard]
+        for text in (record.getMessage(), *extras):
+            assert not any(value in text for value in values), (
+                f"{record.getMessage()} holds a value staff typed"
             )

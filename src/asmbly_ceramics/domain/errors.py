@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
+from asmbly_ceramics.domain.limits import LOG_RANGE_MAX_YEARS
 
 FieldErrors = Mapping[str, str]
 """A field's name mapped to its message key (`email.invalid`), never to the field's value."""
@@ -188,6 +189,21 @@ class StepTimeOutOfOrder(DomainError):
 class StepTimeInFuture(DomainError):
     def __init__(self, load_id: LoadId) -> None:
         super().__init__("That time is in the future.")
+        self.load_id = load_id
+
+
+class InvalidLogRange(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            f"Choose a date range of at most {LOG_RANGE_MAX_YEARS} years, ending after it starts."
+        )
+
+
+class TooManyNotesToMove(DomainError):
+    """A kiln change moves the load's notes in its commit, which holds at most `limit`."""
+
+    def __init__(self, load_id: LoadId, limit: int) -> None:
+        super().__init__(f"Load {load_id} has more than {limit} notes, so its kiln can't be changed.")
         self.load_id = load_id
 
 

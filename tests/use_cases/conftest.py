@@ -23,14 +23,17 @@ from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
 from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    CorrectStepTime,
     DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
+    SaveFiringRecord,
     StartFiring,
     StartLoad,
     ViewLoad,
@@ -96,6 +99,9 @@ class World:
     delete_load: DeleteLoad
     view_load: ViewLoad
     list_loads: ListLoads
+    save_firing_record: SaveFiringRecord
+    correct_step_time: CorrectStepTime
+    firing_log: FiringLog
     send_email: SendPendingEmail
     retry_email: RetryEmail
     emails_needing_attention: EmailsNeedingAttention
@@ -159,7 +165,7 @@ def world() -> World:
         reject=RejectDropOff(records, clock, studio),
         undo=UndoRejection(records, clock),
         start_load=StartLoad(records, ids, clock, studio),
-        change_load=ChangeLoad(records, studio),
+        change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records, clock),
@@ -167,6 +173,9 @@ def world() -> World:
         delete_load=DeleteLoad(records, clock),
         view_load=ViewLoad(records, clock, studio),
         list_loads=ListLoads(records, clock),
+        save_firing_record=SaveFiringRecord(records, clock, studio),
+        correct_step_time=CorrectStepTime(records, clock),
+        firing_log=FiringLog(records, clock, studio),
         send_email=SendPendingEmail(records, photos, mailer, clock, studio, composer),
         retry_email=RetryEmail(records, clock),
         emails_needing_attention=EmailsNeedingAttention(records, clock),

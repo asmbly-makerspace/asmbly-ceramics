@@ -50,7 +50,7 @@ from asmbly_ceramics.domain.notes import FiringNote
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
 from asmbly_ceramics.ports.errors import PortError, RecordsUnavailable
 
-MAX_CHANGES = 100  # DynamoDB's transaction limit; the 48-drop-off load keeps a fire at 97
+MAX_CHANGES = 100  # DynamoDB's transaction limit; the 48-drop-off load keeps a fire at 98
 
 
 @dataclass(frozen=True, slots=True)

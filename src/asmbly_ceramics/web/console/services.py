@@ -9,13 +9,16 @@ from asmbly_ceramics.ports.staff import StaffTokens
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
 from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    CorrectStepTime,
     DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
+    SaveFiringRecord,
     StartFiring,
     StartLoad,
     ViewLoad,
@@ -68,6 +71,10 @@ class ConsoleServices:
     start_firing: StartFiring
     mark_fired: MarkFired
     delete_load: DeleteLoad
+    # The firing record and log (#42); their pages come in phases 6 and 7
+    save_firing_record: SaveFiringRecord
+    correct_step_time: CorrectStepTime
+    firing_log: FiringLog
     # Settings (#6)
     view_studio: ViewStudio
     change_email_settings: ChangeEmailSettings

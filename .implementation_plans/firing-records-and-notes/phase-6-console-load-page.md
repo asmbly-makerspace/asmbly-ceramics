@@ -196,3 +196,10 @@ None (staff are told after phase 7).
       `load.html`.
 - [ ] Both `test=False  # phase 6 asks` literals in `web/console/loads.py` (start and
       change) replaced by the form's value in the same change as the checkbox.
+- From phase 5's review: correcting the fired step moves `load.fired_at` only; the
+  load's drop-offs keep their own `fired_at`, so the page shouldn't say it changed them.
+- From phase 5's review: two loads loading on one kiln at once are both suggested the
+  same next number (`LoadView.suggested`); a load fired at or before the kiln's
+  `counts.as_of` gets no suggestion. Prefill from `suggested` only as a suggestion.
+- `StepView.can_correct` says whether to offer the time correction (False for a load
+  made before #42's firing step); `CorrectStepTime` treats the same minute as unchanged.

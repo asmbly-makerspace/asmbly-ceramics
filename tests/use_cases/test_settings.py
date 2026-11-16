@@ -19,7 +19,7 @@ from asmbly_ceramics.domain.errors import (
 )
 from asmbly_ceramics.domain.firing import FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import ItemId
-from asmbly_ceramics.domain.limits import NUMBERS_DATE_MARGIN, STUDIO_TZ
+from asmbly_ceramics.domain.limits import NUMBERS_DATE_MARGIN, NUMBERS_READ_AHEAD, STUDIO_TZ
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, ItemStatus, KilnCounts, Studio
 from asmbly_ceramics.ports.errors import RecordsUnavailable
@@ -446,7 +446,7 @@ def test_record_new_elements_reads_since_counts(world: World) -> None:
     saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
 
     assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 300, world.clock.now())
-    assert world.records.date_ranges[-1] == (first, date.max)
+    assert world.records.date_ranges[-1] == (first, counts_day + NUMBERS_READ_AHEAD)
     assert "loads_dated_between" in world.records.reads[reads:]
     assert "loads_in" not in world.records.reads[reads:]
 

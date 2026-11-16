@@ -15,9 +15,10 @@ from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import LOAD_CAPACITY
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList
-from asmbly_ceramics.ports.records import Conflict
+from asmbly_ceramics.ports.records import Conflict, Put
+from asmbly_ceramics.use_cases.loads import NOTES_MOVED_MAX
 from asmbly_ceramics.use_cases.reject import RejectRequest
-from tests.domain.builders import STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE
+from tests.domain.builders import STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE, a_note
 from tests.use_cases.flows import ATHENA, HELIOS, STAFF_MEMBER, fired, loaded, send_all
 from tests.web.console.conftest import Console, events
 
@@ -394,6 +395,23 @@ def test_the_firing_type_is_read_only_once_the_load_has_drop_offs(staff: Console
     fields["version"] = str(load_of(staff, LoadId(2)).version)
     assert staff.post("/console/loads/L-2/edit", fields).status_code == 303
     assert load_of(staff, LoadId(2)).firing_type == "glaze"
+
+
+def test_a_kiln_change_with_too_many_notes_is_refused_not_a_500(staff: Console) -> None:
+    start(staff)
+    load = load_of(staff)
+    studio = staff.world.studio()
+    notes = [
+        a_note(number, load, glaze_types=(), clay_bodies=(), studio=studio)
+        for number in range(1, NOTES_MOVED_MAX + 2)
+    ]
+    staff.world.records.commit([Put(note) for note in notes])
+
+    answer = staff.post("/console/loads/L-1/edit", edit_fields(staff, "helios", "bisque", "2026-11-13"))
+
+    assert answer.status_code == 400
+    assert f"Load L-1 has more than {NOTES_MOVED_MAX} notes, so its kiln can't be changed." in text(answer)
+    assert load_of(staff).kiln == ATHENA
 
 
 def test_the_edit_form_keeps_a_retired_kiln_selected(staff: Console) -> None:

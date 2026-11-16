@@ -180,6 +180,12 @@ def remove_note(note: FiringNote, by: str, at: datetime) -> FiringNote:
     return replace(note, removed_by=by, removed_at=at)
 
 
+def move_note(note: FiringNote, kiln: ItemId) -> FiringNote:
+    """The note filed under its load's new kiln, so the search by kiln finds it where the
+    load now is. Not an edit: its text, tags and stamps stay as they are."""
+    return replace(note, kiln=kiln)
+
+
 @dataclass(frozen=True, slots=True)
 class NoteFilter:
     kiln: ItemId | None = None

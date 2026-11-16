@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 5: Use cases: test loads, history, the firing record, corrections, the firing log
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -45,10 +45,16 @@ page shows and the CSV downloads (phase 7).
 - `src/asmbly_ceramics/use_cases/loads.py`: history lines; `SaveFiringRecord`,
   `CorrectStepTime`; `ViewLoad` additions.
 - `src/asmbly_ceramics/domain/limits.py`: `LOG_RANGE_MAX`, `LOG_DEFAULT_RANGE`.
-- `src/asmbly_ceramics/domain/errors.py`: `InvalidLogRange`.
+- `src/asmbly_ceramics/domain/errors.py`: `InvalidLogRange`, `TooManyNotesToMove`.
 - `src/asmbly_ceramics/domain/firing.py`: `record_values`.
 - `src/asmbly_ceramics/composition.py`: wire `SaveFiringRecord`, `CorrectStepTime`,
-  `FiringLog`.
+  `FiringLog`; `ChangeLoad(records, clock, studio)` (it now takes the clock for its
+  history line).
+- `src/asmbly_ceramics/web/console/services.py`: `ConsoleServices` gains
+  `save_firing_record`, `correct_step_time` and `firing_log` (their pages come in phases
+  6 and 7, as `set_default_program`'s did), so composition can wire them.
+- `tests/web/console/conftest.py`: builds `ConsoleServices` on the fakes; gains the three
+  new fields and `ChangeLoad`'s clock.
 - `tests/use_cases/test_loads.py`, `tests/use_cases/test_no_personal_details_logged.py`,
   `tests/use_cases/conftest.py` (fixtures for the new use cases), `tests/test_composition.py`.
 
@@ -62,7 +68,7 @@ staff.username, now, what))`. Each use case adds one to its existing commit:
 | Use case | `what` |
 | --- | --- |
 | `StartLoad` | "Started the load" (+ " as a test firing" when `test`) |
-| `ChangeLoad` | one line per change, joined with "; ": "Kiln: Athena → Helios", "Firing type: Bisque → Glaze", "Date: Nov 12 → Nov 13", "Marked a test firing" / "No longer a test firing"; no line when nothing changed (and no commit then, as now if it already skips) |
+| `ChangeLoad` | one line per change, joined with "; ": "Kiln: Athena → Helios", "Firing type: Bisque → Glaze", "Date: Nov 12 → Nov 13", "Marked a test firing" / "No longer a test firing"; no line when nothing changed, and then no commit and no log (today it always commits; after the domain's checks and the version check, an unchanged load is returned as it is) |
 | `StartFiring` | "Started firing" |
 | `MarkFired` | "Marked fired" (the commit grows to at most 98 changes) |
 | `DeleteLoad` | "Deleted the load" |
@@ -128,6 +134,8 @@ class StepView:
   the counts' Austin day, or `NUMBERS_LOOKBACK` back; the window `RecordNewElements`
   uses, phase 4), this load left out. Read only for a loading or firing load, or a fired load with
   no numbers, so a fired load's page reads no more than it needs.
+- `cones`: the studio's active cones plus the cone the record's program already names
+  (retired or not), in the studio's order: the same set `SaveFiringRecord` accepts.
 - `record_fields`: the domain's formatting, so the page and the history line agree (put
   `record_values(record) -> dict[str, str]` in `domain/firing.py` if it isn't there).
 
@@ -171,7 +179,8 @@ class FiringLog:
         """Fired loads dated `start..end` inclusive (defaults: the last 12 weeks to today,
         Austin), of `kiln` (or every kiln), of `kind`. `UnknownItem` for a kiln the studio
         doesn't have. A range longer than LOG_RANGE_MAX (5 years) or ending before it
-        starts is `InvalidLogRange`. Reads `loads_dated_between` only. A read: logs
+        starts is `InvalidLogRange`; so is an `end` of `date.max` (the read's half-open
+        end is `end + 1 day`). Reads `loads_dated_between` only. A read: logs
         nothing."""
 ```
 
@@ -197,8 +206,9 @@ and its history line, so the notes search by kiln (phase 8) finds them under the
 the load is now in. Chosen over phase 8 reading each note's kiln from its load, which
 would read a load for every note a search returns. A loading load holds few notes; the
 commit stays within DynamoDB's 100 items per transaction as long as a loading load has
-at most 98 notes (the load and its history line are the other two), and `ChangeLoad` refuses a kiln change past that with a message
-(prep picks the error).
+at most 98 notes (the load and its history line are the other two), and `ChangeLoad` refuses a kiln change past that with
+`TooManyNotesToMove(load_id, limit)` (`domain/errors.py`, chosen by prep: "Load L-4 has
+more than 98 notes, so its kiln can't be changed."), the limit being `MAX_CHANGES - 2`.
 
 ## Tests
 
@@ -207,8 +217,11 @@ at most 98 notes (the load and its history line are the other two), and `ChangeL
 - One per row of the history table: the line is in the same commit (a commit failure
   writes neither), with the username and the clock's time.
 - `test_change_load_without_changes_writes_no_line`.
-- `test_change_load_kiln_moves_its_notes` (each of the load's notes, removed ones
-  included, has the new kiln after the same commit; another load's notes don't change).
+- `test_change_load_kiln_moves_its_notes` (each of the load's notes that isn't removed
+  has the new kiln after the same commit; a removed note keeps its old kiln, as
+  `notes_for` leaves it out and it is listed nowhere; another load's notes don't change).
+- `test_change_load_kiln_with_too_many_notes_refused` (`TooManyNotesToMove`, nothing
+  written); `test_change_load_date_only_reads_no_notes`.
 - `test_mark_fired_full_load_commits_98_changes`.
 - `test_save_firing_record`; `..._unchanged_no_commit`; `..._invalid_names_fields`;
   `..._conflict`; `..._on_fired_load_keeps_members_and_sends_nothing` (no email `Put`);
@@ -268,10 +281,36 @@ None.
 
 ## Hand-off
 
-- [ ] Every load use case writes its history line; `MarkFired` is ≤ 98 changes.
-- [ ] `ChangeLoad` rewrites its notes' `kiln` in the same commit when the kiln changes.
-- [ ] `SaveFiringRecord(load_id, values, version, staff)`,
-      `CorrectStepTime(load_id, step, at, version, staff)`, wired.
-- [ ] `LoadView.steps`, `history`, `suggested`, `cones`, `record_fields`; `StepView`.
-- [ ] `FiringLog(kiln, start, end, kind)` → `FiringLogView`; `FiringKind`;
-      `InvalidLogRange`; `LOG_RANGE_MAX`, `LOG_DEFAULT_RANGE`.
+Status stays `[~] In progress` until the maintainer confirms the rollout check after the
+merge (stage: a made-up load started, fired and marked fired has `EVENT#` items in its
+partition); a later pull request sets `[x]`.
+
+- [x] Every load use case writes its history line in its commit (`StartLoad` "Started the
+      load" / "… as a test firing", `ChangeLoad` one line per change joined with "; ",
+      plus "Firing record: …" when a new firing type's default program swapped in,
+      `StartFiring` "Started firing", `MarkFired` "Marked fired", `DeleteLoad` "Deleted
+      the load"); add and remove write none. `MarkFired` on a full load commits 98.
+- [x] `ChangeLoad(records, clock, studio)`: nothing changed means no commit and no log;
+      a kiln change `Update`s each of `notes_for(load)` (removed notes keep their kiln)
+      in the same commit; more than `NOTES_MOVED_MAX` (98) is `TooManyNotesToMove`.
+- [x] `SaveFiringRecord(load_id, values, version, staff)` (cones: active ones plus the
+      record's own; nothing changed, no commit; log `firing_record_saved` with `fields`),
+      `CorrectStepTime(load_id, step, at, version, staff)` (the same time again, no
+      commit; log `step_time_corrected` with `kind`), in `use_cases/loads.py`, wired in
+      `composition.py` and `ConsoleServices` (`save_firing_record`, `correct_step_time`).
+- [x] `LoadView.steps` (`StepView`: step, label, reached, by, at, can_correct; `by` None with
+      `reached` is "not recorded"), `history` (oldest first), `suggested` (only with no
+      numbers on the record; a fired load counts only loads fired before it), `cones`
+      (`record_cones`), `record_fields` (`domain.firing.record_values`, which reads back
+      to the same record). `STEP_LABELS`.
+- [x] `FiringLog(kiln, start, end, kind)` → `FiringLogView` (`rows` newest fired first,
+      `FiringLogRow.notes` None for phase 9), `FiringKind`, in `use_cases/firing_log.py`,
+      wired as `ConsoleServices.firing_log`; `InvalidLogRange`, `LOG_RANGE_MAX`,
+      `LOG_DEFAULT_RANGE`.
+- `domain.load.numbers_window(counts, at)` (was `numbers_read_from`, made bounded after
+  the review: `NUMBERS_LOOKBACK` back at most, `NUMBERS_READ_AHEAD` ahead) is the
+  numbering window `ViewLoad` and `RecordNewElements` share; `domain.firing.changed_fields` names a save's changed fields.
+- For phase 8: a note written between `ChangeLoad`'s `notes_for` read and its commit
+  keeps the old kiln (no item in that commit covers it). `WriteNote` could put the load's
+  version in its own commit to close the race; it's narrow and staff can edit the note.
+- `sam validate` and `sam build` weren't run (no `sam` here; no template change).

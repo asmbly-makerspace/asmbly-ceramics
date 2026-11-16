@@ -13,9 +13,11 @@ from asmbly_ceramics.domain.firing import (
     FiringRecord,
     Program,
     Speed,
+    changed_fields,
     read_firing_record,
     read_program,
     record_changes,
+    record_values,
 )
 from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.domain.limits import COST_CENTS_MAX, FIRING_MINUTES_MAX
@@ -237,3 +239,33 @@ def test_read_firing_record_reports_program_and_other_fields_together() -> None:
     with pytest.raises(InvalidRecord) as refused:
         read_firing_record({"percent_full": "101", "cone": "cone-9", "cost": "200"}, CONES)
     assert list(refused.value.errors) == ["percent_full", "cone", "cost"]
+
+
+def test_record_values_shows_the_record_as_the_form_sends_it() -> None:
+    assert record_values(FULL_RECORD) == FULL_FORM | {"max_temp_f": "2236"}
+    assert record_values(EMPTY_RECORD) == dict.fromkeys(RECORD_FIELDS, "")
+    short = replace(FULL_RECORD, firing_minutes=65, cost_cents=5, cone_top=0)
+    assert {k: record_values(short)[k] for k in ("firing_time", "cost", "cone_top")} == {
+        "firing_time": "1:05",
+        "cost": "0.05",
+        "cone_top": "0",
+    }
+
+
+def test_record_values_reads_back_to_the_same_record() -> None:
+    maxed = replace(FULL_RECORD, firing_minutes=FIRING_MINUTES_MAX, cost_cents=COST_CENTS_MAX)
+    for record in (FULL_RECORD, EMPTY_RECORD, maxed):
+        assert read_firing_record(record_values(record), CONES) == record
+
+
+def test_changed_fields_names_only_what_changed_in_page_order() -> None:
+    new = replace(FULL_RECORD, cost_cents=None, percent_full=90, program=Program())
+    assert changed_fields(FULL_RECORD, new) == (
+        "percent_full",
+        "preheat_hours",
+        "cone",
+        "speed",
+        "hold_minutes",
+        "cost",
+    )
+    assert changed_fields(FULL_RECORD, FULL_RECORD) == ()

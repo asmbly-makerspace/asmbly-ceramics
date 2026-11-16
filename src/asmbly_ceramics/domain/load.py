@@ -39,7 +39,14 @@ from asmbly_ceramics.domain.errors import (
 )
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import FIRING_NUMBER_MAX, LOAD_CAPACITY
+from asmbly_ceramics.domain.limits import (
+    FIRING_NUMBER_MAX,
+    LOAD_CAPACITY,
+    NUMBERS_DATE_MARGIN,
+    NUMBERS_LOOKBACK,
+    NUMBERS_READ_AHEAD,
+    STUDIO_TZ,
+)
 from asmbly_ceramics.domain.studio import CatalogList, KilnCounts, Studio
 
 
@@ -187,6 +194,24 @@ def suggest_numbers(counts: KilnCounts | None, fired: Sequence[Load]) -> tuple[i
     return _next_number(since), _next_number(total)
 
 
+def numbers_window(counts: KilnCounts | None, at: dt.datetime) -> tuple[dt.date, dt.date]:
+    """The load dates to read, half-open, for `suggest_numbers`' fired loads (#42) when
+    numbering a firing at `at` (now, or a fired load's `fired_at`).
+
+    It starts `NUMBERS_LOOKBACK` before `at`'s Austin day, or `NUMBERS_DATE_MARGIN` before
+    the counts' Austin day when that is later (a load's date can come well before its
+    firing), and ends `NUMBERS_READ_AHEAD` after `at`'s day (a load dated after it may
+    already be fired). So the read is bounded by those limits, not by the years kept:
+    a load dated outside it isn't read, and a kiln with no numbered firing in the
+    lookback gets its counts plus 1 suggested (staff can correct either)."""
+    _check_aware(at)
+    day = at.astimezone(STUDIO_TZ).date()
+    start = day - NUMBERS_LOOKBACK
+    if counts is not None:
+        start = max(start, counts.as_of.astimezone(STUDIO_TZ).date() - NUMBERS_DATE_MARGIN)
+    return start, day + NUMBERS_READ_AHEAD
+
+
 def _next_number(latest: int | None) -> int | None:
     return None if latest is None else min(latest + 1, FIRING_NUMBER_MAX)
 
@@ -303,6 +328,12 @@ def step_time(load: Load, step: Step) -> dt.datetime | None:
             return load.fired_at
 
 
+def can_correct_step(load: Load, step: Step) -> bool:
+    """Whether `correct_step_time` accepts a time for `step` at all: the load is live and
+    the step has a time (not the firing step of a load made before #42)."""
+    return load.status is not LoadStatus.DELETED and step_time(load, step) is not None
+
+
 def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime) -> Load:
     """A reached step's time corrected, for a button pressed late (#42).
 
@@ -316,7 +347,7 @@ def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime)
     _check_aware(now)
     if load.status is LoadStatus.DELETED:
         raise NotFound(load.id)
-    if step_time(load, step) is None:
+    if not can_correct_step(load, step):
         raise StepNotReached(load.id, step.value)
     if at > now:
         raise StepTimeInFuture(load.id)

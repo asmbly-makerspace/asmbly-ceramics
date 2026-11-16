@@ -114,7 +114,7 @@
    ],
    "status": "done",
    "base_sha": "62814e0",
-   "squashed_sha": null,
+   "squashed_sha": "ddf98c3",
    "review_rounds": 1,
    "cold_review": "fixed",
    "split_from": null,
@@ -139,11 +139,11 @@
    "depends_on": [
     "4"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "ddf98c3",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 3,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [],
@@ -381,6 +381,30 @@
    "review_lead": "APPROVED",
    "privacy": "CLEAR",
    "warns_fixed": 3
+  },
+  {
+   "ts": "2026-11-16T21:28:08Z",
+   "type": "squash",
+   "phase": "phase-4-records-events-notes-ranges",
+   "sha": "ddf98c3"
+  },
+  {
+   "ts": "2026-11-16T21:28:08Z",
+   "type": "phase_start",
+   "phase": "phase-5-use-cases-record-and-log"
+  },
+  {
+   "ts": "2026-11-16T22:05:42Z",
+   "type": "phase_done",
+   "phase": "phase-5-use-cases-record-and-log"
+  },
+  {
+   "ts": "2026-11-16T22:05:42Z",
+   "type": "cold_review",
+   "phase": "phase-5-use-cases-record-and-log",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 7
   }
  ]
 }

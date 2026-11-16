@@ -199,7 +199,8 @@ def read_firing_record(values: Mapping[str, str], cones: Collection[ItemId]) -> 
     Each is stripped and checked, length first, so `int()` never sees thousands of digits:
     whole numbers in range; the firing time as `H:MM` or `HH:MM`, at most 72:00; the cost
     as dollars (`8`, `8.1`, `8.19`, an optional `$`), at most $100, kept as cents; the
-    cone, an ID in `cones` (the studio's active and retired cones); the speed, a `Speed`;
+    cone, an ID in `cones` (the caller's choice: `SaveFiringRecord` passes the active
+    cones and the one the record already names); the speed, a `Speed`;
     each witness cone a whole % or `none`. `InvalidRecord` names every refused field with
     its message; no message quotes the value sent.
     """
@@ -267,13 +268,39 @@ def record_changes(
     shows it ("Max temp: 2,236 °F", "Cost: $8.19", "Bottom cone: no cone", "Firing time:
     cleared"). Empty when nothing changed. Phase 5 writes them into the load's history."""
     lines: list[str] = []
-    for field in RECORD_FIELDS:
-        before, after = _value(old, field), _value(new, field)
-        if before == after:
-            continue
+    for field in changed_fields(old, new):
+        after = _value(new, field)
         shown = "cleared" if after is None else _shown(field, after, cone_name)
         lines.append(f"{_LABELS[field]}: {shown}")
     return tuple(lines)
+
+
+def changed_fields(old: FiringRecord, new: FiringRecord) -> tuple[str, ...]:
+    """The names (`RECORD_FIELDS`) of the fields that differ, in the page's order: what a
+    log line may say about a saved record, never the values."""
+    return tuple(field for field in RECORD_FIELDS if _value(old, field) != _value(new, field))
+
+
+def record_values(record: FiringRecord) -> dict[str, str]:
+    """The record as the form shows it, one text per field in `RECORD_FIELDS` ("" when not
+    recorded): whole numbers without separators, the firing time as `H:MM` ("11:38"), the
+    cost in dollars ("8.19"), the cone's ID, the speed, and a witness cone as a % or
+    "none". `read_firing_record` reads it back to the same record."""
+    values: dict[str, str] = {}
+    for field in RECORD_FIELDS:
+        value = _value(record, field)
+        match field, value:
+            case (_, None):
+                values[field] = ""
+            case ("firing_time", int()):
+                values[field] = f"{value // 60}:{value % 60:02d}"
+            case ("cost", int()):
+                values[field] = f"{value // 100}.{value % 100:02d}"
+            case (_, StrEnum()):
+                values[field] = value.value
+            case _:
+                values[field] = str(value)
+    return values
 
 
 def _value(record: FiringRecord, field: str) -> object:

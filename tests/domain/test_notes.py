@@ -22,6 +22,7 @@ from asmbly_ceramics.domain.notes import (
     check_note_text,
     edit_note,
     matches,
+    move_note,
     remove_note,
     write_note,
 )
@@ -473,6 +474,12 @@ def test_remove_note() -> None:
     removed = remove_note(note, OTHER_STAFF, LATER)
     assert removed == replace(note, removed_by=OTHER_STAFF, removed_at=LATER)
     assert removed.removed
+
+
+def test_move_note_changes_only_its_kiln() -> None:
+    note = _edit(a_note(12, a_load(4, LoadStatus.LOADING, kiln="helios")), text="Crawled at the foot.")
+    moved = move_note(note, ItemId("athena"))
+    assert moved == replace(note, kiln=ItemId("athena"))
 
 
 def test_remove_twice_not_found() -> None:

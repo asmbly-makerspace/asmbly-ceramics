@@ -45,6 +45,11 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
         "or have been fired before it started firing.",
     ),
     (errors.StepTimeInFuture(L4), "That time is in the future."),
+    (errors.InvalidLogRange(), "Choose a date range of at most 5 years, ending after it starts."),
+    (
+        errors.TooManyNotesToMove(L4, 98),
+        "Load L-4 has more than 98 notes, so its kiln can't be changed.",
+    ),
     (errors.MessageRequired(), "This reason needs a message."),
     (errors.MessageTooLong(1000), "The message is longer than 1,000 characters."),
     (errors.NotRejected(AC12), "AC-12 isn't rejected."),
