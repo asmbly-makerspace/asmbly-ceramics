@@ -6,15 +6,15 @@ import logging
 import pytest
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
-from asmbly_ceramics.domain.email import EmailKind, EmailStatus
+from asmbly_ceramics.domain.email import EmailKind, EmailStatus, claim, mark_failed
 from asmbly_ceramics.domain.errors import DropOffNotDeletable, NotFound, NotWaiting
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.photos import PhotoSize
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import PhotosUnavailable, RecordsUnavailable
-from asmbly_ceramics.ports.records import Conflict
+from asmbly_ceramics.ports.records import Conflict, Update
 from asmbly_ceramics.use_cases.reject import RejectRequest
-from tests.domain.builders import NOW, STAFF, TEST_EMAIL, TEST_MESSAGE, TEST_NAME
+from tests.domain.builders import NOW, STAFF, TEST_EMAIL, TEST_MESSAGE, TEST_NAME, TEST_PHONE_DIGITS
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import STAFF_MEMBER, dropped_off, email_of, loaded, send_all
 
@@ -55,6 +55,31 @@ def test_delete_erases_details_and_photos_at_once_and_cancels_the_unsent_email(
     for line in caplog.records:
         assert TEST_NAME not in str(vars(line))
         assert TEST_EMAIL not in str(vars(line))
+        assert TEST_PHONE_DIGITS not in str(vars(line))
+
+
+def test_a_failed_received_email_is_cancelled_too(world: World) -> None:
+    dropped_off(world, 1)
+    received = email_of(world, AC_1, EmailKind.RECEIVED)
+    world.records.commit([Update(mark_failed(claim(received, NOW), "Throttling"))])
+
+    delete(world)
+
+    assert email_of(world, AC_1, EmailKind.RECEIVED).status is EmailStatus.CANCELLED
+    assert world.records.emails_in({EmailStatus.FAILED}) == []  # nothing left for staff to retry
+
+
+def test_a_conflict_after_the_photos_went_leaves_it_deletable_again(world: World) -> None:
+    dropped_off(world, 1)
+    world.records.fail_next_commit_with = Conflict(["AC-1"])  # the mailer claimed its email meanwhile
+
+    with pytest.raises(Conflict):
+        delete(world)
+
+    assert world.photos.kept_count(AC_1) == 0  # photos first, as the close does
+    assert stored(world).state is DropOffState.WAITING
+    delete(world)
+    assert stored(world).state is DropOffState.DELETED
 
 
 def test_a_sent_received_email_stays_sent(world: World) -> None:

@@ -15,7 +15,7 @@
 {% if confirm_delete %}
 <section class="panel panel-danger" id="confirm-delete" aria-labelledby="confirm-delete-title">
   <h3 id="confirm-delete-title">Delete {{ drop_off.id }}?</h3>
-  <p><strong>This can't be undone.</strong> The name, email, phone number and photos are deleted now, and no email is sent. It leaves the waiting list and the weekly counts. Only for a drop-off made by mistake or as a test.</p>
+  <p><strong>This can't be undone.</strong> The name, email, phone number and photos are deleted now, and no one is emailed about it. It leaves the waiting list and the weekly counts. Only for a drop-off made by mistake or as a test.</p>
   <p>Its number isn't used again; a slip with {{ drop_off.id }} still finds it, marked deleted.</p>
   <form method="post" action="/console/drop-offs/{{ drop_off.id }}/delete">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -46,7 +46,7 @@
 <section class="details panel">
   <h3>Details</h3>
   {% if deleted %}
-  <p>{{ state }}; its contact details and photos were deleted, and no email was sent.</p>
+  <p>{{ state }}; its contact details and photos were deleted, and no one was emailed about it.</p>
   {% elif not drop_off.contact %}
   <p>Closed on {{ closed_on }}; its contact details and photos were deleted.</p>
   {% endif %}

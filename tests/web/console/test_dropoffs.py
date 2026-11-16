@@ -489,7 +489,7 @@ def test_delete_asks_first_and_says_what_goes(ready: Console) -> None:
     page = html.unescape(asked.text)
     assert "Delete AC-1?" in page
     assert "This can't be undone." in page
-    assert "no email is sent" in page
+    assert "no one is emailed about it" in page
     assert 'name="typed_id"' in page
     assert "Delete AC-1 for good" in page
     assert "<summary>Delete this drop-off</summary>" not in page
@@ -525,10 +525,12 @@ def test_delete_with_the_id_typed_erases_the_person_and_their_photos(
     assert ready.world.photos.kept_count(AC_1) == 0
     assert email_of(ready.world, AC_1, EmailKind.RECEIVED).status is EmailStatus.CANCELLED
     page = html.unescape(ready.get(done.headers["location"]).text)
-    assert "AC-1 was deleted: its contact details and photos are gone, and no email was sent." in page
+    assert "AC-1 was deleted: its contact details and photos are gone. No one was emailed about it." in page
     assert f"Deleted by {STAFF}" in page
     assert TEST_NAME not in page
     assert TEST_EMAIL not in page
+    assert TEST_PHONE_DIGITS not in page
+    assert FORMATTED_PHONE not in page
     assert "/photos/1" not in page
     assert "Delete this drop-off" not in page
     assert "Reject…" not in page
@@ -564,6 +566,17 @@ def test_a_rejected_drop_off_cannot_be_deleted(ready: Console) -> None:
     assert answer.status_code == 400
     assert "AC-1 is rejected: only a waiting drop-off can be deleted." in html.unescape(answer.text)
     assert state(ready) is DropOffState.REJECTED
+
+
+def test_a_fired_drop_off_isnt_told_to_leave_its_load(ready: Console) -> None:
+    fired(ready.world, AC_1)
+
+    answer = delete(ready, "AC-1")
+
+    assert answer.status_code == 400
+    page = html.unescape(answer.text)
+    assert "AC-1 is fired: only a waiting drop-off can be deleted." in page
+    assert "Remove it from load" not in page
 
 
 def test_delete_from_a_stale_page_is_a_conflict(ready: Console) -> None:

@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.email import (
     Email,
     EmailKind,
     EmailStatus,
+    cancel_unsent,
     claim,
     is_email_occasion,
     is_history,
@@ -201,6 +202,14 @@ def test_a_move_from_a_status_it_doesnt_allow_is_a_bug(
 ) -> None:
     with pytest.raises(ValueError, match=r"AC-12's received email is"):
         move(make())
+
+
+def test_cancel_unsent_cancels_pending_sending_and_failed_only() -> None:
+    for make in (pending, sending, failed):
+        assert cancel_unsent(make()).status is EmailStatus.CANCELLED
+    for make in (sent, cancelled):
+        with pytest.raises(ValueError, match="email is"):
+            cancel_unsent(make())
 
 
 def test_cancel_from_pending_or_sending_only() -> None:

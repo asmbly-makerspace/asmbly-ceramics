@@ -141,7 +141,8 @@ Ref: decision 0002; the plan's phases 5 and 7.
       that adapter, on that resource. Missing means `AccessDenied` in production.
 - [ ] Nothing is granted that the function's code doesn't call, and no function gets
       what decision 0002's table says it may not: the form function never reads a photo
-      or a drop-off; only the close function deletes details.
+      or a drop-off; only the close function, and the console when staff delete a
+      waiting drop-off (decision 0006), delete details and photos.
 - [ ] Parameter Store names the code reads (`/asmbly-ceramics/<env>/...`,
       `/config/cognito/staff/*`) match what the template grants and what the runbook
       sets.

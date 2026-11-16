@@ -10,7 +10,7 @@ checked before anything is deleted. Logs carry the drop-off's ID and the staff u
 from dataclasses import replace
 
 from asmbly_ceramics.domain.dropoff import DropOff, delete_drop_off
-from asmbly_ceramics.domain.email import EmailStatus, mark_cancelled
+from asmbly_ceramics.domain.email import UNSENT, cancel_unsent
 from asmbly_ceramics.domain.errors import NotFound
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.ports.clock import Clock
@@ -27,9 +27,12 @@ class DeleteDropOff:
         self._clock = clock
 
     def __call__(self, id: DropOffId, version: int, staff: StaffMember) -> DropOff:
-        """A waiting drop-off, deleted: name, email, phone and photos gone, an email not yet
-        sent cancelled, in one commit. `NotFound` (deleted already), `DropOffNotDeletable`,
-        `Conflict`, `PhotosUnavailable` (nothing was committed), `RecordsUnavailable`."""
+        """A waiting drop-off, deleted: name, email, phone and photos gone, and every email
+        not sent (pending, sending or failed) cancelled, in one commit. `NotFound` (no such
+        drop-off), `DropOffNotDeletable` (not waiting, or deleted already), `Conflict`,
+        `PhotosUnavailable` (nothing was deleted or committed), `RecordsUnavailable`. A
+        `Conflict` or `RecordsUnavailable` from the commit comes after the photos went: the
+        drop-off is still waiting, and deleting it again finishes the job."""
         drop_off = self._records.drop_off(id)
         if drop_off is None:
             raise NotFound(id)
@@ -38,9 +41,7 @@ class DeleteDropOff:
             raise Conflict([str(id)])
         changes: list[Change] = [Update(deleted)]
         changes.extend(
-            Update(mark_cancelled(email))
-            for email in self._records.emails_for(id)
-            if email.status in (EmailStatus.PENDING, EmailStatus.SENDING)
+            Update(cancel_unsent(email)) for email in self._records.emails_for(id) if email.status in UNSENT
         )
         self._photos.delete_drop_off(id)
         self._records.commit(changes)

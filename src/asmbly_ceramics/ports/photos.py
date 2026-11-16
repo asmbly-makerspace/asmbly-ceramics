@@ -82,6 +82,7 @@ class PhotoStore(Protocol):
         ...
 
     def delete_drop_off(self, drop_off_id: DropOffId) -> None:
-        """Both sizes of every photo; idempotent. The close (#7) calls it, and so does the
-        submit when its commit fails after `keep` (see `keep`)."""
+        """Both sizes of every photo; idempotent. The close (#7) calls it, so does the
+        submit when its commit fails after `keep` (see `keep`), and so does a staff
+        member's delete of a drop-off made by mistake (decision 0006)."""
         ...

@@ -26,7 +26,7 @@ from asmbly_ceramics.use_cases.studio import CurrentStudio, item_name
 SEARCH_MAX = 50
 """The most rows a text search returns, oldest first."""
 
-# A text search covers every drop-off that still has a name: closed ones have none.
+# A text search covers every drop-off that still has a name: closed and deleted ones have none.
 _SEARCHED = frozenset({DropOffState.WAITING, DropOffState.IN_LOAD, DropOffState.FIRED, DropOffState.REJECTED})
 
 

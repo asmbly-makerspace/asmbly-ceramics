@@ -147,6 +147,17 @@ def mark_cancelled(email: Email) -> Email:
     return replace(email, status=EmailStatus.CANCELLED)
 
 
+UNSENT = frozenset({EmailStatus.PENDING, EmailStatus.SENDING, EmailStatus.FAILED})
+"""What `cancel_unsent` cancels: every email that hasn't (or may not have) gone."""
+
+
+def cancel_unsent(email: Email) -> Email:
+    """An email whose drop-off was deleted, cancelled whether it is pending, sending or
+    failed, so no copy of it waits in the unfinished index for staff or the mailer."""
+    _require(email, *UNSENT)
+    return replace(email, status=EmailStatus.CANCELLED)
+
+
 def retry(email: Email, at: datetime) -> Email:
     """A failed email, or one stuck sending or pending, back to PENDING, queued again."""
     _check_aware(at)

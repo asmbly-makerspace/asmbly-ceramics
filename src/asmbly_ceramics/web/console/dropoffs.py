@@ -71,7 +71,7 @@ DONE = {
         "{id} is waiting again. The rejection email went, or may have: contact the person directly."
     ),
     "retried": "The email to {id} will be sent again.",
-    "deleted": "{id} was deleted: its contact details and photos are gone, and no email was sent.",
+    "deleted": "{id} was deleted: its contact details and photos are gone. No one was emailed about it.",
 }
 _FIELD_OF = {
     UnknownItem: "reason",
@@ -408,7 +408,7 @@ def _not_deletable(
     request: Request, staff: Staff, view: DropOffView, refused: DropOffNotDeletable
 ) -> Response:
     problem = refused.message
-    if view.drop_off.load_id is not None:
+    if view.drop_off.state is DropOffState.IN_LOAD and view.drop_off.load_id is not None:
         problem += f" Remove it from load {view.drop_off.load_id} first."
     return _drop_off_page(request, staff, view, problem=problem, status=400)
 
@@ -437,7 +437,7 @@ async def delete(request: Request) -> Response:
     except DropOffNotDeletable as refused:
         return _not_deletable(request, staff, _view(request, id), refused)
     except Conflict:
-        problem = f"{id} changed while you were looking. Check it and try again."
+        problem = f"{id} changed while you were looking. Check it, and delete it again if you still mean to."
         return _drop_off_page(request, staff, _view(request, id), problem=problem, status=409)
     except PhotosUnavailable:
         return _drop_off_page(request, staff, _view(request, id), problem=PHOTOS_NOT_DELETED, status=503)
