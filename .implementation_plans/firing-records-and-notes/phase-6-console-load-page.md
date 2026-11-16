@@ -106,6 +106,12 @@ shows `StepNotReached`, `StepTimeInFuture` and `StepTimeOutOfOrder`'s messages t
   fired with no drop-offs. You can't change this once it starts firing." The handler
   reads `test` as `form.get("test") == "1"`; any other value is false. The change form
   shows the checkbox only while loading (the form is only shown then).
+- Phase 1 left two literal `test=False` arguments in `web/console/loads.py` (marked
+  `# phase 6 asks`): `console.start_load(..., test=False)` in the start handler and
+  `console.change_load(..., test=False)` in the change handler. Replace both with the
+  value read from the form in the same change as the checkbox, so neither form shows a
+  checkbox its handler ignores; a test starts and changes a load with `test=1` and sees
+  `load.test` true.
 - The load page's head shows a "Test" tag beside the ID; `loads.html` shows it in the
   open and fired lists.
 - "Start firing" is enabled when `view.can_start_firing`; for an empty test load the hint
@@ -186,3 +192,5 @@ None (staff are told after phase 7).
 - [ ] Templates `_record.html`, `_steps.html`; the load page's history section.
 - [ ] The test checkbox on start and change; the "Test" tag in `loads.html` and
       `load.html`.
+- [ ] Both `test=False  # phase 6 asks` literals in `web/console/loads.py` (start and
+      change) replaced by the form's value in the same change as the checkbox.

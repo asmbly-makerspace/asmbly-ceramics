@@ -21,6 +21,12 @@ attributes (`contact_name`, `contact_email`, `contact_phone`, `rejection_message
 item is always written whole, so a closed drop-off's item holds none of them (#7). An
 email's `type` and `status` are top-level strings, for phase 7's stream filter.
 
+A load's firing record (#42) is a `record` map of the fields that are set, left out when
+none is; a cone reading is a number or the string `none`, the cost a number of cents. The
+program's cone is also a top-level `program_cone`, so an item's use can be found by a
+filter as a kiln's is. `test` is stored only when true. An item written before #42 reads
+with the defaults: not a test, no firing stamps, an empty record.
+
 Lists sort in Python after a query, so an ID's number needs no padding in a sort key.
 """
 
@@ -35,6 +41,7 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_email_occasion
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, ConeReading, FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
@@ -220,6 +227,12 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "fired_at": _iso_or_none(entity.fired_at),
                 "deleted_by": entity.deleted_by,
                 "deleted_at": _iso_or_none(entity.deleted_at),
+                "test": True if entity.test else None,
+                "firing_started_by": entity.firing_started_by,
+                "firing_started_at": _iso_or_none(entity.firing_started_at),
+                "fired_by": entity.fired_by,
+                "record": _record(entity.record),
+                "program_cone": entity.record.program.cone,
             }
         case Studio():
             return {
@@ -302,6 +315,42 @@ def _drop_off(d: DropOff) -> dict[str, object]:
     return attributes
 
 
+_RECORD_NUMBERS = (
+    "percent_full",
+    "firing_number",
+    "all_time_number",
+    "firing_minutes",
+    "max_temp_f",
+    "board_temp_f",
+    "cost_cents",
+)
+_PROGRAM_NUMBERS = ("preheat_hours", "hold_minutes")
+_CONE_READINGS = ("cone_top", "cone_center", "cone_bottom")
+# The keys `record` and its `program` map hold: a test checks they name every field of
+# `FiringRecord` and `Program`, so a field added there is stored and read here too.
+_RECORD_KEYS = frozenset({*_RECORD_NUMBERS, *_CONE_READINGS, "program"})
+_PROGRAM_KEYS = frozenset({*_PROGRAM_NUMBERS, "cone", "speed"})
+
+
+def _record(record: FiringRecord) -> dict[str, object] | None:
+    """The record's set fields, or None (no attribute) for an empty record."""
+    program = record.program
+    program_map = {
+        "preheat_hours": program.preheat_hours,
+        "cone": program.cone,
+        "speed": None if program.speed is None else program.speed.value,
+        "hold_minutes": program.hold_minutes,
+    }
+    stored: dict[str, object] = {name: getattr(record, name) for name in _RECORD_NUMBERS}
+    stored |= {name: _stored_reading(getattr(record, name)) for name in _CONE_READINGS}
+    stored["program"] = {name: value for name, value in program_map.items() if value is not None} or None
+    return {name: value for name, value in stored.items() if value is not None} or None
+
+
+def _stored_reading(reading: ConeReading | None) -> object:
+    return reading.value if reading is NO_CONE else reading
+
+
 def _catalog_item(item: CatalogItem) -> dict[str, object]:
     return {
         "id": item.id,
@@ -344,6 +393,11 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 fired_at=_time_or_none(values.get("fired_at")),
                 deleted_by=values.get("deleted_by"),
                 deleted_at=_time_or_none(values.get("deleted_at")),
+                test=values.get("test", False) is True,
+                firing_started_by=values.get("firing_started_by"),
+                firing_started_at=_time_or_none(values.get("firing_started_at")),
+                fired_by=values.get("fired_by"),
+                record=_to_record(values["id"], values.get("record")),
                 version=values["version"],
             )
         case "studio":
@@ -422,6 +476,55 @@ def _to_drop_off(values: dict[str, Any]) -> DropOff:
         deleted_at=_time_or_none(values.get("deleted_at")),
         version=values["version"],
     )
+
+
+def _to_record(load_id: str, stored: object) -> FiringRecord:
+    """A load's `record` map as a `FiringRecord`. A value of the wrong type is a
+    `ValueError` naming the load only, never the value. An unknown key is ignored, so a
+    key a later version adds doesn't make the load, and every list holding it, unreadable."""
+    if stored is None:
+        return EMPTY_RECORD
+    refused = ValueError(f"load {load_id}'s firing record doesn't parse")
+    if not isinstance(stored, dict):
+        raise refused
+    program = stored.get("program", {})
+    if not isinstance(program, dict):
+        raise refused
+    numbers = {name: stored.get(name) for name in _RECORD_NUMBERS}
+    program_numbers = {name: program.get(name) for name in _PROGRAM_NUMBERS}
+    if not all(_is_number(value) for value in (*numbers.values(), *program_numbers.values())):
+        raise refused
+    cone, speed = program.get("cone"), program.get("speed")
+    if not (cone is None or isinstance(cone, str)) or not (
+        speed is None or (isinstance(speed, str) and speed in {s.value for s in Speed})
+    ):
+        raise refused
+    readings = {name: stored.get(name) for name in _CONE_READINGS}
+    if not all(_is_number(value) or value == NO_CONE.value for value in readings.values()):
+        raise refused
+    return FiringRecord(
+        **numbers,
+        program=Program(
+            **program_numbers,
+            cone=None if cone is None else ItemId(cone),
+            speed=None if speed is None else Speed(speed),
+        ),
+        cone_top=_reading(readings["cone_top"]),
+        cone_center=_reading(readings["cone_center"]),
+        cone_bottom=_reading(readings["cone_bottom"]),
+    )
+
+
+def _reading(value: object) -> ConeReading | None:
+    """A checked cone reading: `none`, a whole number or None."""
+    if value == NO_CONE.value:
+        return NO_CONE
+    return value if isinstance(value, int) else None
+
+
+def _is_number(value: object) -> bool:
+    """None (not recorded) or a whole number; a boolean isn't one."""
+    return value is None or (isinstance(value, int) and not isinstance(value, bool))
 
 
 def _catalog(items: list[dict[str, Any]]) -> tuple[CatalogItem, ...]:

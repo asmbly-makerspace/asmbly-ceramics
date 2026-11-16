@@ -136,6 +136,42 @@ class FiringTypeLocked(DomainError):
         self.load_id = load_id
 
 
+class InvalidRecord(DomainError):
+    """A firing record with refused fields (#42). Unlike `InvalidDetails`' keys, `errors`
+    maps each field's name to its message, fixed text built from the limits, as
+    `InvalidSetting`'s is: never the value sent."""
+
+    def __init__(self, errors: Mapping[str, str]) -> None:
+        if not errors:
+            raise ValueError("InvalidRecord needs at least one field error")
+        count = len(errors)
+        fields = "1 field needs" if count == 1 else f"{count} fields need"
+        super().__init__(f"Check the firing record: {fields} fixing.")
+        self.errors: Mapping[str, str] = MappingProxyType(dict(errors))
+
+
+class StepNotReached(DomainError):
+    def __init__(self, load_id: LoadId, step: str) -> None:
+        super().__init__(f"Load {load_id} hasn't reached {step}, or its time wasn't recorded.")
+        self.load_id = load_id
+
+
+class StepTimeOutOfOrder(DomainError):
+    def __init__(self, load_id: LoadId, step: str) -> None:
+        super().__init__(
+            f"Load {load_id} can't have started firing before it was started, "
+            "or have been fired before it started firing."
+        )
+        self.load_id = load_id
+        self.step = step
+
+
+class StepTimeInFuture(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__("That time is in the future.")
+        self.load_id = load_id
+
+
 class MessageRequired(DomainError):
     def __init__(self) -> None:
         super().__init__("This reason needs a message.")

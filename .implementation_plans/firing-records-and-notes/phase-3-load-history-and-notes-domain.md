@@ -57,10 +57,12 @@ class LoadEvent:
     """One line of a load's history: who did what, and when. `what` names load IDs,
     studio items, steps, times and record values; never a person's details (it is shown
     to staff and kept with the load)."""
+
     load_id: LoadId
-    at: datetime     # aware
-    by: str          # staff username
-    what: str        # "Started firing", "Fired", "Max temp: 2,236 °F", ...
+    at: datetime  # aware
+    by: str  # staff username
+    what: str  # "Started firing", "Fired", "Max temp: 2,236 °F", ...
+
 
 def event(load_id: LoadId, by: str, at: datetime, what: str) -> LoadEvent:
     """`ValueError` for an empty `by` or `what`, or a naive `at`."""
@@ -82,11 +84,12 @@ class Ruling(StrEnum):
     ALLOWED_WITH_CONDITIONS = "allowed_with_conditions"
     NOT_ALLOWED = "not_allowed"
 
+
 @dataclass(frozen=True, slots=True)
 class FiringNote:
     id: NoteId
     load_id: LoadId
-    kiln: ItemId                    # the load's kiln when written, for the search
+    kiln: ItemId  # the load's kiln when written, for the search
     text: str
     glaze_types: tuple[ItemId, ...]
     clay_bodies: tuple[ItemId, ...]
@@ -102,6 +105,7 @@ class FiringNote:
     @property
     def removed(self) -> bool: ...
 
+
 def check_note_text(text: str) -> str:
     """The text to store: CRLF to LF, stripped, NFC. `InvalidNote("text", message)` when
     empty ("Write the note."), longer than NOTE_TEXT_MAX, holding a control character but
@@ -110,31 +114,49 @@ def check_note_text(text: str) -> str:
     spaces, dots, dashes, parentheses and a leading +, between them): "Notes can't hold
     an email address or phone number." The message never quotes the text."""
 
+
 def write_note(
-    id: NoteId, load: Load, text: str, glaze_types: Sequence[ItemId], clay_bodies: Sequence[ItemId],
-    ruling: Ruling | None, by: str, at: datetime, studio: Studio,
+    id: NoteId,
+    load: Load,
+    text: str,
+    glaze_types: Sequence[ItemId],
+    clay_bodies: Sequence[ItemId],
+    ruling: Ruling | None,
+    by: str,
+    at: datetime,
+    studio: Studio,
 ) -> FiringNote:
     """A new note on `load`. `LoadNotNotable(load.id)` for a deleted load. Each tag must
     be an active item of its list (`UnknownItem`, `ItemRetired`), each list without
     repeats and at most NOTE_TAGS_MAX (`InvalidNote`). Text by `check_note_text`."""
 
+
 def edit_note(
-    note: FiringNote, text: str, glaze_types: Sequence[ItemId], clay_bodies: Sequence[ItemId],
-    ruling: Ruling | None, by: str, at: datetime, studio: Studio,
+    note: FiringNote,
+    text: str,
+    glaze_types: Sequence[ItemId],
+    clay_bodies: Sequence[ItemId],
+    ruling: Ruling | None,
+    by: str,
+    at: datetime,
+    studio: Studio,
 ) -> FiringNote:
     """Text, tags and ruling replaced, stamped `edited_by`/`edited_at`; `written_*` kept.
     A tag already on the note may be retired since; a new one must be active.
     `NotFound(note.id)` for a removed note."""
 
+
 def remove_note(note: FiringNote, by: str, at: datetime) -> FiringNote:
     """Stamped removed; listed nowhere again. `NotFound` if removed already."""
+
 
 @dataclass(frozen=True, slots=True)
 class NoteFilter:
     kiln: ItemId | None = None
     glaze_type: ItemId | None = None
     clay_body: ItemId | None = None
-    ruling: Ruling | None | Literal["any"] = "any"   # None means "no ruling"
+    ruling: Ruling | None | Literal["any"] = "any"  # None means "no ruling"
+
 
 def matches(note: FiringNote, f: NoteFilter) -> bool:
     """Not removed, and every set part of the filter holds. The date range is the

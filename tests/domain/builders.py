@@ -19,6 +19,7 @@ from asmbly_ceramics.domain.dropoff import (
     new_drop_off,
 )
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email, rejection_occasion
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
@@ -129,8 +130,15 @@ def a_load(
     kiln: str = "athena",
     firing_type: str = "bisque",
     at: datetime = NOW,
+    test: bool = False,
+    record: FiringRecord = EMPTY_RECORD,
+    before_42: bool = False,
 ) -> Load:
-    """A load in `status` holding the drop-offs numbered `members`."""
+    """A load in `status` holding the drop-offs numbered `members`, each step it reached
+    stamped by `STAFF` at `at`; `before_42`, a load made before #42 recorded who started
+    its firing and marked it fired, and when its firing started."""
+    reached_firing = status in (LoadStatus.FIRING, LoadStatus.FIRED) and not before_42
+    fired = status is LoadStatus.FIRED
     return Load(
         id=LoadId(number),
         kiln=ItemId(kiln),
@@ -143,6 +151,11 @@ def a_load(
         fired_at=at if status is LoadStatus.FIRED else None,
         deleted_by=STAFF if status is LoadStatus.DELETED else None,
         deleted_at=at if status is LoadStatus.DELETED else None,
+        test=test,
+        firing_started_by=STAFF if reached_firing else None,
+        firing_started_at=at if reached_firing else None,
+        fired_by=STAFF if fired and not before_42 else None,
+        record=record,
     )
 
 

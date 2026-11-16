@@ -77,17 +77,25 @@ class StartLoad:
         self._clock = clock
         self._studio = studio
 
-    def __call__(self, kiln: ItemId, firing_type: ItemId, on: date | None, staff: StaffMember) -> Load:
-        """A new, empty load, dated `on` or today in Austin. `UnknownItem`, `ItemRetired`."""
+    def __call__(
+        self, kiln: ItemId, firing_type: ItemId, on: date | None, staff: StaffMember, *, test: bool = False
+    ) -> Load:
+        """A new, empty load, dated `on` or today in Austin, a test firing or not.
+        `UnknownItem`, `ItemRetired`."""
         studio = self._studio()
         now = self._clock.now()
         # The domain's own checks, asked before a number is spent on a refused load.
         studio.active_item(CatalogList.KILNS, kiln)
         studio.active_item(CatalogList.FIRING_TYPES, firing_type)
         day = on if on is not None else now.astimezone(STUDIO_TZ).date()
-        load = start_load(self._ids.next_load_id(), kiln, firing_type, day, staff.username, now, studio)
+        load = start_load(
+            self._ids.next_load_id(), kiln, firing_type, day, staff.username, now, studio, test=test
+        )
         self._records.commit([Put(load)])
-        log_event("load_started", load_id=str(load.id), user=staff.username)
+        if test:
+            log_event("load_started", load_id=str(load.id), kind="test", user=staff.username)
+        else:
+            log_event("load_started", load_id=str(load.id), user=staff.username)
         return _stored(load)
 
 
@@ -97,13 +105,21 @@ class ChangeLoad:
         self._studio = studio
 
     def __call__(
-        self, load_id: LoadId, kiln: ItemId, firing_type: ItemId, on: date, version: int, staff: StaffMember
+        self,
+        load_id: LoadId,
+        kiln: ItemId,
+        firing_type: ItemId,
+        on: date,
+        version: int,
+        staff: StaffMember,
+        *,
+        test: bool,
     ) -> Load:
-        """ "Change kiln, firing or date", only while loading; the firing type only while
-        empty. `NotFound`, `LoadNotLoading`, `FiringTypeLocked`, `UnknownItem`,
-        `ItemRetired`, `Conflict`."""
+        """ "Change kiln, firing or date", and whether it is a test, only while loading; the
+        firing type only while empty. `NotFound`, `LoadNotLoading`, `FiringTypeLocked`,
+        `UnknownItem`, `ItemRetired`, `Conflict`."""
         load = _load(self._records, load_id)
-        changed = change_load(load, kiln, firing_type, on, self._studio())
+        changed = change_load(load, kiln, firing_type, on, self._studio(), test=test)
         _check_version(load, version)
         self._records.commit([Update(changed)])
         log_event("load_changed", load_id=str(load.id), user=staff.username)
@@ -146,14 +162,15 @@ class RemoveFromLoad:
 
 
 class StartFiring:
-    def __init__(self, records: Records) -> None:
+    def __init__(self, records: Records, clock: Clock) -> None:
         self._records = records
+        self._clock = clock
 
     def __call__(self, load_id: LoadId, version: int, staff: StaffMember) -> Load:
-        """Loading to firing: nothing can be added or removed after this. `NotFound`,
-        `WrongLoadStatus`, `EmptyLoad`, `Conflict`."""
+        """Loading to firing, recording who and when: nothing can be added or removed after
+        this. `NotFound`, `WrongLoadStatus`, `EmptyLoad` (unless a test), `Conflict`."""
         load = _load(self._records, load_id)
-        firing = start_firing(load)
+        firing = start_firing(load, staff.username, self._clock.now())
         _check_version(load, version)
         self._records.commit([Update(firing)])
         log_event("load_firing", load_id=str(load.id), user=staff.username)
@@ -181,7 +198,7 @@ class MarkFired:
         moved = any(d.state is not DropOffState.IN_LOAD or d.load_id != load.id for d in members)
         if moved and _load(self._records, load_id).status is LoadStatus.FIRED:
             raise AlreadyFired(load.id)
-        result = fire(load, members, self._clock.now())
+        result = fire(load, members, staff.username, self._clock.now())
         _check_version(load, version)
         changes: list[Change] = [Update(result.load)]
         changes.extend(Update(drop_off) for drop_off in result.drop_offs)

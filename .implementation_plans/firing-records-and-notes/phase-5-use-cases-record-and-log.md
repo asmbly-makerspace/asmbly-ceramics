@@ -85,13 +85,15 @@ class SaveFiringRecord:
         `Conflict`. Log: `firing_record_saved` with load_id, user, and `fields` (the
         changed fields' names only)."""
 
+
 class CorrectStepTime:
     def __init__(self, records: Records, clock: Clock) -> None: ...
 
     def __call__(self, load_id: LoadId, step: Step, at: datetime, version: int, staff: StaffMember) -> Load:
         """`correct_step_time`; the old and new times in the history line. `NotFound`,
         `StepNotReached`, `StepTimeInFuture`, `StepTimeOutOfOrder`, `Conflict`. Log:
-        `step_time_corrected` with load_id, step, user."""
+        `step_time_corrected` with load_id, `kind` (the step's value: `started`,
+        `firing` or `fired`; `log.py`'s `LOG_FIELDS` has no `step`), user."""
 ```
 
 `StartLoad(..., test=)` and `ChangeLoad(..., test=)` already exist from phase 1; their
@@ -102,18 +104,19 @@ history lines say so.
 `LoadView` gains:
 
 ```python
-steps: tuple[StepView, ...]       # STARTED, FIRING, FIRED in order
-history: tuple[LoadEvent, ...]    # oldest first (records.load_events)
+steps: tuple[StepView, ...]  # STARTED, FIRING, FIRED in order
+history: tuple[LoadEvent, ...]  # oldest first (records.load_events)
 suggested: tuple[int | None, int | None]  # (firing #, all time #) for the record form
-cones: tuple[CatalogItem, ...]    # the cone list, for the form's select
+cones: tuple[CatalogItem, ...]  # the cone list, for the form's select
 record_fields: Mapping[str, str]  # the record as the form shows it ("11:38", "8.19", "none")
+
 
 @dataclass(frozen=True, slots=True)
 class StepView:
     step: Step
-    label: str                     # "Loading", "Firing", "Fired"
+    label: str  # "Loading", "Firing", "Fired"
     reached: bool
-    by: str | None                 # None with reached True: "not recorded"
+    by: str | None  # None with reached True: "not recorded"
     at: datetime | None
 ```
 
@@ -133,6 +136,7 @@ class FiringKind(StrEnum):
     TESTS = "tests"
     REGULAR = "regular"
 
+
 @dataclass(frozen=True, slots=True)
 class FiringLogRow:
     load: Load
@@ -142,21 +146,25 @@ class FiringLogRow:
     started_by: str
     firing_started_by: str | None
     fired_by: str | None
-    notes: int | None    # phase 9 fills it; None until then (the page leaves the column out)
+    notes: int | None  # phase 9 fills it; None until then (the page leaves the column out)
+
 
 @dataclass(frozen=True, slots=True)
 class FiringLogView:
-    rows: tuple[FiringLogRow, ...]   # newest fired first
+    rows: tuple[FiringLogRow, ...]  # newest fired first
     kiln: ItemId | None
     start: date
-    end: date                        # inclusive, as the page shows it
+    end: date  # inclusive, as the page shows it
     kind: FiringKind
-    counts: KilnCounts | None        # for "Firing # counts from …", when one kiln is chosen
+    counts: KilnCounts | None  # for "Firing # counts from …", when one kiln is chosen
+
 
 class FiringLog:
     def __init__(self, records: Records, clock: Clock, studio: CurrentStudio) -> None: ...
 
-    def __call__(self, kiln: ItemId | None, start: date | None, end: date | None, kind: FiringKind) -> FiringLogView:
+    def __call__(
+        self, kiln: ItemId | None, start: date | None, end: date | None, kind: FiringKind
+    ) -> FiringLogView:
         """Fired loads dated `start..end` inclusive (defaults: the last 12 weeks to today,
         Austin), of `kiln` (or every kiln), of `kind`. `UnknownItem` for a kiln the studio
         doesn't have. A range longer than LOG_RANGE_MAX (5 years) or ending before it

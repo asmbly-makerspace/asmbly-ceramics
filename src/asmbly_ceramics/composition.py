@@ -161,7 +161,7 @@ def build_console_services(
         change_load=ChangeLoad(records, studio),
         add_to_load=AddToLoad(records),
         remove_from_load=RemoveFromLoad(records),
-        start_firing=StartFiring(records),
+        start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),
         delete_load=DeleteLoad(records, clock),
         view_studio=ViewStudio(records, studio),

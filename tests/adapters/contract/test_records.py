@@ -131,7 +131,7 @@ def test_a_fire_of_48_drop_offs_fits_one_transaction(records: Records) -> None:
     stored_load = records.load(LoadId(1))
     assert stored_load is not None
     stored = [records.drop_off(DropOffId(n)) for n in members]
-    result = fire(stored_load, [d for d in stored if d is not None], NOW)
+    result = fire(stored_load, [d for d in stored if d is not None], STAFF, NOW)
     changes: list[Change] = [
         Update(result.load),
         *(Update(d) for d in result.drop_offs),

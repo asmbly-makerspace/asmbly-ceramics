@@ -41,7 +41,10 @@ the pages.
 
 ## Files to modify
 
-None. (Wiring is phase 9's, so this phase shares no file with 6 or 7.)
+- `src/asmbly_ceramics/use_cases/log.py`: `note_id` in `_SHAPES` (so in `LOG_FIELDS`).
+- `tests/use_cases/test_log.py`: `note_id`'s shape.
+
+Nothing else. (Wiring is phase 9's, so this phase shares no file with 6 or 7.)
 
 ## Implementation details
 
@@ -55,6 +58,7 @@ class NoteInput:
     clay_bodies: tuple[ItemId, ...]
     ruling: Ruling | None
 
+
 class WriteNote:
     def __init__(self, records: Records, ids: IdNumbers, clock: Clock, studio: CurrentStudio) -> None: ...
 
@@ -62,15 +66,24 @@ class WriteNote:
         """A new note on the load: `write_note` is checked before a number is spent, then
         `Put(note)`. `NotFound` (no load, or deleted), `LoadNotNotable`, `InvalidNote`,
         `UnknownItem`, `ItemRetired`. Log: `note_written` with load_id, note_id, user,
-        ruling; never the text or the tags' names."""
+        and `outcome` (the ruling's value, or `none`); never the text or the tags' names.
+        `note_id` is not in `use_cases/log.py`'s `LOG_FIELDS`: this phase adds it to
+        `_SHAPES` with phase 3's `NoteId` parse as its shape (`N-12` only), with a test
+        in `tests/use_cases/test_log.py` that `N-12` logs and any other text logs as
+        `invalid`. `log_event` raises on an unknown field after the write commits, so
+        this lands in the same change as `WriteNote`."""
+
 
 class EditNote:
     def __init__(self, records: Records, clock: Clock, studio: CurrentStudio) -> None: ...
 
-    def __call__(self, load_id: LoadId, note_id: NoteId, note: NoteInput, version: int, staff: StaffMember) -> FiringNote:
+    def __call__(
+        self, load_id: LoadId, note_id: NoteId, note: NoteInput, version: int, staff: StaffMember
+    ) -> FiringNote:
         """`edit_note` then `Update(note)` at the version the page showed. `NotFound`
         (no note, removed, or its load deleted), `InvalidNote`, `UnknownItem`,
         `ItemRetired`, `Conflict`. Log: `note_edited`."""
+
 
 class RemoveNote:
     def __init__(self, records: Records, clock: Clock) -> None: ...
@@ -78,13 +91,15 @@ class RemoveNote:
     def __call__(self, load_id: LoadId, note_id: NoteId, version: int, staff: StaffMember) -> None:
         """`remove_note` then `Update`. `NotFound`, `Conflict`. Log: `note_removed`."""
 
+
 @dataclass(frozen=True, slots=True)
 class NoteRow:
     note: FiringNote
     kiln: str
     firing_type: str
-    glaze_types: tuple[str, ...]   # names, retired ones included
+    glaze_types: tuple[str, ...]  # names, retired ones included
     clay_bodies: tuple[str, ...]
+
 
 class LoadNotes:
     def __init__(self, records: Records, studio: CurrentStudio) -> None: ...
@@ -92,12 +107,14 @@ class LoadNotes:
     def __call__(self, load_id: LoadId) -> tuple[NoteRow, ...]:
         """The load's notes, newest first. A read: logs nothing."""
 
+
 @dataclass(frozen=True, slots=True)
 class NoteSearchView:
     rows: tuple[NoteRow, ...]
     filter: NoteFilter
     start: date
-    end: date            # inclusive
+    end: date  # inclusive
+
 
 class SearchNotes:
     def __init__(self, records: Records, clock: Clock, studio: CurrentStudio) -> None: ...
@@ -109,14 +126,18 @@ class SearchNotes:
         `LOG_RANGE_MAX` or backwards is `InvalidLogRange` (phase 5's, reused). A read:
         logs nothing."""
 
+
 class NoteCounts:
     def __init__(self, records: Records) -> None: ...
 
-    def __call__(self, load_ids: Collection[LoadId], start: datetime, end: datetime) -> Mapping[LoadId, NoteCount]:
+    def __call__(
+        self, load_ids: Collection[LoadId], start: datetime, end: datetime
+    ) -> Mapping[LoadId, NoteCount]:
         """For the firing log (phase 9): how many notes each load has, and how many are
         "not allowed" rulings, from one `notes_written_between(start, end)` read (the
         log's range, widened by 30 days at the end, since a note can be written after
         its firing)."""
+
 
 @dataclass(frozen=True, slots=True)
 class NoteCount:

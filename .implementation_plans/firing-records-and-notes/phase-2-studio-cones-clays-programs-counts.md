@@ -79,23 +79,28 @@ class CatalogList(StrEnum):
     REASONS = "reasons"
     CONES = "cones"
     CLAY_BODIES = "clay_bodies"
+
+
 # _KIND gains "cone" and "clay body".
+
 
 @dataclass(frozen=True, slots=True)
 class KilnCounts:
-    since_elements: int     # firings since the kiln's last new elements, as of `as_of`
+    since_elements: int  # firings since the kiln's last new elements, as of `as_of`
     all_time: int
-    as_of: datetime         # aware
+    as_of: datetime  # aware
+
 
 @dataclass(frozen=True, slots=True)
 class CatalogItem:
-    ...                                     # as now
+    ...  # as now
     default_program: Program | None = None  # firing types only
-    counts: KilnCounts | None = None        # kilns only
+    counts: KilnCounts | None = None  # kilns only
+
 
 @dataclass(frozen=True, slots=True)
 class Studio:
-    ...                                     # as now, then:
+    ...  # as now, then:
     cones: tuple[CatalogItem, ...] = STARTING_CONES
     clay_bodies: tuple[CatalogItem, ...] = STARTING_CLAY_BODIES
     version: int = 0
@@ -121,12 +126,14 @@ def set_default_program(
     clears it. `UnknownItem`; `InvalidRecord` for a refused field. None when unchanged.
     History: "Default program for Glaze: ^6, medium, preheat 0 h, hold 7 min"."""
 
+
 def set_kiln_counts(
     studio: Studio, kiln: ItemId, since_elements: str, all_time: str, by: str, at: datetime
 ) -> tuple[Studio, SettingChange]:
     """Counts typed by staff, as of `at`: whole numbers, 0 to FIRING_NUMBER_MAX, and
     since_elements ≤ all_time, else `InvalidSetting(field, message)`. History:
     "Helios counts: 97 since elements, 251 all time"."""
+
 
 def record_new_elements(
     studio: Studio, kiln: ItemId, all_time_so_far: int, by: str, at: datetime
@@ -143,6 +150,7 @@ uses it). `delete_item` and the used checks treat the new lists as the others.
 ```python
 def read_program(values: Mapping[str, str], cones: Collection[ItemId]) -> Program:
     """The four program fields, checked as `read_firing_record` checks them (it calls this)."""
+
 
 def suggest_numbers(counts: KilnCounts | None, fired: Sequence[Load]) -> tuple[int | None, int | None]:
     """(firing_number, all_time_number) for the kiln's next firing.

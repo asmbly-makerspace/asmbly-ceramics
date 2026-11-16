@@ -185,7 +185,7 @@ def test_firing_a_full_load_fits_in_one_commit() -> None:
     stored_load = records.load(LoadId(1))
     stored = [records.drop_off(DropOffId(n)) for n in numbers]
     assert stored_load is not None
-    result = fire(stored_load, [d for d in stored if d is not None], NOW)
+    result = fire(stored_load, [d for d in stored if d is not None], STAFF, NOW)
     changes: list[Change] = [
         Update(result.load),
         *(Update(d) for d in result.drop_offs),

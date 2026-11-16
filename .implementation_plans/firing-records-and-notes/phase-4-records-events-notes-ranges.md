@@ -67,12 +67,15 @@ note numbers. Nothing calls the new methods yet but tests and phase 2's
 ```python
 Item = DropOff | Load | Email | Studio | SettingChange | Submission | LoadEvent | FiringNote
 
+
 @dataclass(frozen=True, slots=True)
 class Update:
     item: DropOff | Load | Email | Studio | FiringNote
 
+
 class Records(Protocol):
     ...
+
     def load_events(self, load_id: LoadId) -> list[LoadEvent]:
         """The load's history, oldest first (two at one instant in their key's order)."""
 
@@ -92,6 +95,7 @@ class Records(Protocol):
 
     def is_item_used(self, which, id) -> bool:
         """... a clay body by any note that isn't removed, glaze types by notes too."""
+
 
 class IdNumbers(Protocol):
     def next_note_id(self) -> NoteId:

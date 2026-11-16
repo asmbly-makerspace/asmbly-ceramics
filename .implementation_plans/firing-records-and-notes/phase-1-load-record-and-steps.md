@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 1: The load: test firings, who moved it, the firing record
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -58,19 +58,24 @@ pages are unchanged (phase 6 shows it).
 - `tests/domain/builders.py`: `a_load(...)` takes `test`, `record`, and the step stamps.
 - `tests/domain/test_load.py`, `tests/use_cases/test_loads.py`,
   `tests/adapters/aws/test_keys.py`: the new cases below.
+- `tests/domain/test_errors.py`: the four new errors in `EXPECTED`
+  (`test_every_domain_error_class_is_checked` lists every `DomainError`).
+- `tests/use_cases/conftest.py`: `StartFiring(records, clock)`.
+- `tests/adapters/test_memory.py`, `tests/adapters/contract/test_records.py`: their
+  `fire(load, members, NOW)` calls take the username: `fire(load, members, STAFF, NOW)`.
 
 ## Implementation details
 
 ### app: `domain/limits.py`
 
 ```python
-PERCENT_MIN, PERCENT_MAX = 0, 100          # % full and each witness cone
-TEMP_F_MIN, TEMP_F_MAX = 0, 2500           # max temperature
+PERCENT_MIN, PERCENT_MAX = 0, 100  # % full and each witness cone
+TEMP_F_MIN, TEMP_F_MAX = 0, 2500  # max temperature
 BOARD_TEMP_F_MIN, BOARD_TEMP_F_MAX = 0, 400
-COST_CENTS_MAX = 10_000                    # $100.00
-PREHEAT_HOURS_MAX = 48                     # whole hours
+COST_CENTS_MAX = 10_000  # $100.00
+PREHEAT_HOURS_MAX = 48  # whole hours
 HOLD_MINUTES_MAX = 600
-FIRING_MINUTES_MAX = 72 * 60               # "72:00"
+FIRING_MINUTES_MAX = 72 * 60  # "72:00"
 FIRING_NUMBER_MIN, FIRING_NUMBER_MAX = 1, 100_000
 ```
 
@@ -84,22 +89,26 @@ class Speed(StrEnum):
     MEDIUM = "medium"
     FAST = "fast"
 
-class NoCone(StrEnum):
-    NO_CONE = "none"   # "no cone at this spot", not "not recorded" (that is None)
 
-ConeReading = int | NoCone   # a % bent, 0 to 100, or NO_CONE
+class NoCone(StrEnum):
+    NO_CONE = "none"  # "no cone at this spot", not "not recorded" (that is None)
+
+
+ConeReading = int | NoCone  # a % bent, 0 to 100, or NO_CONE
+
 
 @dataclass(frozen=True, slots=True)
 class Program:
     preheat_hours: int | None = None
-    cone: ItemId | None = None          # a CatalogList.CONES item (phase 2 adds the list)
+    cone: ItemId | None = None  # a CatalogList.CONES item (phase 2 adds the list)
     speed: Speed | None = None
     hold_minutes: int | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class FiringRecord:
     percent_full: int | None = None
-    firing_number: int | None = None    # since the kiln's last elements
+    firing_number: int | None = None  # since the kiln's last elements
     all_time_number: int | None = None
     program: Program = Program()
     firing_minutes: int | None = None
@@ -110,11 +119,13 @@ class FiringRecord:
     cone_center: ConeReading | None = None
     cone_bottom: ConeReading | None = None
 
+
 EMPTY_RECORD = FiringRecord()
 
 RECORD_FIELDS: tuple[str, ...]  # the form's field names, in the order the page shows them:
 # percent_full, firing_number, all_time_number, preheat_hours, cone, speed, hold_minutes,
 # firing_time, max_temp_f, board_temp_f, cost, cone_top, cone_center, cone_bottom
+
 
 def read_firing_record(values: Mapping[str, str], cones: Collection[ItemId]) -> FiringRecord:
     """The record the page sent. Every field is optional: a missing or blank one is None.
@@ -131,7 +142,10 @@ def read_firing_record(values: Mapping[str, str], cones: Collection[ItemId]) -> 
     Raises `InvalidRecord(errors)` naming every refused field with its message, so the
     page shows them all at once; never quotes the value sent."""
 
-def record_changes(old: FiringRecord, new: FiringRecord, cone_name: Callable[[ItemId], str]) -> tuple[str, ...]:
+
+def record_changes(
+    old: FiringRecord, new: FiringRecord, cone_name: Callable[[ItemId], str]
+) -> tuple[str, ...]:
     """One line per changed field, with its new value as the page shows it ("Max temp:
     2,236 °F", "Cost: $8.19", "Bottom cone: no cone", "Firing time: cleared"). Phase 5
     writes them into the load's history. Empty when nothing changed."""
@@ -143,9 +157,9 @@ New fields on `Load`, all with defaults so old items and existing callers still 
 
 ```python
 test: bool = False
-firing_started_by: str | None = None     # staff username
+firing_started_by: str | None = None  # staff username
 firing_started_at: dt.datetime | None = None
-fired_by: str | None = None              # staff username
+fired_by: str | None = None  # staff username
 record: FiringRecord = EMPTY_RECORD
 ```
 
@@ -157,30 +171,38 @@ class Step(StrEnum):
     FIRING = "firing"
     FIRED = "fired"
 
+
 def start_load(id, kiln, firing_type, on, by, at, studio, *, test: bool = False) -> Load:
     """As before, with `test` stored."""
+
 
 def change_load(load, kiln, firing_type, on, studio, *, test: bool) -> Load:
     """As before; `test` changes only while loading (require_loading already ensures it),
     so a load can't become a test once it is firing."""
 
+
 def start_firing(load: Load, by: str, at: dt.datetime) -> Load:
     """Loading to firing, stamping `firing_started_by` and `firing_started_at`. An empty
     load is refused with `EmptyLoad` unless it is a test."""
 
+
 def can_start_firing(load: Load) -> bool:
     """Loading, and holding a drop-off or a test."""
+
 
 def fire(load: Load, members: Sequence[DropOff], by: str, at: dt.datetime) -> FireResult:
     """As before, stamping `fired_by` too. An empty test load fires with no drop-offs and
     no emails."""
 
+
 def set_firing_record(load: Load, record: FiringRecord) -> Load:
     """The record replaced, on a loading, firing or fired load; members untouched.
     `NotFound` on a deleted load."""
 
+
 def step_time(load: Load, step: Step) -> dt.datetime | None:
     """started_at, firing_started_at or fired_at."""
+
 
 def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime) -> Load:
     """A reached step's time corrected.
@@ -199,12 +221,16 @@ def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime)
 
 Each message names only the load and the field or step, never a value staff typed:
 
-- `InvalidRecord(errors: FieldErrors)`: "Check the firing record: N fields need fixing."
-  `errors` maps field names to messages such as "Enter a whole number from 0 to 100." or
-  "Enter the firing time as hours and minutes, like 11:38." (the page shows each one by
-  its field).
-- `StepNotReached(load_id, step)`: "L-4 hasn't reached firing yet."
-- `StepTimeOutOfOrder(load_id, step)`: "L-4 can't have started firing before it was
+- `InvalidRecord(errors: Mapping[str, str])`: "Check the firing record: N fields need
+  fixing." `errors` maps field names to fixed messages such as "Enter a whole number from
+  0 to 100." or "Enter the firing time as hours and minutes, like 11:38." (the page shows
+  each one by its field). Unlike `InvalidDetails`' `FieldErrors`, these are the messages
+  themselves, not message keys, as `InvalidSetting`'s are; each is fixed text built from
+  the limits, never from the value sent. Read only (`MappingProxyType`), and at least one.
+- `StepNotReached(load_id, step)`: "Load L-4 hasn't reached firing, or its time wasn't
+  recorded." (built: it also covers an old fired load's unknown firing step, and starts
+  "Load L-4" as the other load errors do).
+- `StepTimeOutOfOrder(load_id, step)`: "Load L-4 can't have started firing before it was
   started, or have been fired before it started firing."
 - `StepTimeInFuture(load_id)`: "That time is in the future."
 
@@ -215,7 +241,8 @@ Each message names only the load and the field or step, never a value staff type
 - `StartFiring` takes a `Clock` (wire it in `composition.py`) and calls
   `start_firing(load, staff.username, self._clock.now())`.
 - `MarkFired` calls `fire(load, members, staff.username, now)`.
-- Logs unchanged, plus `test=True` on `load_started` for a test.
+- Logs unchanged, plus `kind="test"` on `load_started` for a test (built: `use_cases/log.py`
+  fixes the log's field names, and a boolean would log as `invalid`).
 
 No other use case changes. Phase 5 adds the history, the record and the corrections.
 
@@ -225,8 +252,16 @@ The load's item gains `test` (a boolean, stored only when true), `firing_started
 `firing_started_at`, `fired_by`, and `record` (a map of the fields that are set; an empty
 record stores no `record` attribute). Reading an item without them gives the defaults.
 Times use `iso` and `parse_iso`; a cone reading is a number or the string `none`; cost is
-a number of cents. A `record` map with an unknown key or a value of the wrong type is a
-`ValueError` naming the load's ID only, like the other conversions.
+a number of cents. A `record` map (or its `program` map) with a value of the wrong type
+is a `ValueError` naming the load's ID only (never the value); `records.py`'s `_parsed`
+turns it into `RecordsUnavailable("UnexpectedItem")`, as for any item that doesn't parse.
+An unknown key in either map is ignored, so a key a later version writes doesn't make the
+load, and every list holding it, unreadable after a revert; a test checks the known keys
+name every field of `FiringRecord` and `Program`.
+
+A revert (the Rollout's undo) reads these items fine, but the old code writes a load's
+item whole, so the stamps and the record of a load changed after the revert are dropped.
+No staff-facing page shows them before phase 6, so nothing visible is lost.
 
 The program's cone is also a top-level `program_cone` string when set, for phase 2's
 `is_item_used` filter.
@@ -319,13 +354,23 @@ None.
 
 ## Hand-off
 
-- [ ] `domain/firing.py`: `Speed`, `NoCone`, `ConeReading`, `Program`, `FiringRecord`,
-      `EMPTY_RECORD`, `RECORD_FIELDS`, `read_firing_record(values, cones)`,
-      `record_changes(old, new, cone_name)`.
-- [ ] `domain/load.py`: `Load.test`, `firing_started_by`, `firing_started_at`, `fired_by`,
+- [x] `domain/firing.py`: `Speed`, `NoCone` (and `NO_CONE`), `ConeReading`, `Program`,
+      `FiringRecord`, `EMPTY_RECORD`, `RECORD_FIELDS`, `read_firing_record(values, cones)`,
+      `record_changes(old, new, cone_name)`. A missing, blank or non-text field reads as
+      None; `InvalidRecord.errors` lists refused fields in `RECORD_FIELDS` order. The cost
+      takes an optional `$`; a cone reading takes `none` in any case.
+- [x] `domain/limits.py`: `PERCENT_*`, `TEMP_F_*`, `BOARD_TEMP_F_*`, `COST_CENTS_MAX`,
+      `PREHEAT_HOURS_MAX`, `HOLD_MINUTES_MAX`, `FIRING_MINUTES_MAX`, `FIRING_NUMBER_*`.
+- [x] `domain/load.py`: `Load.test`, `firing_started_by`, `firing_started_at`, `fired_by`,
       `record`; `Step`; `start_firing(load, by, at)`; `fire(load, members, by, at)`;
       `set_firing_record`; `step_time`; `correct_step_time(load, step, at, now)`;
-      `can_start_firing` true for an empty test.
-- [ ] Errors `InvalidRecord`, `StepNotReached`, `StepTimeOutOfOrder`, `StepTimeInFuture`.
-- [ ] `StartLoad(..., test=)`, `ChangeLoad(..., test=)`; `StartFiring` takes a `Clock`.
-- [ ] The load item stores all of it, and `program_cone` top-level.
+      `can_start_firing` true for an empty test. `change_load(..., *, test)` is required.
+- [x] Errors `InvalidRecord(errors)` (read only, at least one), `StepNotReached`,
+      `StepTimeOutOfOrder` (`.step`), `StepTimeInFuture`, each with `.load_id`.
+- [x] `StartLoad(..., test=False)`, `ChangeLoad(..., *, test)`; `StartFiring(records,
+      clock)`. `load_started` logs `kind="test"` for a test. The console pages pass
+      `test=False` to both until phase 6.
+- [x] The load item stores all of it (`test` only when true, `record` only when not
+      empty), and `program_cone` top-level for phase 2's `is_item_used`.
+- [x] `tests/domain/builders.py`: `a_load(..., test=, record=, before_42=)`; a firing or
+      fired load is stamped by `STAFF` at `at` unless `before_42`.

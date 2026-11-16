@@ -100,7 +100,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
-| [1](phase-1-load-record-and-steps.md) | The load: test firings, who moved it, the firing record | app | L | [ ] Pending |
+| [1](phase-1-load-record-and-steps.md) | The load: test firings, who moved it, the firing record | app | L | [~] In progress |
 | [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app, web | L | [ ] Pending |
 | [3](phase-3-load-history-and-notes-domain.md) | The domain: a load's history and firing notes | app | M | [ ] Pending |
 | [4](phase-4-records-events-notes-ranges.md) | Records: events, notes and date ranges, in the fake and DynamoDB | app, infra | L | [ ] Pending |
@@ -149,9 +149,11 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 Every phase reaches the live app through the normal merge and deploy (stage, its smoke
 test, prod, its smoke test). What each changes in AWS:
 
-1. **Phase 1** writes three new load attributes (`test`, `firing_started_*`, `fired_by`)
-   and a `record` map. Old code ignores them; old items read with the defaults. Check:
-   start firing a test load on stage and see it on its page. Undo: revert.
+1. **Phase 1** writes four new load attributes (`test`, `firing_started_by`,
+   `firing_started_at`, `fired_by`), a `record` map and a top-level `program_cone`. Old
+   code ignores them; old items read with the defaults. Check: on stage, start a load with
+   a made-up drop-off, start firing, mark it fired; the load still opens and its emails
+   are queued as before (the console can't start a test load until phase 6). Undo: revert.
 2. **Phase 2** writes the studio's new lists and fields. An old studio item reads with
    the starting cones and clay bodies and no programs or counts. Undo: revert (an old
    reader ignores the new attributes).

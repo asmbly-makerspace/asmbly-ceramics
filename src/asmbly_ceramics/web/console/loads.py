@@ -213,7 +213,7 @@ async def start_load(request: Request) -> Response:
     if firing_type is None:
         return refused(PICK_FIRING_TYPE)
     try:
-        load = console.start_load(kiln, firing_type, day, staff.member)
+        load = console.start_load(kiln, firing_type, day, staff.member, test=False)  # phase 6 asks
     except UnknownItem, ItemRetired:
         return refused(_item_problem(console.studio(), kiln))
     except Conflict:  # the load's new number was taken first: nothing was saved
@@ -483,7 +483,7 @@ async def change_load(request: Request) -> Response:
     if firing_type is None:
         return _refused(request, staff, id, problem=PICK_FIRING_TYPE)
     try:
-        console.change_load(id, kiln, firing_type, day, version, staff.member)
+        console.change_load(id, kiln, firing_type, day, version, staff.member, test=False)  # phase 6 asks
     except NotFound:
         raise _load_not_found(id) from None
     except UnknownItem, ItemRetired:

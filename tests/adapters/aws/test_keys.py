@@ -1,6 +1,6 @@
 """The records table's key design and the item <-> entity conversions."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -9,8 +9,9 @@ import pytest
 from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, claim, mark_sent, new_email, rejection_occasion
-from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.load import LoadStatus
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, FiringRecord, Program, Speed
+from asmbly_ceramics.domain.ids import DropOffId, ItemId
+from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import SettingChange, starting_studio
 from asmbly_ceramics.ports.records import Item, Submission
 from tests.domain.builders import (
@@ -182,3 +183,116 @@ def test_parse_email_key_applies_the_domains_occasion_rule(monkeypatch: pytest.M
 def test_parse_email_key_refuses_any_other_key(stored: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match=r"^not an? (email|records) key$"):
         keys.parse_email_key(stored)
+
+
+# A load's test flag, its firing stamps and its firing record (#42)
+
+FULL_RECORD = FiringRecord(
+    percent_full=85,
+    firing_number=98,
+    all_time_number=252,
+    program=Program(preheat_hours=0, cone=ItemId("cone-6"), speed=Speed.MEDIUM, hold_minutes=7),
+    firing_minutes=698,
+    max_temp_f=2236,
+    board_temp_f=156,
+    cost_cents=819,
+    cone_top=100,
+    cone_center=0,
+    cone_bottom=NO_CONE,
+)
+
+
+def stored(load: Load) -> dict[str, Any]:
+    return keys.to_item(load, keys.item_key(load), load.version)
+
+
+def test_load_round_trips_with_record_and_stamps() -> None:
+    load = replace(a_load(4, LoadStatus.FIRED, members=(1,), test=True, record=FULL_RECORD), version=3)
+    item = stored(load)
+    assert keys.from_item(item) == load
+    assert (item["test"], item["firing_started_by"], item["fired_by"]) == (
+        {"BOOL": True},
+        {"S": STAFF},
+        {"S": STAFF},
+    )
+    assert item["firing_started_at"] == {"S": "2026-11-13T18:30:00.000000Z"}
+    record = item["record"]["M"]
+    assert (record["cost_cents"], record["cone_bottom"], record["cone_center"]) == (
+        {"N": "819"},
+        {"S": "none"},
+        {"N": "0"},
+    )
+    assert record["program"]["M"]["speed"] == {"S": "medium"}
+    partial = replace(load, record=FiringRecord(max_temp_f=2236, program=Program(hold_minutes=7)))
+    assert keys.from_item(stored(partial)) == partial
+    assert set(stored(partial)["record"]["M"]) == {"max_temp_f", "program"}
+
+
+def test_empty_record_stores_no_record() -> None:
+    item = stored(a_load(4, LoadStatus.LOADING))
+    assert not {"record", "program_cone", "test", "firing_started_by", "firing_started_at", "fired_by"} & set(
+        item
+    )
+    load = keys.from_item(item)
+    assert isinstance(load, Load)
+    assert load.record == EMPTY_RECORD
+    no_program = replace(a_load(4), record=FiringRecord(percent_full=0))
+    assert stored(no_program)["record"] == {"M": {"percent_full": {"N": "0"}}}
+
+
+def test_old_load_item_reads_with_defaults() -> None:
+    old = replace(a_load(4, LoadStatus.FIRED, members=(1,), before_42=True), version=2)
+    item = stored(old)
+    # As phase 1's code found it: none of the attributes #42 adds.
+    for name in ("test", "firing_started_by", "firing_started_at", "fired_by", "record", "program_cone"):
+        assert name not in item
+    load = keys.from_item(item)
+    assert isinstance(load, Load)
+    assert load == old
+    assert (load.test, load.firing_started_by, load.firing_started_at, load.fired_by, load.record) == (
+        False,
+        None,
+        None,
+        None,
+        EMPTY_RECORD,
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"M": {"max_temp_f": {"S": "hot"}}},  # a number as text
+        {"M": {"max_temp_f": {"BOOL": True}}},
+        {"M": {"cone_top": {"S": "half"}}},
+        {"M": {"program": {"M": {"speed": {"S": "warp"}}}}},
+        {"M": {"program": {"M": {"cone": {"N": "6"}}}}},
+        {"M": {"program": {"S": "fast"}}},
+        {"S": "a record"},
+    ],
+)
+def test_bad_record_map_names_only_the_load(record: dict[str, Any]) -> None:
+    item = stored(a_load(4, LoadStatus.FIRED, members=(1,)))
+    item["record"] = record
+    with pytest.raises(ValueError, match=r"^load L-4's firing record doesn't parse$"):
+        keys.from_item(item)
+
+
+def test_unknown_record_keys_are_ignored() -> None:
+    load = a_load(4, LoadStatus.FIRED, members=(1,), record=FULL_RECORD)
+    item = stored(load)
+    item["record"]["M"]["colour"] = {"S": "red"}
+    item["record"]["M"]["program"]["M"]["flavour"] = {"N": "6"}
+    assert keys.from_item(item) == load
+
+
+def test_record_keys_name_every_field() -> None:
+    assert {field.name for field in fields(FiringRecord)} == keys._RECORD_KEYS
+    assert {field.name for field in fields(Program)} == keys._PROGRAM_KEYS
+
+
+def test_program_cone_is_top_level() -> None:
+    load = a_load(
+        4, LoadStatus.FIRING, members=(1,), record=FiringRecord(program=Program(cone=ItemId("cone-6")))
+    )
+    assert stored(load)["program_cone"] == {"S": "cone-6"}
+    assert "program_cone" not in stored(replace(load, record=FiringRecord(percent_full=50)))

@@ -33,6 +33,14 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
         errors.FiringTypeLocked(L4),
         "Load L-4 has drop-offs in it: remove them before changing its firing type.",
     ),
+    (errors.InvalidRecord({"max_temp_f": "Enter a whole number from 0 to 2,500."}), "Check the firing"),
+    (errors.StepNotReached(L4, "firing"), "Load L-4 hasn't reached firing, or its time wasn't recorded."),
+    (
+        errors.StepTimeOutOfOrder(L4, "firing"),
+        "Load L-4 can't have started firing before it was started, "
+        "or have been fired before it started firing.",
+    ),
+    (errors.StepTimeInFuture(L4), "That time is in the future."),
     (errors.MessageRequired(), "This reason needs a message."),
     (errors.MessageTooLong(1000), "The message is longer than 1,000 characters."),
     (errors.NotRejected(AC12), "AC-12 isn't rejected."),
@@ -96,3 +104,13 @@ def test_errors_keep_the_ids_they_name() -> None:
     assert errors.FiringTypeLocked(L4).load_id == L4
     assert errors.InvalidSetting("name", "Enter a name.").field == "name"
     assert errors.TestEmailFailed("Throttling").code == "Throttling"
+
+
+def test_invalid_record_counts_its_fields_and_is_read_only() -> None:
+    one = errors.InvalidRecord({"cost": "Enter the cost in dollars."})
+    two = errors.InvalidRecord({"cost": "Enter the cost in dollars.", "speed": "Pick a speed."})
+    assert one.message == "Check the firing record: 1 field needs fixing."
+    assert two.message == "Check the firing record: 2 fields need fixing."
+    assert isinstance(two.errors, MappingProxyType)
+    with pytest.raises(ValueError, match="at least one"):
+        errors.InvalidRecord({})

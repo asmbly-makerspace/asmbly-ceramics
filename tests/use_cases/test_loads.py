@@ -29,8 +29,9 @@ from asmbly_ceramics.domain.load import LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import IdsUnavailable, RecordsUnavailable
 from asmbly_ceramics.ports.records import Conflict, Update
+from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.reject import RejectRequest
-from tests.domain.builders import NOW, STAFF, TEST_MESSAGE
+from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, an_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import (
     ATHENA,
@@ -113,7 +114,7 @@ def test_change_load_changes_kiln_and_date_with_drop_offs_in_it(
     load_id = loaded(world, AC_1)
 
     changed = world.change_load(
-        load_id, HELIOS, BISQUE, date(2026, 11, 14), version(world, load_id), STAFF_MEMBER
+        load_id, HELIOS, BISQUE, date(2026, 11, 14), version(world, load_id), STAFF_MEMBER, test=False
     )
 
     assert (changed.kiln, changed.date, changed.members) == (HELIOS, date(2026, 11, 14), (AC_1,))
@@ -128,7 +129,9 @@ def test_change_load_refuses_a_new_firing_type_once_it_has_drop_offs(world: Worl
     commits = len(world.records.commits)
 
     with pytest.raises(FiringTypeLocked):
-        world.change_load(load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
 
     assert len(world.records.commits) == commits
 
@@ -136,7 +139,9 @@ def test_change_load_refuses_a_new_firing_type_once_it_has_drop_offs(world: Worl
 def test_change_load_changes_the_firing_type_of_an_empty_load(world: World) -> None:
     load_id = loaded(world)
 
-    changed = world.change_load(load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+    changed = world.change_load(
+        load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+    )
 
     assert changed.firing_type == GLAZE
 
@@ -147,11 +152,15 @@ def test_change_load_refuses_a_load_that_isnt_loading(world: World) -> None:
     commits = len(world.records.commits)
 
     with pytest.raises(LoadNotLoading):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
     world.mark_fired(load_id, version(world, load_id), STAFF_MEMBER)
     commits = len(world.records.commits)
     with pytest.raises(LoadNotLoading):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
 
     assert len(world.records.commits) == commits
 
@@ -159,7 +168,9 @@ def test_change_load_refuses_a_load_that_isnt_loading(world: World) -> None:
 def test_change_load_with_a_stale_version_is_a_conflict(world: World) -> None:
     load_id = loaded(world)
     with pytest.raises(Conflict):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id) - 1, STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id) - 1, STAFF_MEMBER, test=False
+        )
 
 
 def test_an_unknown_load_is_not_found(world: World) -> None:
@@ -656,3 +667,65 @@ def test_view_load_of_a_past_load_whose_drop_offs_closed(world: World) -> None:
     assert view.members[0].contact is None
     assert view.members[0].photos == ()
     assert view.needing_attention == ()
+
+
+# Test firings and who moved the load (#42)
+
+OTHER_STAFF = StaffMember("robin", an_address("robin.kiln"))
+
+
+def test_start_load_as_test(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    assert load.test
+    assert world.records.load(load.id) == load
+    [event] = events(caplog, "load_started")
+    assert (event["load_id"], event["kind"], event["user"]) == ("L-1", "test", STAFF)
+    regular = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    assert not regular.test
+    assert "kind" not in events(caplog, "load_started")[1]
+
+
+def test_change_load_corrects_test_while_loading(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    changed = world.change_load(load.id, ATHENA, BISQUE, load.date, load.version, STAFF_MEMBER, test=False)
+    assert not changed.test
+    assert world.records.load(load.id) == changed
+
+
+def test_start_firing_empty_test_load(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    firing_load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    assert (firing_load.status, firing_load.members) == (LoadStatus.FIRING, ())
+
+    done = world.mark_fired(load.id, firing_load.version, OTHER_STAFF)
+
+    assert (done.status, done.fired_by) == (LoadStatus.FIRED, "robin")
+    assert world.records.load(load.id) == done
+    assert world.records.emails_in(set(EmailStatus)) == []  # nobody to email
+    with pytest.raises(LoadNotLoading):
+        world.change_load(load.id, ATHENA, BISQUE, load.date, done.version, STAFF_MEMBER, test=False)
+
+
+def test_start_firing_records_who_and_when(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.clock.advance(timedelta(hours=2))
+
+    load = world.start_firing(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert (load.firing_started_by, load.firing_started_at) == ("robin", NOW + timedelta(hours=2))
+    assert (load.started_by, load.started_at) == (STAFF, NOW)
+    assert world.records.load(load_id) == load
+
+
+def test_mark_fired_records_who(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = firing(world, AC_1)
+    world.clock.advance(timedelta(hours=10))
+
+    load = world.mark_fired(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert (load.fired_by, load.fired_at) == ("robin", NOW + timedelta(hours=10))
+    assert (load.firing_started_by, load.firing_started_at) == (STAFF, NOW)
+    assert world.records.load(load_id) == load

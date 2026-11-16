@@ -23,6 +23,15 @@ MESSAGE_MAX = 1000
 HOURS_TEXT_MAX = 2000
 PICKUP_WINDOW_MIN, PICKUP_WINDOW_MAX = 1, 90  # days
 ITEM_NAME_MAX = 60
+# A load's firing record (#42): checks the story states, as read from the kiln's controller.
+PERCENT_MIN, PERCENT_MAX = 0, 100  # % full, and how far each witness cone bent
+TEMP_F_MIN, TEMP_F_MAX = 0, 2500  # max temperature
+BOARD_TEMP_F_MIN, BOARD_TEMP_F_MAX = 0, 400
+COST_CENTS_MAX = 10_000  # $100.00
+PREHEAT_HOURS_MAX = 48  # whole hours
+HOLD_MINUTES_MAX = 600
+FIRING_MINUTES_MAX = 72 * 60  # "72:00"
+FIRING_NUMBER_MIN, FIRING_NUMBER_MAX = 1, 100_000
 
 
 @dataclass(frozen=True, slots=True)
