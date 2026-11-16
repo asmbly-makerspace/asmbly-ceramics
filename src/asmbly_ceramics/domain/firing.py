@@ -138,6 +138,61 @@ class _RefusedError(Exception):
         self.message = message
 
 
+class _Reader:
+    """Reads the page's fields one at a time, keeping every refused field's message."""
+
+    def __init__(self, values: Mapping[str, str]) -> None:
+        self._values = values
+        self.errors: dict[str, str] = {}
+
+    def read[T](self, field: str, check: Callable[[str], T]) -> T | None:
+        raw = self._values.get(field)
+        text = raw.strip() if isinstance(raw, str) else ""
+        if not text:
+            return None
+        try:
+            return check(text)
+        except _RefusedError as refused:
+            self.errors[field] = refused.message
+            return None
+
+    def whole(self, field: str) -> int | None:
+        low, high = _WHOLE_RANGES[field]
+        return self.read(
+            field, lambda text: _whole(text, low, high, f"Enter a whole number from {low:,} to {high:,}.")
+        )
+
+    def refuse_if_any(self) -> None:
+        if self.errors:
+            raise InvalidRecord(
+                {field: self.errors[field] for field in RECORD_FIELDS if field in self.errors}
+            )
+
+
+def read_program(values: Mapping[str, str], cones: Collection[ItemId]) -> Program:
+    """The four program fields the page sent (preheat_hours, cone, speed, hold_minutes),
+    each optional and checked as `read_firing_record` checks them. `InvalidRecord` names
+    every refused field; no message quotes the value sent."""
+    reader = _Reader(values)
+    program = _program(reader, cones)
+    reader.refuse_if_any()
+    return program
+
+
+def _program(reader: _Reader, cones: Collection[ItemId]) -> Program:
+    def cone(text: str) -> ItemId:
+        if text not in cones:
+            raise _RefusedError(_CONE_MESSAGE)
+        return ItemId(text)
+
+    return Program(
+        preheat_hours=reader.whole("preheat_hours"),
+        cone=reader.read("cone", cone),
+        speed=reader.read("speed", _speed),
+        hold_minutes=reader.whole("hold_minutes"),
+    )
+
+
 def read_firing_record(values: Mapping[str, str], cones: Collection[ItemId]) -> FiringRecord:
     """The record the page sent. Every field is optional: a missing or blank one is None.
 
@@ -148,50 +203,21 @@ def read_firing_record(values: Mapping[str, str], cones: Collection[ItemId]) -> 
     each witness cone a whole % or `none`. `InvalidRecord` names every refused field with
     its message; no message quotes the value sent.
     """
-    errors: dict[str, str] = {}
-
-    def read[T](field: str, check: Callable[[str], T]) -> T | None:
-        raw = values.get(field)
-        text = raw.strip() if isinstance(raw, str) else ""
-        if not text:
-            return None
-        try:
-            return check(text)
-        except _RefusedError as refused:
-            errors[field] = refused.message
-            return None
-
-    def whole(field: str) -> int | None:
-        low, high = _WHOLE_RANGES[field]
-        return read(
-            field, lambda text: _whole(text, low, high, f"Enter a whole number from {low:,} to {high:,}.")
-        )
-
-    def cone(text: str) -> ItemId:
-        if text not in cones:
-            raise _RefusedError(_CONE_MESSAGE)
-        return ItemId(text)
-
+    reader = _Reader(values)
     record = FiringRecord(
-        percent_full=whole("percent_full"),
-        firing_number=whole("firing_number"),
-        all_time_number=whole("all_time_number"),
-        program=Program(
-            preheat_hours=whole("preheat_hours"),
-            cone=read("cone", cone),
-            speed=read("speed", _speed),
-            hold_minutes=whole("hold_minutes"),
-        ),
-        firing_minutes=read("firing_time", _firing_minutes),
-        max_temp_f=whole("max_temp_f"),
-        board_temp_f=whole("board_temp_f"),
-        cost_cents=read("cost", _cost_cents),
-        cone_top=read("cone_top", _cone_reading),
-        cone_center=read("cone_center", _cone_reading),
-        cone_bottom=read("cone_bottom", _cone_reading),
+        percent_full=reader.whole("percent_full"),
+        firing_number=reader.whole("firing_number"),
+        all_time_number=reader.whole("all_time_number"),
+        program=_program(reader, cones),
+        firing_minutes=reader.read("firing_time", _firing_minutes),
+        max_temp_f=reader.whole("max_temp_f"),
+        board_temp_f=reader.whole("board_temp_f"),
+        cost_cents=reader.read("cost", _cost_cents),
+        cone_top=reader.read("cone_top", _cone_reading),
+        cone_center=reader.read("cone_center", _cone_reading),
+        cone_bottom=reader.read("cone_bottom", _cone_reading),
     )
-    if errors:
-        raise InvalidRecord({field: errors[field] for field in RECORD_FIELDS if field in errors})
+    reader.refuse_if_any()
     return record
 
 

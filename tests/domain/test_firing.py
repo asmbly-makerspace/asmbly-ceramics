@@ -14,6 +14,7 @@ from asmbly_ceramics.domain.firing import (
     Program,
     Speed,
     read_firing_record,
+    read_program,
     record_changes,
 )
 from asmbly_ceramics.domain.ids import ItemId
@@ -212,3 +213,27 @@ def test_record_changes_cleared_field() -> None:
 def test_record_changes_nothing_changed_is_empty() -> None:
     assert record_changes(FULL_RECORD, FULL_RECORD, NAMES.__getitem__) == ()
     assert record_changes(EMPTY_RECORD, EMPTY_RECORD, NAMES.__getitem__) == ()
+
+
+# read_program: a firing type's default program (#42)
+
+
+def test_read_program_reads_the_four_fields() -> None:
+    form = {"preheat_hours": " 8 ", "cone": "cone-06", "speed": "Slow", "hold_minutes": "0", "cost": "x"}
+    assert read_program(form, CONES) == Program(
+        preheat_hours=8, cone=ItemId("cone-06"), speed=Speed.SLOW, hold_minutes=0
+    )
+    assert read_program({}, CONES) == Program()
+
+
+def test_read_program_refuses_every_bad_field_at_once() -> None:
+    form = {"preheat_hours": "49", "cone": "cone-9", "speed": "warp", "hold_minutes": "601"}
+    with pytest.raises(InvalidRecord) as refused:
+        read_program(form, CONES)
+    assert list(refused.value.errors) == ["preheat_hours", "cone", "speed", "hold_minutes"]
+
+
+def test_read_firing_record_reports_program_and_other_fields_together() -> None:
+    with pytest.raises(InvalidRecord) as refused:
+        read_firing_record({"percent_full": "101", "cone": "cone-9", "cost": "200"}, CONES)
+    assert list(refused.value.errors) == ["percent_full", "cone", "cost"]

@@ -52,7 +52,10 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.InvalidSetting("pickup_window_days", "Enter a number of days from 1 to 90."), "Enter a number"),
     (errors.UnknownItem("kiln"), "That kiln doesn't exist."),
     (errors.ItemRetired("Vulcan"), "Vulcan is retired and can't be picked."),
-    (errors.ItemInUse("Helios"), "Helios is used by a drop-off or a load: retire it instead."),
+    (
+        errors.ItemInUse("Helios"),
+        "Helios is in use by a drop-off, a load or a default program, so it stays retired.",
+    ),
     (errors.DuplicateItem("kiln", "Helios"), "There is already a kiln called Helios."),
     (errors.EmailNotRetryable(), "That email isn't failed."),
     (errors.NoStaffEmail(), "Your sign-in has no email address, so a test email can't be sent."),

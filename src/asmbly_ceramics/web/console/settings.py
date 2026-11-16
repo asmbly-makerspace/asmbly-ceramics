@@ -47,6 +47,8 @@ LISTS = {
     "firing-types": CatalogList.FIRING_TYPES,
     "glaze-types": CatalogList.GLAZE_TYPES,
     "reasons": CatalogList.REASONS,
+    "cones": CatalogList.CONES,
+    "clay-bodies": CatalogList.CLAY_BODIES,
 }
 SLUGS = {which: slug for slug, which in LISTS.items()}
 TITLES = {
@@ -54,6 +56,8 @@ TITLES = {
     CatalogList.FIRING_TYPES: "Firing types",
     CatalogList.GLAZE_TYPES: "Glaze types",
     CatalogList.REASONS: "Rejection reasons",
+    CatalogList.CONES: "Cones",
+    CatalogList.CLAY_BODIES: "Clay bodies",
 }
 CHANGED_ELSEWHERE = "The settings changed while you were working. Here they are now; try again."
 MAYBE_SAVED = "That may or may not have been saved. Reload the settings to check before trying again."

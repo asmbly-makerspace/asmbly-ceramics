@@ -14,6 +14,7 @@ from types import MappingProxyType
 
 from asmbly_ceramics.domain.errors import NoStaffEmail, TestEmailFailed
 from asmbly_ceramics.domain.ids import ItemId
+from asmbly_ceramics.domain.load import LoadStatus, suggest_numbers
 from asmbly_ceramics.domain.studio import (
     CatalogList,
     ItemStatus,
@@ -23,8 +24,11 @@ from asmbly_ceramics.domain.studio import (
     change_email_settings,
     check_sending_address,
     delete_item,
+    record_new_elements,
     restore_item,
     retire_item,
+    set_default_program,
+    set_kiln_counts,
 )
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.composer import Composer, outgoing
@@ -184,6 +188,50 @@ class DeleteCatalogItem(_StudioChange):
         used = item.status is ItemStatus.RETIRED and self._records.is_item_used(which, id)
         new, change = delete_item(current, which, id, used=used, by=staff.username, at=self._now())
         return _save(self._records, current, version, new, [change], staff, (which, id))
+
+
+class SetDefaultProgram(_StudioChange):
+    def __call__(
+        self, firing_type: ItemId, values: Mapping[str, str], version: int, staff: StaffMember
+    ) -> Studio:
+        """The firing type's default program from the page's four program fields (#42);
+        all blank clears it. `UnknownItem`, `InvalidRecord`, `Conflict`. The same program
+        again commits and logs nothing."""
+        current = self._studio()
+        new, change = set_default_program(current, firing_type, values, staff.username, self._now())
+        changes = [] if change is None else [change]
+        item = (CatalogList.FIRING_TYPES, firing_type)
+        return _save(self._records, current, version, new, changes, staff, item)
+
+
+class SetKilnCounts(_StudioChange):
+    def __call__(
+        self, kiln: ItemId, since_elements: str, all_time: str, version: int, staff: StaffMember
+    ) -> Studio:
+        """The kiln's firing counts as staff typed them, as of now (#42). `UnknownItem`,
+        `InvalidSetting`, `Conflict`."""
+        current = self._studio()
+        new, change = set_kiln_counts(current, kiln, since_elements, all_time, staff.username, self._now())
+        return _save(self._records, current, version, new, [change], staff, (CatalogList.KILNS, kiln))
+
+
+class RecordNewElements(_StudioChange):
+    def __call__(self, kiln: ItemId, version: int, staff: StaffMember) -> Studio:
+        """New elements in the kiln (#42): its next firing is number 1 since elements, and
+        its all-time count carries on from its latest fired load's, or its counts.
+        `UnknownItem`, `Conflict`.
+
+        The `loads_in` read is eventually consistent: a load marked fired a moment ago
+        may be missed, so the all-time count can come out one short. Staff can correct
+        it with `SetKilnCounts`."""
+        current = self._studio()
+        counts = current.item(CatalogList.KILNS, kiln).counts  # `UnknownItem` before any load is read
+        # Phase 4 reads these by date range instead of every fired load.
+        fired = [load for load in self._records.loads_in({LoadStatus.FIRED}) if load.kiln == kiln]
+        _, next_all_time = suggest_numbers(counts, fired)
+        so_far = 0 if next_all_time is None else next_all_time - 1
+        new, change = record_new_elements(current, kiln, so_far, staff.username, self._now())
+        return _save(self._records, current, version, new, [change], staff, (CatalogList.KILNS, kiln))
 
 
 class SendTestEmail:

@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 2: The studio: cones, clay bodies, default programs, kiln counts
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -251,8 +251,12 @@ phase.
 ## Rollout
 
 The merge deploys the studio's new attributes through the normal deploy. Check: the
-settings page opens on stage and lists both new lists. Undo: a revert pull request; old
-code ignores the new attributes.
+settings page opens on stage and lists both new lists. Undo: a revert pull request.
+Old code ignores the new attributes when it reads, but not when it writes: the first
+settings save under reverted code rewrites the whole studio item and drops `cones`,
+`clay_bodies`, the default programs and the kilns' counts. After a revert they read
+again as the starting cones and clay bodies with no programs or counts, and staff set
+any they changed again once the fix is merged.
 
 ## Admin actions
 
@@ -260,10 +264,49 @@ None (staff set the counts and programs in phase 7).
 
 ## Hand-off
 
-- [ ] `CatalogList.CONES`, `CatalogList.CLAY_BODIES`; `KilnCounts`;
-      `CatalogItem.default_program`, `CatalogItem.counts`.
-- [ ] `set_default_program`, `set_kiln_counts`, `record_new_elements`;
-      `read_program`; `suggest_numbers(counts, fired)`.
-- [ ] Use cases `SetDefaultProgram`, `SetKilnCounts`, `RecordNewElements`, wired.
-- [ ] `is_item_used` covers both lists; clay bodies return `False` until phase 4.
-- [ ] The settings page lists both lists under slugs `cones` and `clay-bodies`.
+- [x] `domain/studio.py`: `CatalogList.CONES`, `CatalogList.CLAY_BODIES`; `KilnCounts`
+      (`since_elements`, `all_time`, `as_of`); `CatalogItem.default_program`,
+      `CatalogItem.counts`; `STARTING_CONES` (`item-06`, `item-5`, `item-6`: `^` isn't a
+      slug character, so `new_item_id` puts `item-` in front, no mapping needed) and
+      `STARTING_CLAY_BODIES`, the defaults of `Studio.cones` and `Studio.clay_bodies`.
+      The starting firing types carry Bisque's and Glaze's default programs.
+- [x] `set_default_program(studio, firing_type, values, by, at)` takes the studio's
+      active cones or the cone the program already names, clears on all blank, and
+      returns `(studio, None)` when unchanged; `describe_program(studio, program)` (the
+      history's "^6, medium, preheat 0 h, hold 7 min"); `set_kiln_counts(studio, kiln,
+      since_elements, all_time, by, at)` (`InvalidSetting` fields `since_elements`,
+      `all_time`); `record_new_elements(studio, kiln, all_time_so_far, by, at)`;
+      `names_cone(studio, cone)`.
+- [x] `domain/firing.py`: `read_program(values, cones)`; `read_firing_record` reads the
+      program through it and still reports every refused field at once.
+- [x] `suggest_numbers(counts, fired)` is in **`domain/load.py`**, not `firing.py`:
+      `firing.py` can't import `Load` (`load.py` imports it). It skips loads that aren't
+      fired and is capped at `FIRING_NUMBER_MAX`.
+- [x] `start_load` fills the record with the firing type's default program;
+      `change_load` swaps it for the new firing type's when the program is still the old
+      default (or empty; a deleted old firing type counts as having none) and keeps a
+      changed one. A new bisque or glaze load's record is no longer `EMPTY_RECORD`.
+- [x] Use cases `SetDefaultProgram(records, clock, studio)(firing_type, values, version,
+      staff)`, `SetKilnCounts(...)(kiln, since_elements, all_time, version, staff)`,
+      `RecordNewElements(...)(kiln, version, staff)`, wired in `composition.py` and
+      `ConsoleServices` (`set_default_program`, `set_kiln_counts`,
+      `record_new_elements`) and in the tests' `World`. `RecordNewElements` reads
+      `records.loads_in({FIRED})` filtered by kiln; phase 4 changes it to a date range.
+- [x] `is_item_used`: a cone is used by a live load's `program_cone` or a firing type's
+      default program (the adapters read the stored studio, so the settings page's
+      "Used" column and Delete button agree); a clay body returns `False` until phase 4
+      extends it. `delete_item` also refuses a cone a default program names
+      (`names_cone`) whatever `used` says, so the rule is in the domain too.
+- [x] A stored default program that doesn't parse (an unknown speed, a number of the
+      wrong type) reads as None and is logged as `unexpected_item` with the firing
+      type's ID, instead of making the whole studio item unreadable.
+- [x] Rollback: a revert reads safely, but the first settings save under the reverted
+      code drops `cones`, `clay_bodies`, the default programs and the counts (see
+      Rollout).
+- [x] The studio item stores `cones`, `clay_bodies`, and a catalog item's
+      `default_program` and `counts` only when set; an older item reads with the starting
+      lists and no programs or counts.
+- [x] The settings page lists both lists under slugs `cones` and `clay-bodies`, titles
+      "Cones" and "Clay bodies".
+- [x] `ItemInUse`'s text: "<name> is in use by a drop-off, a load or a default
+      program, so it stays retired."

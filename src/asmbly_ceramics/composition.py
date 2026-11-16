@@ -47,9 +47,12 @@ from asmbly_ceramics.use_cases.settings import (
     AddCatalogItem,
     ChangeEmailSettings,
     DeleteCatalogItem,
+    RecordNewElements,
     RestoreCatalogItem,
     RetireCatalogItem,
     SendTestEmail,
+    SetDefaultProgram,
+    SetKilnCounts,
     ViewStudio,
 )
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
@@ -171,6 +174,9 @@ def build_console_services(
         retire_item=RetireCatalogItem(records, clock, studio),
         restore_item=RestoreCatalogItem(records, clock, studio),
         delete_item=DeleteCatalogItem(records, clock, studio),
+        set_default_program=SetDefaultProgram(records, clock, studio),
+        set_kiln_counts=SetKilnCounts(records, clock, studio),
+        record_new_elements=RecordNewElements(records, clock, studio),
         weekly_counts=WeeklyCounts(records, clock, studio),
     )
     web_settings = WebSettings(

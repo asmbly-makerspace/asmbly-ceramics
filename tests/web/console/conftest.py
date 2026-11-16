@@ -68,6 +68,9 @@ def console_services(world: World) -> ConsoleServices:
         retire_item=world.retire_item,
         restore_item=world.restore_item,
         delete_item=world.delete_item,
+        set_default_program=world.set_default_program,
+        set_kiln_counts=world.set_kiln_counts,
+        record_new_elements=world.record_new_elements,
         weekly_counts=world.counts,
     )
 

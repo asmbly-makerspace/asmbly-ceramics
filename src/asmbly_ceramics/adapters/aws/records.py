@@ -34,7 +34,7 @@ from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
-from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
+from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio, names_cone
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import (
     MAX_CHANGES,
@@ -247,6 +247,13 @@ class DynamoDbRecords:
                 searches = [(drop_off_partitions, "glaze_type")]
             case CatalogList.REASONS:
                 searches = [([keys.drop_off_partition(s) for s in _REJECTION_STATES], "rejection_reason")]
+            case CatalogList.CONES:
+                studio = self.studio()
+                if studio is not None and names_cone(studio, id):
+                    return True
+                searches = [(load_partitions, "program_cone")]
+            case CatalogList.CLAY_BODIES:
+                return False  # nothing names a clay body until firing notes (#17)
         return any(
             self._any_with(partition, attribute, id)
             for partitions, attribute in searches

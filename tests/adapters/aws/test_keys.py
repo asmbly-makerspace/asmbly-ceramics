@@ -1,5 +1,6 @@
 """The records table's key design and the item <-> entity conversions."""
 
+import logging
 from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -12,7 +13,17 @@ from asmbly_ceramics.domain.email import EmailKind, claim, mark_sent, new_email,
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.load import Load, LoadStatus
-from asmbly_ceramics.domain.studio import SettingChange, starting_studio
+from asmbly_ceramics.domain.studio import (
+    STARTING_CLAY_BODIES,
+    STARTING_CONES,
+    CatalogList,
+    SettingChange,
+    Studio,
+    add_item,
+    set_default_program,
+    set_kiln_counts,
+    starting_studio,
+)
 from asmbly_ceramics.ports.records import Item, Submission
 from tests.domain.builders import (
     NOW,
@@ -296,3 +307,100 @@ def test_program_cone_is_top_level() -> None:
     )
     assert stored(load)["program_cone"] == {"S": "cone-6"}
     assert "program_cone" not in stored(replace(load, record=FiringRecord(percent_full=50)))
+
+
+# The studio's lists and item fields (#42, #17)
+
+
+def a_full_studio() -> Studio:
+    studio, _ = starting_studio(a_sending_address(), NOW)
+    studio, _ = set_kiln_counts(studio, ItemId("helios"), "97", "251", "kiln-tech", NOW)
+    studio, _ = add_item(studio, CatalogList.CONES, "^04", "kiln-tech", NOW)
+    studio, _ = add_item(studio, CatalogList.CLAY_BODIES, "Speckled Buff", "kiln-tech", NOW)
+    studio, _ = set_default_program(studio, ItemId("glaze"), {"cone": "item-04"}, "kiln-tech", NOW)
+    return replace(studio, version=3)
+
+
+def test_studio_round_trips_new_lists_and_fields() -> None:
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    assert keys.from_item(item) == studio
+    helios = next(i for i in item["kilns"]["L"] if i["M"]["id"] == {"S": "helios"})["M"]
+    assert helios["counts"]["M"] == {
+        "since_elements": {"N": "97"},
+        "all_time": {"N": "251"},
+        "as_of": {"S": keys.iso(NOW)},
+    }
+    glaze = item["firing_types"]["L"][1]["M"]
+    assert glaze["default_program"]["M"] == {"cone": {"S": "item-04"}}
+    # An item with neither holds no attribute for them (never a null).
+    athena = item["kilns"]["L"][0]["M"]
+    assert "counts" not in athena
+    assert "default_program" not in athena
+
+
+def test_an_empty_default_program_round_trips() -> None:
+    studio = a_full_studio()
+    bisque = replace(studio.firing_types[0], default_program=Program())
+    studio = replace(studio, firing_types=(bisque, *studio.firing_types[1:]))
+    assert keys.from_item(keys.to_item(studio, keys.studio_key(), 1)) == replace(studio, version=1)
+
+
+def test_old_studio_item_reads_starting_lists() -> None:
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    del item["cones"], item["clay_bodies"]
+    for listed in (*item["kilns"]["L"], *item["firing_types"]["L"]):
+        listed["M"].pop("counts", None)
+        listed["M"].pop("default_program", None)
+    old = keys.from_item(item)
+    assert isinstance(old, Studio)
+    assert old.cones == STARTING_CONES
+    assert old.clay_bodies == STARTING_CLAY_BODIES
+    assert all(i.counts is None for i in old.kilns)
+    assert all(i.default_program is None for i in old.firing_types)
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"M": {"since_elements": {"BOOL": True}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
+        {"M": {"since_elements": {"S": "1"}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
+        {"S": "97"},
+    ],
+)
+def test_a_kiln_count_of_the_wrong_type_does_not_parse(counts: dict[str, Any]) -> None:
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    item["kilns"]["L"][0]["M"]["counts"] = counts
+    with pytest.raises(ValueError, match="the studio's item athena doesn't parse"):
+        keys.from_item(item)
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        {"S": "slow"},
+        {"M": {"speed": {"S": "warp"}}},
+        {"M": {"cone": {"N": "6"}}},
+        {"M": {"hold_minutes": {"S": "10"}}},
+        {"M": {"preheat_hours": {"BOOL": True}}},
+    ],
+)
+def test_a_default_program_of_the_wrong_type_reads_as_none_and_is_logged(
+    program: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # It costs that program, not the whole studio: staff can still open the console.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    item["firing_types"]["L"][0]["M"]["default_program"] = program
+    read = keys.from_item(item)
+    assert isinstance(read, Studio)
+    assert read.firing_types[0].default_program is None
+    assert read.firing_types[1:] == studio.firing_types[1:]
+    assert read.kilns == studio.kilns
+    [record] = [r for r in caplog.records if getattr(r, "event", "") == "unexpected_item"]
+    assert record.levelno == logging.ERROR
+    assert getattr(record, "item", None) == "bisque"
+    assert getattr(record, "error_code", None) == "UnexpectedItem"

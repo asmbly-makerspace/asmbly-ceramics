@@ -26,9 +26,12 @@ from asmbly_ceramics.use_cases.settings import (
     AddCatalogItem,
     ChangeEmailSettings,
     DeleteCatalogItem,
+    RecordNewElements,
     RestoreCatalogItem,
     RetireCatalogItem,
     SendTestEmail,
+    SetDefaultProgram,
+    SetKilnCounts,
     ViewStudio,
 )
 from asmbly_ceramics.use_cases.studio import CurrentStudio
@@ -73,6 +76,9 @@ class ConsoleServices:
     retire_item: RetireCatalogItem
     restore_item: RestoreCatalogItem
     delete_item: DeleteCatalogItem
+    set_default_program: SetDefaultProgram  # its page comes in phase 7
+    set_kiln_counts: SetKilnCounts
+    record_new_elements: RecordNewElements
     # Weekly counts (#7)
     weekly_counts: WeeklyCounts
 

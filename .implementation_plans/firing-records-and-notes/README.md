@@ -101,7 +101,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
 | [1](phase-1-load-record-and-steps.md) | The load: test firings, who moved it, the firing record | app | L | [~] In progress |
-| [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app, web | L | [ ] Pending |
+| [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app, web | L | [~] In progress |
 | [3](phase-3-load-history-and-notes-domain.md) | The domain: a load's history and firing notes | app | M | [ ] Pending |
 | [4](phase-4-records-events-notes-ranges.md) | Records: events, notes and date ranges, in the fake and DynamoDB | app, infra | L | [ ] Pending |
 | [5](phase-5-use-cases-record-and-log.md) | Use cases: test loads, history, the firing record, corrections, the firing log | app | L | [ ] Pending |
@@ -155,8 +155,10 @@ test, prod, its smoke test). What each changes in AWS:
    a made-up drop-off, start firing, mark it fired; the load still opens and its emails
    are queued as before (the console can't start a test load until phase 6). Undo: revert.
 2. **Phase 2** writes the studio's new lists and fields. An old studio item reads with
-   the starting cones and clay bodies and no programs or counts. Undo: revert (an old
-   reader ignores the new attributes).
+   the starting cones and clay bodies and no programs or counts. Undo: revert. An old
+   reader ignores the new attributes, but the first settings save under the reverted
+   code rewrites the whole studio item and drops `cones`, `clay_bodies`, the default
+   programs and the kilns' counts; staff set any they changed again after the fix.
 3. **Phase 3** reaches nothing in AWS.
 4. **Phase 4** writes event and note items and changes the console role's two
    conditions. Check: both smoke tests pass, and a load page and the settings page open

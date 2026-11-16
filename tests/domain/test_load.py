@@ -28,7 +28,7 @@ from asmbly_ceramics.domain.errors import (
 )
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import LOAD_CAPACITY
+from asmbly_ceramics.domain.limits import FIRING_NUMBER_MAX, LOAD_CAPACITY
 from asmbly_ceramics.domain.load import (
     LIVE_STATUSES,
     Load,
@@ -51,14 +51,31 @@ from asmbly_ceramics.domain.load import (
     start_firing,
     start_load,
     step_time,
+    suggest_numbers,
 )
-from asmbly_ceramics.domain.studio import CatalogList, retire_item
-from tests.domain.builders import NOW, STAFF, TEST_EMAIL, TEST_NAME, a_drop_off, a_load, a_studio
+from asmbly_ceramics.domain.studio import (
+    CatalogList,
+    KilnCounts,
+    record_new_elements,
+    retire_item,
+    set_kiln_counts,
+)
+from tests.domain.builders import (
+    NOW,
+    STAFF,
+    TEST_EMAIL,
+    TEST_NAME,
+    a_default_program,
+    a_drop_off,
+    a_load,
+    a_studio,
+)
 
 ATHENA, HELIOS = ItemId("athena"), ItemId("helios")
 BISQUE, GLAZE = ItemId("bisque"), ItemId("glaze")
 TODAY = date(2026, 11, 13)
 LATER = NOW + timedelta(hours=10)
+BISQUE_RECORD = FiringRecord(program=a_default_program("bisque"))
 
 
 def in_load(number: int, load: int = 1) -> DropOff:
@@ -74,9 +91,56 @@ def a_glaze_drop_off(number: int) -> DropOff:
 
 def test_start_load_makes_an_empty_loading_load() -> None:
     load = start_load(LoadId(4), ATHENA, BISQUE, TODAY, STAFF, NOW, a_studio())
-    assert load == Load(LoadId(4), ATHENA, BISQUE, TODAY, LoadStatus.LOADING, (), STAFF, NOW)
+    assert load == Load(
+        LoadId(4), ATHENA, BISQUE, TODAY, LoadStatus.LOADING, (), STAFF, NOW, record=BISQUE_RECORD
+    )
     assert load.version == 0
     assert load.fired_at is None
+
+
+def test_start_load_fills_default_program() -> None:
+    load = start_load(LoadId(4), ATHENA, GLAZE, TODAY, STAFF, NOW, a_studio())
+    assert load.record == FiringRecord(
+        program=Program(preheat_hours=0, cone=ItemId("item-6"), speed=Speed.MEDIUM, hold_minutes=7)
+    )
+
+
+def test_start_load_without_default_program_has_an_empty_record() -> None:
+    studio = a_studio()
+    studio = replace(
+        studio, firing_types=tuple(replace(item, default_program=None) for item in studio.firing_types)
+    )
+    assert start_load(LoadId(4), ATHENA, BISQUE, TODAY, STAFF, NOW, studio).record == EMPTY_RECORD
+
+
+def test_change_firing_type_swaps_untouched_default() -> None:
+    load = start_load(LoadId(4), ATHENA, BISQUE, TODAY, STAFF, NOW, a_studio())
+    changed = change_load(load, ATHENA, GLAZE, TODAY, a_studio(), test=False)
+    assert changed.record.program == a_default_program("glaze")
+    # An empty program takes the new default too, and the record's other fields stay.
+    empty = replace(load, record=FiringRecord(percent_full=80))
+    changed = change_load(empty, ATHENA, GLAZE, TODAY, a_studio(), test=False)
+    assert changed.record == FiringRecord(percent_full=80, program=a_default_program("glaze"))
+
+
+def test_change_firing_type_to_one_without_default_clears_untouched_default() -> None:
+    studio = a_studio()
+    glaze = replace(studio.item(CatalogList.FIRING_TYPES, GLAZE), default_program=None)
+    studio = replace(studio, firing_types=(studio.firing_types[0], glaze))
+    load = start_load(LoadId(4), ATHENA, BISQUE, TODAY, STAFF, NOW, studio)
+    assert change_load(load, ATHENA, GLAZE, TODAY, studio, test=False).record.program == Program()
+
+
+def test_change_firing_type_keeps_changed_program() -> None:
+    load = start_load(LoadId(4), ATHENA, BISQUE, TODAY, STAFF, NOW, a_studio())
+    mine = replace(load.record.program, hold_minutes=15)
+    load = set_firing_record(load, replace(load.record, program=mine))
+    changed = change_load(load, ATHENA, GLAZE, TODAY, a_studio(), test=False)
+    assert changed.record.program == mine
+    # The same firing type keeps the program as it is.
+    load = start_load(LoadId(5), ATHENA, BISQUE, TODAY, STAFF, NOW, a_studio())
+    other = change_load(load, HELIOS, BISQUE, TODAY, a_studio(), test=False)
+    assert other.record == load.record
 
 
 def test_start_load_refuses_a_retired_kiln_or_firing_type() -> None:
@@ -477,7 +541,7 @@ def test_start_load_stores_test() -> None:
         None,
         None,
         None,
-        EMPTY_RECORD,
+        BISQUE_RECORD,
     )
 
 
@@ -659,3 +723,72 @@ def test_correct_step_time_naive_time_refused() -> None:
 def test_correct_step_time_deleted_load_not_found() -> None:
     with pytest.raises(NotFound):
         correct_step_time(a_load(status=LoadStatus.DELETED), Step.STARTED, NOW, LATER)
+
+
+# suggest_numbers: the next firing's numbers (#42)
+
+
+def numbered(number: int, at: datetime, since: int | None, total: int | None) -> Load:
+    return a_load(
+        number, LoadStatus.FIRED, at=at, record=FiringRecord(firing_number=since, all_time_number=total)
+    )
+
+
+COUNTS = KilnCounts(since_elements=97, all_time=251, as_of=NOW)
+
+
+def test_suggest_from_counts() -> None:
+    assert suggest_numbers(COUNTS, []) == (98, 252)
+
+
+def test_suggest_from_latest_numbered_firing_after_counts() -> None:
+    fired = [
+        numbered(2, NOW + timedelta(days=2), 99, 253),
+        numbered(1, NOW + timedelta(days=1), 98, 252),
+        numbered(3, NOW + timedelta(days=3), None, 254),  # the latest names no firing number
+    ]
+    assert suggest_numbers(COUNTS, fired) == (100, 255)
+    # With no counts, any numbered firing counts.
+    assert suggest_numbers(None, fired) == (100, 255)
+
+
+def test_suggest_ignores_firings_before_counts() -> None:
+    fired = [numbered(1, NOW - timedelta(days=1), 500, 900), numbered(2, NOW, 501, 901)]
+    assert suggest_numbers(COUNTS, fired) == (98, 252)
+
+
+def test_suggest_skips_unnumbered_firings() -> None:
+    fired = [numbered(1, NOW + timedelta(days=1), 98, 252), numbered(2, NOW + timedelta(days=2), None, None)]
+    assert suggest_numbers(COUNTS, fired) == (99, 253)
+    # A load that isn't fired (the caller should never pass one) is skipped too.
+    firing = replace(numbered(3, NOW + timedelta(days=3), 400, 400), status=LoadStatus.FIRING)
+    assert suggest_numbers(COUNTS, [firing]) == (98, 252)
+
+
+def test_suggest_none_without_counts_or_firings() -> None:
+    assert suggest_numbers(None, []) == (None, None)
+    assert suggest_numbers(None, [numbered(1, NOW, None, None)]) == (None, None)
+    assert suggest_numbers(None, [numbered(1, NOW, 5, None)]) == (6, None)
+
+
+def test_suggest_after_new_elements_is_1() -> None:
+    studio, _ = set_kiln_counts(a_studio(), HELIOS, "97", "251", STAFF, NOW)
+    studio, _ = record_new_elements(studio, HELIOS, 260, STAFF, LATER)
+    counts = studio.item(CatalogList.KILNS, HELIOS).counts
+    fired = [numbered(1, NOW + timedelta(hours=1), 98, 260)]  # before the new elements
+    assert suggest_numbers(counts, fired) == (1, 261)
+
+
+def test_suggest_never_above_the_limit() -> None:
+    top = KilnCounts(FIRING_NUMBER_MAX, FIRING_NUMBER_MAX, NOW)
+    assert suggest_numbers(top, []) == (FIRING_NUMBER_MAX, FIRING_NUMBER_MAX)
+
+
+def test_change_from_a_deleted_firing_type_swaps_only_an_empty_program() -> None:
+    # The load's old firing type is gone from the studio: its default reads as empty, so
+    # only an empty program takes the new default.
+    load = replace(a_load(), firing_type=ItemId("raku"), record=EMPTY_RECORD)
+    changed = change_load(load, ATHENA, GLAZE, TODAY, a_studio(), test=False)
+    assert changed.record.program == a_default_program("glaze")
+    kept = replace(load, record=FiringRecord(program=Program(hold_minutes=3)))
+    assert change_load(kept, ATHENA, GLAZE, TODAY, a_studio(), test=False).record == kept.record

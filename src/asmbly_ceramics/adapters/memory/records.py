@@ -13,7 +13,7 @@ from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
-from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
+from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio, names_cone
 from asmbly_ceramics.ports.records import (
     MAX_CHANGES,
     BadCursor,
@@ -143,6 +143,13 @@ class MemoryRecords:
                 return any(d.glaze_type == id for d in drop_offs)
             case CatalogList.REASONS:
                 return any(d.rejection is not None and d.rejection.reason == id for d in drop_offs)
+            case CatalogList.CONES:
+                studio = self._items.get(_STUDIO_KEY)
+                return any(load.record.program.cone == id for load in loads) or (
+                    isinstance(studio, Studio) and names_cone(studio, id)
+                )
+            case CatalogList.CLAY_BODIES:
+                return False  # nothing names a clay body until firing notes (#17)
 
     def _allowed(self, change: Change, key: Hashable) -> bool:
         stored = self._items.get(key)

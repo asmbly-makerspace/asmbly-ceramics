@@ -27,15 +27,20 @@ program's cone is also a top-level `program_cone`, so an item's use can be found
 filter as a kiln's is. `test` is stored only when true. An item written before #42 reads
 with the defaults: not a test, no firing stamps, an empty record.
 
+The studio item holds each list as a list of maps. A firing type's map has a
+`default_program` map and a kiln's a `counts` map only when set. A studio stored before
+#42 and #17 has no `cones` or `clay_bodies` and reads with the starting lists.
+
 Lists sort in Python after a query, so an ID's number needs no padding in a sort key.
 """
 
+import logging
 import re
 import secrets
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypeGuard
 
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
@@ -45,8 +50,17 @@ from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, ConeReading, Fi
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
-from asmbly_ceramics.domain.studio import CatalogItem, ItemStatus, SettingChange, Studio
+from asmbly_ceramics.domain.studio import (
+    STARTING_CLAY_BODIES,
+    STARTING_CONES,
+    CatalogItem,
+    ItemStatus,
+    KilnCounts,
+    SettingChange,
+    Studio,
+)
 from asmbly_ceramics.ports.records import Item, Submission
+from asmbly_ceramics.use_cases.log import log_event
 
 AttributeMap = dict[str, Any]  # a low-level item: attribute name -> {"S": ...}, {"N": ...}
 
@@ -244,6 +258,8 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "firing_types": [_catalog_item(i) for i in entity.firing_types],
                 "glaze_types": [_catalog_item(i) for i in entity.glaze_types],
                 "reasons": [_catalog_item(i) for i in entity.reasons],
+                "cones": [_catalog_item(i) for i in entity.cones],
+                "clay_bodies": [_catalog_item(i) for i in entity.clay_bodies],
             }
         case SettingChange():
             return {"type": HISTORY, "at": iso(entity.at), "by": entity.by, "what": entity.what}
@@ -334,17 +350,21 @@ _PROGRAM_KEYS = frozenset({*_PROGRAM_NUMBERS, "cone", "speed"})
 
 def _record(record: FiringRecord) -> dict[str, object] | None:
     """The record's set fields, or None (no attribute) for an empty record."""
-    program = record.program
+    stored: dict[str, object] = {name: getattr(record, name) for name in _RECORD_NUMBERS}
+    stored |= {name: _stored_reading(getattr(record, name)) for name in _CONE_READINGS}
+    stored["program"] = _program(record.program)
+    return {name: value for name, value in stored.items() if value is not None} or None
+
+
+def _program(program: Program) -> dict[str, object] | None:
+    """The program's set fields, or None for an empty program."""
     program_map = {
         "preheat_hours": program.preheat_hours,
         "cone": program.cone,
         "speed": None if program.speed is None else program.speed.value,
         "hold_minutes": program.hold_minutes,
     }
-    stored: dict[str, object] = {name: getattr(record, name) for name in _RECORD_NUMBERS}
-    stored |= {name: _stored_reading(getattr(record, name)) for name in _CONE_READINGS}
-    stored["program"] = {name: value for name, value in program_map.items() if value is not None} or None
-    return {name: value for name, value in stored.items() if value is not None} or None
+    return {name: value for name, value in program_map.items() if value is not None} or None
 
 
 def _stored_reading(reading: ConeReading | None) -> object:
@@ -352,13 +372,24 @@ def _stored_reading(reading: ConeReading | None) -> object:
 
 
 def _catalog_item(item: CatalogItem) -> dict[str, object]:
-    return {
+    """A list item's map. `default_program` (a firing type's) and `counts` (a kiln's) are
+    there only when set: DynamoDB's serializer would store a None inside a map as a null."""
+    stored: dict[str, object] = {
         "id": item.id,
         "name": item.name,
         "status": item.status.value,
         "needs_glaze_type": item.needs_glaze_type,
         "needs_message": item.needs_message,
     }
+    if item.default_program is not None:
+        stored["default_program"] = _program(item.default_program) or {}
+    if item.counts is not None:
+        stored["counts"] = {
+            "since_elements": item.counts.since_elements,
+            "all_time": item.counts.all_time,
+            "as_of": iso(item.counts.as_of),
+        }
+    return stored
 
 
 def _iso_or_none(at: datetime | None) -> str | None:
@@ -409,6 +440,11 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 firing_types=_catalog(values["firing_types"]),
                 glaze_types=_catalog(values["glaze_types"]),
                 reasons=_catalog(values["reasons"]),
+                # A studio stored before #42 and #17 has neither list: the starting ones.
+                cones=_catalog(values["cones"]) if "cones" in values else STARTING_CONES,
+                clay_bodies=(
+                    _catalog(values["clay_bodies"]) if "clay_bodies" in values else STARTING_CLAY_BODIES
+                ),
                 version=values["version"],
             )
         case "history":
@@ -487,31 +523,38 @@ def _to_record(load_id: str, stored: object) -> FiringRecord:
     refused = ValueError(f"load {load_id}'s firing record doesn't parse")
     if not isinstance(stored, dict):
         raise refused
-    program = stored.get("program", {})
-    if not isinstance(program, dict):
-        raise refused
     numbers = {name: stored.get(name) for name in _RECORD_NUMBERS}
-    program_numbers = {name: program.get(name) for name in _PROGRAM_NUMBERS}
-    if not all(_is_number(value) for value in (*numbers.values(), *program_numbers.values())):
+    if not all(_is_number(value) for value in numbers.values()):
         raise refused
-    cone, speed = program.get("cone"), program.get("speed")
-    if not (cone is None or isinstance(cone, str)) or not (
-        speed is None or (isinstance(speed, str) and speed in {s.value for s in Speed})
-    ):
-        raise refused
+    program = _to_program(stored.get("program", {}), refused)
     readings = {name: stored.get(name) for name in _CONE_READINGS}
     if not all(_is_number(value) or value == NO_CONE.value for value in readings.values()):
         raise refused
     return FiringRecord(
         **numbers,
-        program=Program(
-            **program_numbers,
-            cone=None if cone is None else ItemId(cone),
-            speed=None if speed is None else Speed(speed),
-        ),
+        program=program,
         cone_top=_reading(readings["cone_top"]),
         cone_center=_reading(readings["cone_center"]),
         cone_bottom=_reading(readings["cone_bottom"]),
+    )
+
+
+def _to_program(stored: object, refused: ValueError) -> Program:
+    """A stored `program` map as a `Program`, or `refused` for a value of the wrong type."""
+    if not isinstance(stored, dict):
+        raise refused
+    numbers = {name: stored.get(name) for name in _PROGRAM_NUMBERS}
+    if not all(_is_number(value) for value in numbers.values()):
+        raise refused
+    cone, speed = stored.get("cone"), stored.get("speed")
+    if not (cone is None or isinstance(cone, str)) or not (
+        speed is None or (isinstance(speed, str) and speed in {s.value for s in Speed})
+    ):
+        raise refused
+    return Program(
+        **numbers,
+        cone=None if cone is None else ItemId(cone),
+        speed=None if speed is None else Speed(speed),
     )
 
 
@@ -522,22 +565,55 @@ def _reading(value: object) -> ConeReading | None:
     return value if isinstance(value, int) else None
 
 
+def _is_count(value: object) -> TypeGuard[int]:
+    """A whole number; a boolean isn't one."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _is_number(value: object) -> bool:
     """None (not recorded) or a whole number; a boolean isn't one."""
     return value is None or (isinstance(value, int) and not isinstance(value, bool))
 
 
 def _catalog(items: list[dict[str, Any]]) -> tuple[CatalogItem, ...]:
-    return tuple(
-        CatalogItem(
-            id=ItemId(i["id"]),
-            name=i["name"],
-            status=ItemStatus(i["status"]),
-            needs_glaze_type=i["needs_glaze_type"],
-            needs_message=i["needs_message"],
-        )
-        for i in items
+    return tuple(_to_catalog_item(i) for i in items)
+
+
+def _to_catalog_item(i: dict[str, Any]) -> CatalogItem:
+    """A list item's map; one stored before #42 has no `default_program` or `counts`."""
+    refused = ValueError(f"the studio's item {i['id']} doesn't parse")
+    stored_program, stored_counts = i.get("default_program"), i.get("counts")
+    counts = None
+    if stored_counts is not None:
+        if not isinstance(stored_counts, dict):
+            raise refused
+        since, total = stored_counts.get("since_elements"), stored_counts.get("all_time")
+        if not (_is_count(since) and _is_count(total)):
+            raise refused
+        counts = KilnCounts(since_elements=since, all_time=total, as_of=parse_iso(stored_counts["as_of"]))
+    return CatalogItem(
+        id=ItemId(i["id"]),
+        name=i["name"],
+        status=ItemStatus(i["status"]),
+        needs_glaze_type=i["needs_glaze_type"],
+        needs_message=i["needs_message"],
+        default_program=_default_program(i["id"], stored_program, refused),
+        counts=counts,
     )
+
+
+def _default_program(item_id: str, stored: object, refused: ValueError) -> Program | None:
+    """A firing type's stored default program, or None when none is stored. One that
+    doesn't parse (an unknown speed, a number of the wrong type) is logged as
+    `unexpected_item` by the firing type's ID and read as None, so it costs that
+    program, not the whole studio: staff set it again in the console."""
+    if stored is None:
+        return None
+    try:
+        return _to_program(stored, refused)
+    except ValueError:
+        log_event("unexpected_item", level=logging.ERROR, error_code="UnexpectedItem", item=item_id)
+        return None
 
 
 def _time_or_none(text: str | None) -> datetime | None:

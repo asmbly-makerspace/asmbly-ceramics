@@ -42,9 +42,12 @@ from asmbly_ceramics.use_cases.settings import (
     AddCatalogItem,
     ChangeEmailSettings,
     DeleteCatalogItem,
+    RecordNewElements,
     RestoreCatalogItem,
     RetireCatalogItem,
     SendTestEmail,
+    SetDefaultProgram,
+    SetKilnCounts,
     ViewStudio,
 )
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
@@ -103,6 +106,9 @@ class World:
     retire_item: RetireCatalogItem
     restore_item: RestoreCatalogItem
     delete_item: DeleteCatalogItem
+    set_default_program: SetDefaultProgram
+    set_kiln_counts: SetKilnCounts
+    record_new_elements: RecordNewElements
     close: CloseFinished
     counts: WeeklyCounts
 
@@ -171,6 +177,9 @@ def world() -> World:
         retire_item=RetireCatalogItem(records, clock, studio),
         restore_item=RestoreCatalogItem(records, clock, studio),
         delete_item=DeleteCatalogItem(records, clock, studio),
+        set_default_program=SetDefaultProgram(records, clock, studio),
+        set_kiln_counts=SetKilnCounts(records, clock, studio),
+        record_new_elements=RecordNewElements(records, clock, studio),
         close=CloseFinished(records, photos, clock, studio),
         counts=WeeklyCounts(records, clock, studio),
     )

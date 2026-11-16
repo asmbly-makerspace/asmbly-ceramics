@@ -79,8 +79,10 @@ class SaveFiringRecord:
     def __init__(self, records: Records, clock: Clock, studio: CurrentStudio) -> None: ...
 
     def __call__(self, load_id: LoadId, values: Mapping[str, str], version: int, staff: StaffMember) -> Load:
-        """The record from the page (`read_firing_record`, cones from the studio's cones,
-        active and retired, so a retired cone already on the record still saves). Nothing
+        """The record from the page (`read_firing_record`, passed the studio's active
+        cones plus the cone the record's program already names, as `set_default_program`
+        does, so a retired cone already on the record still saves but no other retired
+        or deleted cone can be picked). Nothing
         changed: no commit, the load returned as it is. `NotFound`, `InvalidRecord`,
         `Conflict`. Log: `firing_record_saved` with load_id, user, and `fields` (the
         changed fields' names only)."""

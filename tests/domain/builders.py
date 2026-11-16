@@ -19,12 +19,12 @@ from asmbly_ceramics.domain.dropoff import (
     new_drop_off,
 )
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email, rejection_occasion
-from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.photos import PhotoRef
-from asmbly_ceramics.domain.studio import Studio, starting_studio
+from asmbly_ceramics.domain.studio import CatalogList, Studio, starting_studio
 
 STAFF = "kiln-tech"
 NOW = datetime(2026, 11, 13, 18, 30, tzinfo=UTC)
@@ -39,8 +39,17 @@ def a_sending_address(local: str = "ceramics") -> str:
 
 
 def a_studio() -> Studio:
+    """The starting studio: its lists (cones and clay bodies included) and the starting
+    firing types' default programs."""
     studio, _ = starting_studio(a_sending_address(), NOW)
     return studio
+
+
+def a_default_program(firing_type: str = "bisque") -> Program:
+    """The starting firing type's default program, which a new load's record starts with."""
+    program = a_studio().item(CatalogList.FIRING_TYPES, ItemId(firing_type)).default_program
+    assert program is not None
+    return program
 
 
 # A made-up person. The phone number is put together from digit groups so that no line

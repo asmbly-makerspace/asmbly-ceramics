@@ -37,10 +37,10 @@ from asmbly_ceramics.domain.errors import (
     StepTimeOutOfOrder,
     WrongLoadStatus,
 )
-from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import LOAD_CAPACITY
-from asmbly_ceramics.domain.studio import CatalogList, Studio
+from asmbly_ceramics.domain.limits import FIRING_NUMBER_MAX, LOAD_CAPACITY
+from asmbly_ceramics.domain.studio import CatalogList, KilnCounts, Studio
 
 
 class LoadStatus(StrEnum):
@@ -102,12 +102,13 @@ def start_load(
     test: bool = False,
 ) -> Load:
     """A new, empty load, a test firing or not. The kiln and the firing type must be
-    active items."""
+    active items. Its record starts with the firing type's default program, if it has one
+    (#42)."""
     _check_aware(at)
     if not by:
         raise ValueError("a load needs the staff username")
     studio.active_item(CatalogList.KILNS, kiln)
-    studio.active_item(CatalogList.FIRING_TYPES, firing_type)
+    default = studio.active_item(CatalogList.FIRING_TYPES, firing_type).default_program
     return Load(
         id=id,
         kiln=kiln,
@@ -118,6 +119,7 @@ def start_load(
         started_by=by,
         started_at=at,
         test=test,
+        record=EMPTY_RECORD if default is None else FiringRecord(program=default),
     )
 
 
@@ -132,15 +134,61 @@ def change_load(
     keeping a kiln retired since the load was started doesn't block a date change. The
     firing type of a load with drop-offs in it can't change (`FiringTypeLocked`): each
     was added, and any different one confirmed, against the firing type it has (#4).
+
+    A new firing type swaps in its default program when the load's program is still the
+    old firing type's default, or empty; a program staff changed is kept (#42).
     """
     require_loading(load)
+    record = load.record
     if firing_type != load.firing_type:
         if firing_type_locked(load):
             raise FiringTypeLocked(load.id)
-        studio.active_item(CatalogList.FIRING_TYPES, firing_type)
+        new_default = studio.active_item(CatalogList.FIRING_TYPES, firing_type).default_program
+        if record.program in (Program(), _default_program(studio, load.firing_type)):
+            record = replace(record, program=new_default or Program())
     if kiln != load.kiln:
         studio.active_item(CatalogList.KILNS, kiln)
-    return replace(load, kiln=kiln, firing_type=firing_type, date=on, test=test)
+    return replace(load, kiln=kiln, firing_type=firing_type, date=on, test=test, record=record)
+
+
+def _default_program(studio: Studio, firing_type: ItemId) -> Program:
+    """The firing type's default program, empty if it has none or was deleted."""
+    for item in studio.firing_types:
+        if item.id == firing_type:
+            return item.default_program or Program()
+    return Program()
+
+
+def suggest_numbers(counts: KilnCounts | None, fired: Sequence[Load]) -> tuple[int | None, int | None]:
+    """(firing number, all-time number) to suggest for a kiln's next firing (#42).
+
+    `fired` is the kiln's fired loads (the caller picks them). Each number is the latest
+    of those, by `fired_at`, that was fired after `counts.as_of` and holds that number,
+    plus 1; else that count plus 1; else None (no counts and no numbered firing: the page
+    leaves the field blank). Never more than `FIRING_NUMBER_MAX`. It lives here, not in
+    `domain.firing`, which `Load` imports.
+    """
+    after = sorted(
+        (
+            (load.fired_at, load)
+            for load in fired
+            if load.status is LoadStatus.FIRED
+            and load.fired_at is not None
+            and (counts is None or load.fired_at > counts.as_of)
+        ),
+        key=lambda pair: pair[0],
+    )
+    latest = [load.record for _, load in reversed(after)]
+    since = next((r.firing_number for r in latest if r.firing_number is not None), None)
+    total = next((r.all_time_number for r in latest if r.all_time_number is not None), None)
+    if counts is not None:
+        since = counts.since_elements if since is None else since
+        total = counts.all_time if total is None else total
+    return _next_number(since), _next_number(total)
+
+
+def _next_number(latest: int | None) -> int | None:
+    return None if latest is None else min(latest + 1, FIRING_NUMBER_MAX)
 
 
 def add_to_load(load: Load, drop_off: DropOff, *, confirmed: bool) -> tuple[Load, DropOff]:

@@ -36,7 +36,7 @@
    "depends_on": [],
    "status": "done",
    "base_sha": "2f16277",
-   "squashed_sha": null,
+   "squashed_sha": "6c72632",
    "review_rounds": 1,
    "cold_review": "fixed",
    "split_from": null,
@@ -61,11 +61,11 @@
    "depends_on": [
     "1"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "6c72632",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 1,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [],
@@ -305,6 +305,30 @@
    "ts": "2026-11-16T19:50:15Z",
    "type": "cold_review",
    "phase": "phase-1-load-record-and-steps",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 3
+  },
+  {
+   "ts": "2026-11-16T19:50:22Z",
+   "type": "squash",
+   "phase": "phase-1-load-record-and-steps",
+   "sha": "6c72632"
+  },
+  {
+   "ts": "2026-11-16T19:50:22Z",
+   "type": "phase_start",
+   "phase": "phase-2-studio-cones-clays-programs-counts"
+  },
+  {
+   "ts": "2026-11-16T20:24:14Z",
+   "type": "phase_done",
+   "phase": "phase-2-studio-cones-clays-programs-counts"
+  },
+  {
+   "ts": "2026-11-16T20:24:14Z",
+   "type": "cold_review",
+   "phase": "phase-2-studio-cones-clays-programs-counts",
    "review_lead": "APPROVED",
    "privacy": "CLEAR",
    "warns_fixed": 3

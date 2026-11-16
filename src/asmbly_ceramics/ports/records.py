@@ -153,5 +153,8 @@ class Records(Protocol):
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         """Deleted drop-offs and loads use nothing. A kiln by any load; a firing type by
         any drop-off or load; a glaze type by any drop-off; a reason by any drop-off's
-        rejection, closed ones included."""
+        rejection, closed ones included; a cone by any load's program (its record's
+        `program.cone`) or by a firing type's default program in the stored studio
+        (`names_cone`; none when no studio is stored); a clay body never (nothing names
+        one until firing notes, #17)."""
         ...

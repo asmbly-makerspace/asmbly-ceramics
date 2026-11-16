@@ -16,7 +16,7 @@ from asmbly_ceramics.use_cases import settings as use_case
 from asmbly_ceramics.web.console import settings as page
 from asmbly_ceramics.web.console.session import SESSION_COOKIE
 from tests.domain.builders import STAFF, a_sending_address, an_address
-from tests.use_cases.flows import ATHENA, STAFF_EMAIL, fired, send_all
+from tests.use_cases.flows import ATHENA, STAFF_EMAIL, STAFF_MEMBER, fired, send_all
 from tests.web.console.conftest import Console, events
 
 SETTINGS = "/console/settings"
@@ -268,7 +268,7 @@ def test_a_used_item_can_be_retired_not_deleted(staff: Console) -> None:
 
     answer = list_post(staff, "kilns", "delete", item="athena")
     assert answer.status_code == 400
-    assert "Athena is used by a drop-off or a load: retire it instead." in answer.text
+    assert "Athena is in use by a drop-off, a load or a default program, so it stays retired." in answer.text
     assert staff.world.studio().item(CatalogList.KILNS, ATHENA).status is ItemStatus.RETIRED
 
 
@@ -395,3 +395,66 @@ def test_the_history_page_skips_the_used_scan_and_pages_by_the_use_case_s_size(s
     assert staff.get(f"{SETTINGS}/history").status_code == 200
     assert "is_item_used" not in staff.world.records.reads
     assert "history" in staff.world.records.reads
+
+
+# --- cones and clay bodies (#42, #17) ---------------------------------------------------------
+
+
+def test_cones_and_clay_bodies_listed(staff: Console) -> None:
+    shown = text(staff.get(SETTINGS))
+    cones = shown.split("Cones")[1].split("Clay bodies")[0]
+    for name in ("^06", "^5", "^6"):
+        assert name in cones
+    clays = shown.split("Clay bodies")[1].split("Change history")[0]
+    for name in ("Buffalo Wallow", "Cinco Blanco", "Cone 5 Porcelain"):
+        assert name in clays
+    # ^6 is named by Glaze's default program: used, so it can only be retired.
+    assert "Used" in cones.split("^6")[-1]
+
+
+def test_add_cone(staff: Console, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    answer = list_post(staff, "cones", "add", name="^04")
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/settings?done=added#cones"
+    assert staff.world.studio().item(CatalogList.CONES, ItemId("item-04")).name == "^04"
+    assert "Added cone ^04" in text(staff.get(SETTINGS))
+    [event] = [vars(r) for r in caplog.records if r.getMessage() == "settings_changed"]
+    assert (event["list"], event["item"], event["user"]) == ("cones", "item-04", STAFF)
+
+
+def test_add_retire_restore_delete_clay_body(staff: Console) -> None:
+    assert list_post(staff, "clay-bodies", "add", name="Speckled Buff").status_code == 303
+    clay = ItemId("speckled-buff")
+    assert list_post(staff, "clay-bodies", "retire", item=clay).status_code == 303
+    assert staff.world.studio().item(CatalogList.CLAY_BODIES, clay).status is ItemStatus.RETIRED
+    assert list_post(staff, "clay-bodies", "restore", item=clay).status_code == 303
+    list_post(staff, "clay-bodies", "retire", item=clay)
+    answer = list_post(staff, "clay-bodies", "delete", item=clay)
+    assert answer.headers["location"] == "/console/settings?done=deleted#clay-bodies"
+    assert "Deleted clay body Speckled Buff" in text(staff.get(SETTINGS))
+    assert list_post(staff, "clay-bodies", "add", name="").status_code == 400
+
+
+def test_a_cone_named_by_a_default_program_cannot_be_deleted(staff: Console) -> None:
+    assert list_post(staff, "cones", "retire", item="item-6").status_code == 303
+    answer = list_post(staff, "cones", "delete", item="item-6")
+    assert answer.status_code == 400
+    assert "^6 is in use by" in text(answer)
+    assert staff.world.studio().item(CatalogList.CONES, ItemId("item-6")).retired
+
+
+def test_a_cone_used_by_a_load_cannot_be_deleted(staff: Console) -> None:
+    fired(staff.world, staff.drop_off(1))  # a bisque load: its program names ^06
+    staff.world.set_default_program(ItemId("bisque"), {}, staff.world.studio().version, STAFF_MEMBER)
+    list_post(staff, "cones", "retire", item="item-06")
+    answer = list_post(staff, "cones", "delete", item="item-06")
+    assert answer.status_code == 400
+    assert "^06 is in use by" in text(answer)
+
+
+def test_the_cone_and_clay_lists_need_the_ceramics_group(console: Console) -> None:
+    console.sign_in(groups=())
+    answer = list_post(console, "cones", "add", name="^04")
+    assert answer.status_code == 403
+    assert all(item.name != "^04" for item in console.world.studio().cones)
