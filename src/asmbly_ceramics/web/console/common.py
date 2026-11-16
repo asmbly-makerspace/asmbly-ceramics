@@ -23,7 +23,7 @@ from asmbly_ceramics.web.errors import PageError
 from asmbly_ceramics.web.security import read_body
 
 FORM_BODY_MAX = 32 * 1024  # a 1,000-character message, percent-encoded, with room to spare
-FORM_FIELDS_MAX = 16
+FORM_FIELDS_MAX = 24  # the firing record form posts 19: its 14 fields, 3 "No cone" boxes, version, csrf
 FORM_TYPE = "application/x-www-form-urlencoded"
 VERSION_DIGITS_MAX = 12  # a record's version, as the page showed it
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)

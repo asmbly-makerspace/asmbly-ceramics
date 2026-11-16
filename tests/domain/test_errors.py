@@ -45,6 +45,7 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
         "or have been fired before it started firing.",
     ),
     (errors.StepTimeInFuture(L4), "That time is in the future."),
+    (errors.StepTimeTooEarly(L4, 2000), "Enter a time from 2000 on."),
     (errors.InvalidLogRange(), "Choose a date range of at most 5 years, ending after it starts."),
     (
         errors.TooManyNotesToMove(L4, 98),

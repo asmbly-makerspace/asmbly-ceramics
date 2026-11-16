@@ -1,0 +1,28 @@
+<ol class="steps steps-who" aria-label="Status">
+  {% for row in steps %}
+  {% set step = row.view %}
+  <li{% if row.current %} aria-current="step"{% endif %}>
+    <span class="step-label">{{ loop.index }} {{ step.label }}</span>
+    {% if step.reached %}
+    <span class="step-who"><svg class="step-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="3"/><path d="M2 15c0-3.3 2.7-6 6-6s6 2.7 6 6z"/></svg> by {{ step.by or "not recorded" }}</span>
+    {% if row.when %}<span class="step-when">{{ row.when }}</span>{% endif %}
+    {% if step.can_correct %}
+    <details class="step-correct"{% if row.error %} open{% endif %}>
+      <summary>Correct time</summary>
+      <form method="post" action="/console/loads/{{ load.id }}/steps/{{ step.step.value }}/time">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ load.version }}">
+        <div class="field{% if row.error %} field-invalid{% endif %}">
+          <label for="step-{{ step.step.value }}-at">{{ row.prompt }}, Austin time</label>
+          {% if row.error %}<p class="field-error" id="step-{{ step.step.value }}-error">{{ row.error }}</p>{% endif %}
+          {% if step.step.value == "fired" %}<p class="hint" id="step-fired-hint">Changes the load's time only. Its drop-offs keep theirs.</p>{% endif %}
+          <input type="datetime-local" id="step-{{ step.step.value }}-at" name="at" value="{{ row.value }}" required{% if row.error or step.step.value == "fired" %} aria-describedby="{% if row.error %}step-{{ step.step.value }}-error{% endif %}{% if row.error and step.step.value == "fired" %} {% endif %}{% if step.step.value == "fired" %}step-fired-hint{% endif %}"{% endif %}{% if row.error %} autofocus{% endif %}>
+        </div>
+        <button type="submit" class="button-quiet">Save time</button>
+      </form>
+    </details>
+    {% endif %}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>

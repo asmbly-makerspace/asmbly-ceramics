@@ -393,7 +393,8 @@ class CorrectStepTime:
         times go in the history line, and who reached the step never changes. The same
         time to the minute (the page posts minutes; the line shows them): no commit, and
         the stored seconds stay. The line shows the years when they differ. `NotFound`,
-        `StepNotReached`, `StepTimeInFuture`, `StepTimeOutOfOrder`, `Conflict`.
+        `StepNotReached`, `StepTimeInFuture`, `StepTimeTooEarly`, `StepTimeOutOfOrder`,
+        `Conflict`.
 
         Correcting the fired step moves `load.fired_at` only: its drop-offs keep their own
         `fired_at`."""

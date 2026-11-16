@@ -101,6 +101,7 @@
   --field-narrow: 8rem;
   --field-medium: 30rem;
   --form-col-min: 12rem;
+  --record-col: 18rem; /* a firing record group's narrowest column (#42) */
   --settings-col: 26rem;
   --photo-min: 18rem;
   --none: 0;
@@ -144,7 +145,7 @@ h2 { font-size: var(--font-size-h2); margin: var(--none) var(--none) var(--space
 .field label, .field legend { display: block; font-weight: var(--weight-strong); margin-bottom: var(--space-2); padding: var(--none); }
 .hint { margin: var(--none) var(--none) var(--space-2); font-size: var(--font-size-small); }
 
-input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"] {
+input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"], input[type="datetime-local"] {
   display: block;
   width: var(--full);
   min-height: var(--tap-target);
@@ -159,7 +160,7 @@ input[type="text"], input[type="email"], input[type="tel"], input[type="number"]
 
 input[type="file"] { display: block; width: var(--full); min-height: var(--tap-target); font: inherit; font-size: var(--font-size-body); }
 
-.field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"], .field-invalid input[type="date"] {
+.field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"], .field-invalid input[type="date"], .field-invalid input[type="datetime-local"] {
   border: var(--border-width-accent) solid var(--error-edge);
 }
 
@@ -499,6 +500,23 @@ details.panel[open] > summary { margin-bottom: var(--space-4); }
   border-radius: var(--radius-pill);
 }
 .steps li[aria-current="step"] { color: var(--on-accent); background: var(--accent-strong); border-color: var(--accent-strong); font-weight: var(--weight-strong); }
+/* The steps with who moved the load and when (#42): one card each, stacked on a phone. */
+.steps-who li { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 var(--form-col-min); padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); }
+.step-label { font-weight: var(--weight-strong); }
+.step-who { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-small); overflow-wrap: anywhere; }
+.step-icon { flex: none; width: var(--space-4); height: var(--space-4); fill: currentColor; }
+.step-when { font-size: var(--font-size-small); }
+.step-correct { color: var(--text); font-weight: normal; }
+.step-correct form { margin-top: var(--space-2); padding: var(--space-3); color: var(--text); background: var(--surface); border-radius: var(--radius); }
+.steps li[aria-current="step"] .step-correct summary { color: var(--on-accent); }
+/* The firing record: four groups side by side on a wide screen, one column on a phone. */
+.record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.record-group { margin: var(--none); padding: var(--none); border: var(--none); min-width: var(--none); }
+.record-group legend { font-family: var(--font-heading); font-weight: var(--weight-heading); margin-bottom: var(--space-3); padding: var(--none); }
+.console .record-group .field { margin-bottom: var(--space-4); }
+.unit-row { display: flex; align-items: center; gap: var(--space-2); }
+.unit-row input { flex: 1; min-width: var(--none); }
+.unit { flex: none; color: var(--muted); }
 .email-preview { display: block; width: var(--full); height: var(--preview-height); border: var(--border-width) solid var(--line-soft); border-radius: var(--radius-card); }
 
 @media (min-width: 48rem) {

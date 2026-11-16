@@ -23,6 +23,7 @@ from asmbly_ceramics.domain.errors import (
     StepNotReached,
     StepTimeInFuture,
     StepTimeOutOfOrder,
+    StepTimeTooEarly,
     UnknownItem,
     WrongLoadStatus,
 )
@@ -34,6 +35,8 @@ from asmbly_ceramics.domain.limits import (
     NUMBERS_DATE_MARGIN,
     NUMBERS_LOOKBACK,
     NUMBERS_READ_AHEAD,
+    STEP_TIME_YEAR_MIN,
+    STUDIO_TZ,
 )
 from asmbly_ceramics.domain.load import (
     LIVE_STATUSES,
@@ -52,6 +55,7 @@ from asmbly_ceramics.domain.load import (
     firing_type_locked,
     numbers_window,
     remove_from_load,
+    require_correctable,
     require_deletable,
     require_firing,
     require_loading,
@@ -692,6 +696,19 @@ def test_correct_step_time_in_future() -> None:
     with pytest.raises(StepTimeInFuture):
         correct_step_time(load, Step.FIRED, now + timedelta(seconds=1), now)
     assert correct_step_time(load, Step.FIRED, now, now).fired_at == now
+
+
+def test_correct_step_time_before_the_earliest_year_is_a_typo() -> None:
+    first = datetime(STEP_TIME_YEAR_MIN, 1, 1, tzinfo=STUDIO_TZ)
+    with pytest.raises(StepTimeTooEarly, match=f"Enter a time from {STEP_TIME_YEAR_MIN} on."):
+        correct_step_time(a_load(), Step.STARTED, first - timedelta(minutes=1), NOW)
+    assert correct_step_time(a_load(), Step.STARTED, first, NOW).started_at == first
+
+
+def test_require_correctable_matches_can_correct_step() -> None:
+    require_correctable(a_load(), Step.STARTED)
+    with pytest.raises(StepNotReached):
+        require_correctable(a_load(), Step.FIRED)
 
 
 @pytest.mark.parametrize(

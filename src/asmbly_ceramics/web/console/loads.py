@@ -9,7 +9,10 @@ part of a person's name: it travels only in a POST body and is never logged or p
 URL.
 """
 
-from dataclasses import dataclass, field
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import Any
 
 from starlette.requests import Request
@@ -25,25 +28,45 @@ from asmbly_ceramics.domain.errors import (
     FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
+    InvalidRecord,
     ItemRetired,
     LoadFull,
     LoadNotLoading,
     NotFound,
     NotInLoad,
     NotWaiting,
+    StepNotReached,
+    StepTimeInFuture,
+    StepTimeOutOfOrder,
+    StepTimeTooEarly,
     TooManyNotesToMove,
     UnknownItem,
     WrongLoadStatus,
+)
+from asmbly_ceramics.domain.firing import (
+    CONE_READING_TEXT_MAX,
+    COST_TEXT_MAX,
+    FIRING_TIME_TEXT_MAX,
+    NO_CONE,
+    RECORD_FIELDS,
+    RECORD_LABELS,
+    WHOLE_RANGES,
+    WITNESS_CONES,
+    Speed,
+    is_no_cone,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
 from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
+    Step,
     accepts_drop_offs,
+    require_correctable,
     require_deletable,
     require_firing,
     require_loading,
+    step_time,
 )
 from asmbly_ceramics.domain.search import QUERY_MAX, parse_query
 from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, Studio
@@ -66,7 +89,21 @@ MAYBE_SAVED = "That may or may not have been saved. Reload the load to check bef
 START_CLASHED = "Another load was started at the same moment, and this one wasn't saved. Try again."
 TYPE_THE_ID = "Type {id} exactly to delete this load."
 DELETED = "Load {id} deleted. Its drop-offs are back in the waiting list."
-STEPS = (("Loading", LoadStatus.LOADING), ("Firing", LoadStatus.FIRING), ("Fired", LoadStatus.FIRED))
+BAD_TIME = "Enter a date and time."
+SKIPPED_TIME = "The clocks went forward an hour then, so that time didn't happen. Enter another."
+CHANGED_ELSEWHERE = "Someone else changed this load. Check it and save again."
+NO_CONE_SUFFIX = "_none"  # "<witness cone>_none=1": the "No cone" box, sent as `none`
+_LOCAL_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}", flags=re.ASCII)
+_STEP_PROMPTS = {
+    Step.STARTED: "When it was started",
+    Step.FIRING: "When it started firing",
+    Step.FIRED: "When it was fired",
+}
+_CURRENT_STEP = {
+    LoadStatus.LOADING: Step.STARTED,
+    LoadStatus.FIRING: Step.FIRING,
+    LoadStatus.FIRED: Step.FIRED,
+}
 # After a change the page says what happened from a fixed word in its address, and the
 # drop-off's ID when there is one (parsed again, so nothing else is ever echoed).
 DONE = {
@@ -77,6 +114,8 @@ DONE = {
     "firing": "Firing started. Nothing can be added or removed now.",
     "fired": "Marked fired. The “Ready for pickup” emails are on their way.",
     "retried": "The email to {id} will be sent again.",
+    "record": "Firing record saved.",
+    "time": "Time corrected.",
 }
 
 
@@ -110,6 +149,11 @@ def _choices(studio: Studio, which: CatalogList, current: ItemId | None) -> list
     if current is not None and all(item.id != current for item in items):
         items.extend(item for item in studio.items(which) if item.id == current)
     return items
+
+
+def _test(form: Mapping[str, str]) -> bool:
+    """ "This is a test firing" ticked: `test=1` exactly; anything else is not a test."""
+    return form.get("test") == "1"
 
 
 def _item(raw: str) -> ItemId | None:
@@ -148,6 +192,7 @@ class StartForm:
     kiln: str = ""
     firing_type: str = ""
     date: str = ""
+    test: bool = False
     error: str | None = None
 
 
@@ -200,11 +245,13 @@ async def start_load(request: Request) -> Response:
     staff, form = await require_staff_post(request)
     console = services(request)
     add = _drop_off_param(form.get("add"))
-    typed = StartForm(form.get("kiln", ""), form.get("firing_type", ""), form.get("date", ""))
+    typed = StartForm(
+        form.get("kiln", ""), form.get("firing_type", ""), form.get("date", ""), test=_test(form)
+    )
     kiln, firing_type, day = _item(typed.kiln), _item(typed.firing_type), parse_date(typed.date)
 
     def refused(error: str, status: int = 400) -> Response:
-        typed_with_error = StartForm(typed.kiln, typed.firing_type, typed.date, error)
+        typed_with_error = replace(typed, error=error)
         return _loads_page(request, staff, add=add, form=typed_with_error, status=status)
 
     if day is None:
@@ -214,7 +261,7 @@ async def start_load(request: Request) -> Response:
     if firing_type is None:
         return refused(PICK_FIRING_TYPE)
     try:
-        load = console.start_load(kiln, firing_type, day, staff.member, test=False)  # phase 6 asks
+        load = console.start_load(kiln, firing_type, day, staff.member, test=typed.test)
     except UnknownItem, ItemRetired:
         return refused(_item_problem(console.studio(), kiln))
     except Conflict:  # the load's new number was taken first: nothing was saved
@@ -225,6 +272,114 @@ async def start_load(request: Request) -> Response:
     if add is not None:
         target += f"&add={add}"
     return RedirectResponse(target, status_code=303)
+
+
+# --- the steps and the firing record, as the load page shows them (#42) --------------------
+
+
+@dataclass(frozen=True)
+class StepForm:
+    """A refused "Correct time": which step, the text typed (kept), and why."""
+
+    step: Step
+    typed: str
+    error: str
+
+
+@dataclass(frozen=True)
+class RecordForm:
+    """A refused "Save firing record": what was typed (kept), each field's message, and the
+    message above the form."""
+
+    values: Mapping[str, str]
+    errors: Mapping[str, str] = field(default_factory=dict)
+    problem: str | None = None
+
+
+def _local_input(at: datetime) -> str:
+    """`at` as a `datetime-local` field's value, in Austin time: `2026-11-13T12:30`."""
+    return at.astimezone(STUDIO_TZ).strftime("%Y-%m-%dT%H:%M")
+
+
+def parse_local_time(raw: str) -> datetime | None:
+    """A `datetime-local` field's `YYYY-MM-DDTHH:MM` as a naive Austin wall time, or None
+    for anything malformed or that has no instant (the page says "Enter a date and time.").
+    The domain refuses a year that is a typo (`StepTimeTooEarly`)."""
+    if not _LOCAL_TIME.fullmatch(raw):
+        return None
+    try:
+        local = datetime.fromisoformat(raw)
+        local.replace(tzinfo=STUDIO_TZ).astimezone(UTC)  # 9999-12-31T23:59 has no UTC instant
+    except ValueError, OverflowError:
+        return None
+    return local
+
+
+def austin_instant(local: datetime) -> datetime | None:
+    """A naive Austin wall time as a UTC instant, or None for one the clocks skip (2:30 am
+    on a spring-forward day). In the repeated hour of a fall-back day it is the first."""
+    at = local.replace(tzinfo=STUDIO_TZ, fold=0).astimezone(UTC)
+    if at.astimezone(STUDIO_TZ).replace(tzinfo=None) != local:
+        return None
+    return at
+
+
+def _step_rows(view: LoadView, refused: StepForm | None) -> list[dict[str, Any]]:
+    current = _CURRENT_STEP.get(view.load.status)
+    rows = []
+    for step in view.steps:
+        mine = refused if refused is not None and refused.step is step.step else None
+        rows.append(
+            {
+                "view": step,
+                "current": step.step is current,
+                "prompt": _STEP_PROMPTS[step.step],
+                "when": austin_time(step.at) if step.at else "",
+                "value": mine.typed if mine else (_local_input(step.at) if step.at else ""),
+                "error": mine.error if mine else None,
+            }
+        )
+    return rows
+
+
+def _record_context(view: LoadView, refused: RecordForm | None) -> dict[str, Any]:
+    """The record form: the values typed (after a refusal) or stored, the numbers
+    suggested while the record has none, and every bound from `domain.limits`."""
+    values = dict(refused.values if refused else view.record_fields)
+    suggested: set[str] = set()
+    if refused is None:
+        for name, number in zip(("firing_number", "all_time_number"), view.suggested, strict=True):
+            if number is not None and not values.get(name):
+                values[name] = str(number)
+                suggested.add(name)
+    return {
+        "fields": values,
+        "no_cone": {name for name in WITNESS_CONES if is_no_cone(values.get(name, ""))},
+        "errors": refused.errors if refused else {},
+        "problem": refused.problem if refused else None,
+        "labels": RECORD_LABELS,
+        "suggested": suggested,
+        "whole": WHOLE_RANGES,
+        "cone_reading_max": CONE_READING_TEXT_MAX,
+        "firing_time_max": FIRING_TIME_TEXT_MAX,
+        "cost_max": COST_TEXT_MAX,
+        "cone_options": [
+            (cone.id, f"{cone.name} (retired)" if cone.retired else cone.name) for cone in view.cones
+        ],
+        "speed_options": [(speed.value, speed.value.capitalize()) for speed in Speed],
+        "witness": WITNESS_CONES,
+        "no_cone_suffix": NO_CONE_SUFFIX,
+    }
+
+
+def posted_record(form: Mapping[str, str]) -> dict[str, str]:
+    """The record's fields from the posted form; a ticked "No cone" box sends `none` for its
+    witness cone, whatever the number field holds."""
+    values = {name: form.get(name, "") for name in RECORD_FIELDS}
+    for name in WITNESS_CONES:
+        if form.get(name + NO_CONE_SUFFIX) == "1":
+            values[name] = NO_CONE.value
+    return values
 
 
 # --- GET /console/loads/{load} -------------------------------------------------------------
@@ -266,6 +421,8 @@ def _load_page(
     confirm_fire: bool = False,
     confirm_delete: bool = False,
     delete_error: str | None = None,
+    record: RecordForm | None = None,
+    step_form: StepForm | None = None,
     status: int = 200,
 ) -> Response:
     studio = services(request).studio()
@@ -293,7 +450,9 @@ def _load_page(
         "loading": load.status is LoadStatus.LOADING,
         "firing": load.status is LoadStatus.FIRING,
         "fired": load.status is LoadStatus.FIRED,
-        "steps": STEPS,
+        "steps": _step_rows(view, step_form),
+        "record": _record_context(view, record),
+        "history": [(austin_time(e.at), e.by, e.what) for e in view.history],
         "members": [_member_row(d) for d in view.members],
         "kilns": _choices(studio, CatalogList.KILNS, load.kiln),
         "firing_types": _choices(studio, CatalogList.FIRING_TYPES, load.firing_type),
@@ -484,7 +643,7 @@ async def change_load(request: Request) -> Response:
     if firing_type is None:
         return _refused(request, staff, id, problem=PICK_FIRING_TYPE)
     try:
-        console.change_load(id, kiln, firing_type, day, version, staff.member, test=False)  # phase 6 asks
+        console.change_load(id, kiln, firing_type, day, version, staff.member, test=_test(form))
     except NotFound:
         raise _load_not_found(id) from None
     except UnknownItem, ItemRetired:
@@ -600,3 +759,81 @@ async def delete_load(request: Request) -> Response:
     except CommitOutcomeUnknown:
         raise PageError(503, MAYBE_SAVED) from None
     return RedirectResponse(f"/console/loads?done=deleted&load={id}", status_code=303)
+
+
+# --- POST .../record and .../steps/{step}/time (#42) ------------------------------------------
+
+
+async def save_record(request: Request) -> Response:
+    """The firing record, on a loading, firing or fired load: it changes nothing else."""
+    staff, form = await require_staff_post(request)
+    id = load_id(request)
+    version = form_version(form)
+    values = posted_record(form)
+    try:
+        services(request).save_firing_record(id, values, version, staff.member)
+    except NotFound:
+        raise _load_not_found(id) from None
+    except InvalidRecord as refused:
+        typed = RecordForm(values, refused.errors, refused.message)
+        return _load_page(request, staff, _view(request, id), record=typed, status=422)
+    except Conflict:
+        typed = RecordForm(values, problem=CHANGED_ELSEWHERE)
+        return _load_page(request, staff, _view(request, id), record=typed, status=409)
+    except CommitOutcomeUnknown:
+        raise PageError(503, MAYBE_SAVED) from None
+    return _done(id, "record")
+
+
+def _stored_step_time(request: Request, id: LoadId, step: Step) -> datetime | None:
+    """The step's stored time, to tell a "Save time" with the text unchanged from a change:
+    in the repeated hour of a fall-back day the text alone can't say which hour it was."""
+    return step_time(_view(request, id).load, step)
+
+
+def _step(request: Request) -> Step:
+    try:
+        return Step(request.path_params["step"])
+    except ValueError:
+        raise PageError(404) from None
+
+
+async def correct_step_time(request: Request) -> Response:
+    """A reached step's time, typed as Austin time; who reached it never changes."""
+    staff, form = await require_staff_post(request)
+    id = load_id(request)
+    step = _step(request)
+    version = form_version(form)
+    typed = form.get("at", "")[:32]
+
+    def refused(error: str, status: int) -> Response:
+        view = _view(request, id)
+        try:
+            require_correctable(view.load, step)
+        except StepNotReached as wrong:  # a stale page or a crafted post: no field to show it by
+            return _load_page(request, staff, view, problem=wrong.message, status=status)
+        return _load_page(request, staff, view, step_form=StepForm(step, typed, error), status=status)
+
+    local = parse_local_time(typed)
+    if local is None:
+        return refused(BAD_TIME, 422)
+    stored = _stored_step_time(request, id, step)
+    if stored is not None and _local_input(stored) == typed:
+        at: datetime | None = stored  # unchanged at the minute: the stored instant, not a guess
+    else:
+        at = austin_instant(local)
+    if at is None:
+        return refused(SKIPPED_TIME, 422)
+    try:
+        services(request).correct_step_time(id, step, at, version, staff.member)
+    except NotFound:
+        raise _load_not_found(id) from None
+    except StepNotReached as wrong:  # a stale page: the step has no "Correct time" to show it by
+        return _load_page(request, staff, _view(request, id), problem=wrong.message, status=422)
+    except (StepTimeInFuture, StepTimeTooEarly, StepTimeOutOfOrder) as wrong:
+        return refused(wrong.message, 422)
+    except Conflict:
+        return refused(CHANGED_ELSEWHERE, 409)
+    except CommitOutcomeUnknown:
+        raise PageError(503, MAYBE_SAVED) from None
+    return _done(id, "time")

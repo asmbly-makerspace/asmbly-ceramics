@@ -89,7 +89,7 @@ RECORD_FIELDS: tuple[str, ...] = (
 )
 """The form's field names, in the order the page shows them."""
 
-_LABELS = {
+RECORD_LABELS: Mapping[str, str] = {
     "percent_full": "% full",
     "firing_number": "Firing number",
     "all_time_number": "All-time number",
@@ -105,16 +105,19 @@ _LABELS = {
     "cone_center": "Center cone",
     "cone_bottom": "Bottom cone",
 }
+"""Each field's name as the page and the history show it."""
 
 _WHOLE_NUMBER = re.compile(r"[0-9]+", flags=re.ASCII)
 _DURATION = re.compile(r"([0-9]{1,2}):([0-5][0-9])", flags=re.ASCII)
 _DOLLARS = re.compile(r"\$?([0-9]{1,3})(?:\.([0-9]{1,2}))?", flags=re.ASCII)
 _FIRING_TIME_MAX_TEXT = f"{FIRING_MINUTES_MAX // 60}:{FIRING_MINUTES_MAX % 60:02d}"  # "72:00"
 _COST_MAX_TEXT = f"${COST_CENTS_MAX // 100}.{COST_CENTS_MAX % 100:02d}"  # "$100.00"
-_DURATION_TEXT_MAX = len(_FIRING_TIME_MAX_TEXT)
-_DOLLARS_TEXT_MAX = len(_COST_MAX_TEXT)
+FIRING_TIME_TEXT_MAX = len(_FIRING_TIME_MAX_TEXT)
+"""The longest firing time the form takes, as text: `72:00`."""
+COST_TEXT_MAX = len(_COST_MAX_TEXT)
+"""The longest cost the form takes, as text: `$100.00`."""
 
-_WHOLE_RANGES = {
+WHOLE_RANGES: Mapping[str, tuple[int, int]] = {
     "percent_full": (PERCENT_MIN, PERCENT_MAX),
     "firing_number": (FIRING_NUMBER_MIN, FIRING_NUMBER_MAX),
     "all_time_number": (FIRING_NUMBER_MIN, FIRING_NUMBER_MAX),
@@ -123,6 +126,20 @@ _WHOLE_RANGES = {
     "max_temp_f": (TEMP_F_MIN, TEMP_F_MAX),
     "board_temp_f": (BOARD_TEMP_F_MIN, BOARD_TEMP_F_MAX),
 }
+"""Each whole-number field's (lowest, highest), for the checks and the form's bounds."""
+
+WITNESS_CONES: tuple[str, ...] = ("cone_top", "cone_center", "cone_bottom")
+"""The witness cones' field names, top to bottom: each a whole % or `NO_CONE`."""
+CONE_READING_RANGE: tuple[int, int] = (PERCENT_MIN, PERCENT_MAX)
+"""A witness cone's (lowest, highest) %, in `WHOLE_RANGES`' shape."""
+CONE_READING_TEXT_MAX = len(str(CONE_READING_RANGE[1]))
+"""The longest witness cone reading the form takes, as text: `100`."""
+
+
+def is_no_cone(text: str) -> bool:
+    """Whether a witness cone's text says "no cone at this spot" (`none`, any case)."""
+    return text.strip().lower() == NO_CONE.value
+
 
 _FIRING_TIME_MESSAGE = (
     f"Enter the firing time as hours and minutes, like 11:38, up to {_FIRING_TIME_MAX_TEXT}."
@@ -130,7 +147,9 @@ _FIRING_TIME_MESSAGE = (
 _COST_MESSAGE = f"Enter the cost in dollars, like 8.19, up to {_COST_MAX_TEXT}."
 _CONE_MESSAGE = "Pick a cone from the list."
 _SPEED_MESSAGE = "Pick slow, medium or fast."
-_CONE_READING_MESSAGE = f"Enter a whole % from {PERCENT_MIN} to {PERCENT_MAX}, or pick no cone."
+_CONE_READING_MESSAGE = (
+    f"Enter a whole % from {CONE_READING_RANGE[0]} to {CONE_READING_RANGE[1]}, or pick no cone."
+)
 
 
 class _RefusedError(Exception):
@@ -157,7 +176,7 @@ class _Reader:
             return None
 
     def whole(self, field: str) -> int | None:
-        low, high = _WHOLE_RANGES[field]
+        low, high = WHOLE_RANGES[field]
         return self.read(
             field, lambda text: _whole(text, low, high, f"Enter a whole number from {low:,} to {high:,}.")
         )
@@ -231,7 +250,7 @@ def _whole(text: str, low: int, high: int, message: str) -> int:
 
 
 def _firing_minutes(text: str) -> int:
-    match = _DURATION.fullmatch(text) if len(text) <= _DURATION_TEXT_MAX else None
+    match = _DURATION.fullmatch(text) if len(text) <= FIRING_TIME_TEXT_MAX else None
     if match is not None:
         minutes = int(match[1]) * 60 + int(match[2])
         if minutes <= FIRING_MINUTES_MAX:
@@ -240,7 +259,7 @@ def _firing_minutes(text: str) -> int:
 
 
 def _cost_cents(text: str) -> int:
-    match = _DOLLARS.fullmatch(text) if len(text) <= _DOLLARS_TEXT_MAX else None
+    match = _DOLLARS.fullmatch(text) if len(text) <= COST_TEXT_MAX else None
     if match is not None:
         cents = int(match[1]) * 100 + int((match[2] or "0").ljust(2, "0"))
         if cents <= COST_CENTS_MAX:
@@ -256,9 +275,10 @@ def _speed(text: str) -> Speed:
 
 
 def _cone_reading(text: str) -> ConeReading:
-    if text.lower() == NO_CONE.value:
+    if is_no_cone(text):
         return NO_CONE
-    return _whole(text, PERCENT_MIN, PERCENT_MAX, _CONE_READING_MESSAGE)
+    low, high = CONE_READING_RANGE
+    return _whole(text, low, high, _CONE_READING_MESSAGE)
 
 
 def record_changes(
@@ -271,7 +291,7 @@ def record_changes(
     for field in changed_fields(old, new):
         after = _value(new, field)
         shown = "cleared" if after is None else _shown(field, after, cone_name)
-        lines.append(f"{_LABELS[field]}: {shown}")
+        lines.append(f"{RECORD_LABELS[field]}: {shown}")
     return tuple(lines)
 
 

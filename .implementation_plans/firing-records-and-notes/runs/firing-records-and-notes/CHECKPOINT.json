@@ -141,7 +141,7 @@
    ],
    "status": "done",
    "base_sha": "ddf98c3",
-   "squashed_sha": null,
+   "squashed_sha": "b2f6d21",
    "review_rounds": 3,
    "cold_review": "fixed",
    "split_from": null,
@@ -163,18 +163,20 @@
    "depends_on": [
     "5"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "b2f6d21",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 2,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [],
    "refs": [
     42
    ],
-   "admin_actions": [],
+   "admin_actions": [
+    "Maintainer, after merge: stage walk-through on a phone (empty test load, fire, record, correct time, history), then set phase 6 [x]"
+   ],
    "notes": ""
   },
   {
@@ -405,6 +407,30 @@
    "review_lead": "APPROVED",
    "privacy": "CLEAR",
    "warns_fixed": 7
+  },
+  {
+   "ts": "2026-11-16T22:05:44Z",
+   "type": "squash",
+   "phase": "phase-5-use-cases-record-and-log",
+   "sha": "b2f6d21"
+  },
+  {
+   "ts": "2026-11-16T22:05:44Z",
+   "type": "phase_start",
+   "phase": "phase-6-console-load-page"
+  },
+  {
+   "ts": "2026-11-16T22:36:47Z",
+   "type": "phase_done",
+   "phase": "phase-6-console-load-page"
+  },
+  {
+   "ts": "2026-11-16T22:36:47Z",
+   "type": "cold_review",
+   "phase": "phase-6-console-load-page",
+   "review_lead": "APPROVED",
+   "privacy": "FLAG (1 WARN, a missing test) fixed",
+   "warns_fixed": 5
   }
  ]
 }

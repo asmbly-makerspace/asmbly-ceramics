@@ -41,6 +41,8 @@ def console_routes() -> list[BaseRoute]:
         Route(load + "/start-firing", loads.start_firing, methods=["POST"]),
         Route(load + "/fire", loads.mark_fired, methods=["POST"]),
         Route(load + "/delete", loads.delete_load, methods=["POST"]),
+        Route(load + "/record", loads.save_record, methods=["POST"]),
+        Route(load + "/steps/{step}/time", loads.correct_step_time, methods=["POST"]),
         Route(load + "/emails/{drop_off}/retry", loads.retry_email, methods=["POST"]),
         Route("/console/settings", settings.settings_page, methods=["GET"]),
         Route("/console/settings/history", settings.history_page, methods=["GET"]),

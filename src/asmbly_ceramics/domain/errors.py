@@ -192,6 +192,12 @@ class StepTimeInFuture(DomainError):
         self.load_id = load_id
 
 
+class StepTimeTooEarly(DomainError):
+    def __init__(self, load_id: LoadId, year: int) -> None:
+        super().__init__(f"Enter a time from {year} on.")
+        self.load_id = load_id
+
+
 class InvalidLogRange(DomainError):
     def __init__(self) -> None:
         super().__init__(

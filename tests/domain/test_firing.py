@@ -7,13 +7,17 @@ import pytest
 
 from asmbly_ceramics.domain.errors import InvalidRecord
 from asmbly_ceramics.domain.firing import (
+    CONE_READING_RANGE,
+    CONE_READING_TEXT_MAX,
     EMPTY_RECORD,
     NO_CONE,
     RECORD_FIELDS,
+    WITNESS_CONES,
     FiringRecord,
     Program,
     Speed,
     changed_fields,
+    is_no_cone,
     read_firing_record,
     read_program,
     record_changes,
@@ -269,3 +273,18 @@ def test_changed_fields_names_only_what_changed_in_page_order() -> None:
         "cost",
     )
     assert changed_fields(FULL_RECORD, FULL_RECORD) == ()
+
+
+def test_witness_cones_are_record_fields_read_in_their_range() -> None:
+    assert set(WITNESS_CONES) <= set(RECORD_FIELDS)
+    low, high = CONE_READING_RANGE
+    assert len(str(high)) == CONE_READING_TEXT_MAX
+    for name in WITNESS_CONES:
+        record = read_firing_record({name: str(high)}, CONES)
+        assert getattr(record, name) == high
+        assert getattr(read_firing_record({name: str(low)}, CONES), name) == low
+        with pytest.raises(InvalidRecord):
+            read_firing_record({name: str(high + 1)}, CONES)
+        assert getattr(read_firing_record({name: "None"}, CONES), name) is NO_CONE
+    assert is_no_cone(" NONE ")
+    assert not is_no_cone("0")

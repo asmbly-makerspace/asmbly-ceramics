@@ -51,6 +51,8 @@ POSTS = [
     "/console/loads/L-1/fire",
     "/console/loads/L-1/delete",
     "/console/loads/L-1/emails/AC-1/retry",
+    "/console/loads/L-1/record",
+    "/console/loads/L-1/steps/fired/time",
     "/console/settings/email",
     "/console/settings/test-email",
     "/console/settings/kilns/add",
@@ -443,6 +445,7 @@ def test_every_console_route_is_in_the_checked_lists() -> None:
         p.replace("L-1/emails/{id}/", "L-1/emails/{drop_off}/").replace("L-1", "{load}") for p in checked
     }
     checked = {p.replace("/settings/kilns/", "/settings/{list}/") for p in checked}
+    checked = {p.replace("/steps/fired/", "/steps/{step}/") for p in checked}
     for route in console_routes():
         assert isinstance(route, Route)
         assert route.path in checked | PUBLIC, route.path

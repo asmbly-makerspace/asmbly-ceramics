@@ -35,6 +35,7 @@ from asmbly_ceramics.domain.errors import (
     StepNotReached,
     StepTimeInFuture,
     StepTimeOutOfOrder,
+    StepTimeTooEarly,
     WrongLoadStatus,
 )
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program
@@ -45,6 +46,7 @@ from asmbly_ceramics.domain.limits import (
     NUMBERS_DATE_MARGIN,
     NUMBERS_LOOKBACK,
     NUMBERS_READ_AHEAD,
+    STEP_TIME_YEAR_MIN,
     STUDIO_TZ,
 )
 from asmbly_ceramics.domain.studio import CatalogList, KilnCounts, Studio
@@ -334,12 +336,20 @@ def can_correct_step(load: Load, step: Step) -> bool:
     return load.status is not LoadStatus.DELETED and step_time(load, step) is not None
 
 
+def require_correctable(load: Load, step: Step) -> None:
+    """`StepNotReached` unless `can_correct_step`: a page asks this for a step it has no
+    "Correct time" field to show a refusal by (a stale page)."""
+    if not can_correct_step(load, step):
+        raise StepNotReached(load.id, step.value)
+
+
 def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime) -> Load:
     """A reached step's time corrected, for a button pressed late (#42).
 
     `StepNotReached` for a step with no time: not reached yet, or the firing step of a
     load made before #42, so a time is never invented for an unknown step.
-    `StepTimeInFuture` when `at` is after `now`. `StepTimeOutOfOrder` unless started ≤
+    `StepTimeInFuture` when `at` is after `now`, `StepTimeTooEarly` when it is before
+    `STEP_TIME_YEAR_MIN` in Austin (a typed year's typo). `StepTimeOutOfOrder` unless started ≤
     firing ≤ fired holds afterwards, among the steps that have a time. `NotFound` on a
     deleted load. Who reached each step never changes.
     """
@@ -347,10 +357,11 @@ def correct_step_time(load: Load, step: Step, at: dt.datetime, now: dt.datetime)
     _check_aware(now)
     if load.status is LoadStatus.DELETED:
         raise NotFound(load.id)
-    if not can_correct_step(load, step):
-        raise StepNotReached(load.id, step.value)
+    require_correctable(load, step)
     if at > now:
         raise StepTimeInFuture(load.id)
+    if at < dt.datetime(STEP_TIME_YEAR_MIN, 1, 1, tzinfo=STUDIO_TZ):
+        raise StepTimeTooEarly(load.id, STEP_TIME_YEAR_MIN)
     match step:
         case Step.STARTED:
             corrected = replace(load, started_at=at)

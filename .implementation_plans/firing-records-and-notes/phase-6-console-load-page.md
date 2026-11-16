@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 6: Console: the load page's steps, firing record, test and history
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -51,7 +51,13 @@ firing" checkbox, and an empty test load can start firing. The loads list tags t
   a "Test" tag in both lists.
 - `src/asmbly_ceramics/web/static/` (the console's stylesheet): the step and record
   layout, from the design's tokens already in use.
-- `tests/web/console/test_loads.py`, `tests/web/console/test_privacy.py`.
+- `src/asmbly_ceramics/web/console/common.py`: `FORM_FIELDS_MAX` 16 → 24. The record form
+  posts its 14 fields, three "No cone" checkboxes, `version` and `csrf` (19), which the
+  current bound refuses with a 400 before the handler runs; the body bound
+  (`FORM_BODY_MAX`) is unchanged.
+- `tests/web/console/test_loads.py` (including the two existing step assertions,
+  `'<li aria-current="step">1 Loading</li>'` and `'… 3 Fired</li>'`, which the new
+  `_steps.html` markup replaces), `tests/web/console/test_privacy.py`.
 
 ## Implementation details
 
@@ -62,8 +68,8 @@ firing" checkbox, and an empty test load can start firing. The loads list tags t
 | `POST /console/loads/{load}/record` | `ceramics`, CSRF | `SaveFiringRecord` |
 | `POST /console/loads/{load}/steps/{step}/time` | `ceramics`, CSRF | `CorrectStepTime` |
 
-Both answer 303 to `/console/loads/{load}?saved=record` or `?saved=time` (a fixed word,
-as the other handlers do), or render the load page again with the messages (422) and the
+Both answer 303 to `/console/loads/{load}?done=record` or `?done=time` (a fixed word in
+`DONE`, as the other handlers do), or render the load page again with the messages (422) and the
 values typed kept. `{step}` is `started`, `firing` or `fired`, else 404. `{load}` is
 parsed as the other routes do.
 
@@ -76,16 +82,23 @@ from Helios's last firing" when `view.suggested` is used), Program (cone select 
 temp), Witness cones (top, center, bottom, each a number field and a "No cone" checkbox
 that sends `none`).
 
-- Field names are `RECORD_FIELDS`. Each input has `inputmode="numeric"` or `decimal`,
-  `min`/`max` and `maxlength` matching `domain/limits.py` (passed in the context, never
-  typed in the template), and a unit beside it (%, °F, hours, min, $).
+- Field names are `RECORD_FIELDS`. The whole-number fields have `inputmode="numeric"`,
+  `min`/`max` and `maxlength` matching `domain/limits.py`; the firing time is a text field
+  (`H:MM`, placeholder "11:38": a numeric keypad has no colon) and the cost has
+  `inputmode="decimal"`, each with a `maxlength` from its limit's longest text
+  (`72:00`, `100.00`). Every bound is passed in the context from `domain/limits.py`,
+  never typed in the template; each field has a unit beside it (%, °F, hours, min, $).
+- The cone and speed selects start with an empty option ("—"), so not choosing sends
+  blank. Each witness cone's "No cone" checkbox is named `<field>_none` with value `1`;
+  when it is checked the handler sends `none` for that field, whatever the number field
+  holds. The form shows the checkbox checked and the number empty for a stored `none`.
 - `version` hidden, `csrf` hidden. One "Save firing record" button, and the note "Saving
   changes only the record. Drop-offs and emails aren't touched."
 - An `InvalidRecord` shows each message under its field (`field-invalid`,
   `aria-describedby`), with a summary at the top naming how many fields need fixing.
 - `Conflict`: the page reloads with "Someone else changed this load. Check it and save
   again." and the values typed kept.
-- After `?saved=record`: "Firing record saved."
+- After `?done=record`: "Firing record saved."; after `?done=time`: "Time corrected."
 
 ### web: the steps (`_steps.html`)
 
@@ -138,7 +151,7 @@ The record's groups stack to one column below 40rem (the design's
 - `test_record_saved_redirects_and_shows`; `test_record_invalid_fields_shown_and_kept`;
   `test_record_conflict_message`; `test_record_on_fired_load`;
   `test_record_needs_csrf`; `test_record_not_in_group_not_allowed`;
-  `test_record_signed_out_redirects_to_sign_in`; `test_record_unknown_load_404`.
+  `test_record_signed_out_says_to_sign_in` (a console POST without a session answers 401 with a sign-in link, never a redirect: `form-action 'self'`); `test_record_unknown_load_404`.
 - `test_step_time_corrected`; `test_step_time_malformed`; `test_step_time_in_future`;
   `test_step_time_out_of_order`; `test_step_unknown_404`; `test_step_needs_csrf`.
 - `test_steps_show_who_and_when`; `test_old_load_firing_not_recorded`.
@@ -150,6 +163,9 @@ The record's groups stack to one column below 40rem (the design's
   instant come in no promised order (`Records.load_events`).
 - `test_record_limits_match_domain` (every `min`/`max`/`maxlength` in the form equals
   `domain/limits.py`).
+- `test_record_full_form_accepted` (all 19 fields posted at once save, not a 400);
+  `test_record_no_cone_checkbox` (a checked box saves `none`, and the form shows it).
+- `test_empty_test_load_fire_confirm_says_no_one_emailed`.
 
 `tests/web/console/test_privacy.py`: the record and history pages hold no drop-off's
 name, email or phone beyond what the load page already shows to staff; the redirect
@@ -190,16 +206,48 @@ None (staff are told after phase 7).
 
 ## Hand-off
 
-- [ ] Routes `POST …/record`, `POST …/steps/{step}/time`.
-- [ ] Templates `_record.html`, `_steps.html`; the load page's history section.
-- [ ] The test checkbox on start and change; the "Test" tag in `loads.html` and
-      `load.html`.
-- [ ] Both `test=False  # phase 6 asks` literals in `web/console/loads.py` (start and
-      change) replaced by the form's value in the same change as the checkbox.
-- From phase 5's review: correcting the fired step moves `load.fired_at` only; the
-  load's drop-offs keep their own `fired_at`, so the page shouldn't say it changed them.
-- From phase 5's review: two loads loading on one kiln at once are both suggested the
-  same next number (`LoadView.suggested`); a load fired at or before the kiln's
-  `counts.as_of` gets no suggestion. Prefill from `suggested` only as a suggestion.
-- `StepView.can_correct` says whether to offer the time correction (False for a load
-  made before #42's firing step); `CorrectStepTime` treats the same minute as unchanged.
+Status stays `[~] In progress` until the maintainer walks the stage check above after the
+merge (a test load with no drop-offs started, fired with no email, its record filled in,
+its fired time corrected, its history read); a later pull request sets `[x]`.
+
+- [x] Routes `POST /console/loads/{load}/record` (`loads.save_record`) and
+      `POST /console/loads/{load}/steps/{step}/time` (`loads.correct_step_time`), both
+      behind `require_staff_post`, answering 303 to `?done=record` / `?done=time` (`DONE`),
+      422 with the messages and the values typed kept, 409 on `Conflict` ("Someone else
+      changed this load. Check it and save again."), 503 on `CommitOutcomeUnknown`. A
+      stale page's `StepNotReached` shows above the page (that step has no form).
+      Both are in `tests/web/console/test_auth.py`'s `POSTS`, so the signed-out,
+      outside-the-group, CSRF and origin checks cover them.
+- [x] Templates `_record.html` (the four groups; field names `RECORD_FIELDS`; each
+      witness cone's "No cone" box is `<field>_none=1`, read by `loads.posted_record`)
+      and `_steps.html` (an `<ol aria-label="Status">` of `view.steps`, each reached step
+      with the person icon, `by <username>` or `by not recorded`, `austin_time`, and a
+      "Correct time" `<details>` when `StepView.can_correct`); the load page's
+      `<section id="history">` (`austin_time · username · what`, oldest first, in a
+      `<details open>` with its count).
+- [x] The test checkbox (`test=1` exactly, `loads._test`) on "Start a load" and "Change
+      kiln, firing or date"; the "Test" tag in `loads.html` (open and past lists) and
+      `load.html`; an empty load's fire confirmation says "No one is emailed."
+- [x] Both `test=False  # phase 6 asks` literals replaced by the form's value.
+- `domain.firing` now exports `RECORD_LABELS`, `WHOLE_RANGES`, `FIRING_TIME_TEXT_MAX`,
+  `COST_TEXT_MAX`, `WITNESS_CONES`, `CONE_READING_RANGE`, `CONE_READING_TEXT_MAX` and
+  `is_no_cone`; the record form's bounds come from them and `domain.limits`. Whole-number
+  fields are `type="number"` with `min`/`max` (no `maxlength`, which does nothing there);
+  the witness cones are `type="text" inputmode="numeric"` with `maxlength`, so a stray
+  number never blocks a ticked "No cone". `web.console.common.FORM_FIELDS_MAX` is 24.
+- A refused or conflicted "Save firing record" puts `autofocus` on `#record-summary` and
+  takes it off the add field.
+- `loads.parse_local_time` reads a `datetime-local` value; `loads.austin_instant` makes it
+  Austin time, refusing a time the clocks skip (spring forward) and reading the repeated
+  fall-back hour as the first; "Save time" with the text unchanged keeps the stored
+  instant. The domain's `correct_step_time` refuses a time before `STEP_TIME_YEAR_MIN`
+  (2000, `domain.limits`) with `StepTimeTooEarly`. A refused time for a step with no
+  form (`require_correctable`) shows the `StepNotReached` message above the page.
+- A load with no history (made before #42) reads "History" and "No history recorded."
+- The suggested firing numbers prefill the two fields with the hint "Suggested from
+  <kiln>'s firing count. Change it if it's wrong."; saving the form unchanged stores them.
+  Saving any field stores the prefilled suggestion too, which freezes it: two loads on one
+  kiln saved before either is fired get the same number. Left as is (a product call).
+- For phase 7: `loads.py`'s record and step helpers (`_record_context`, `_step_rows`) are
+  private to the load page; the firing log needs only `LoadView`-free formatting.
+- `sam validate` and `sam build` weren't run (no `sam` here; no template change).

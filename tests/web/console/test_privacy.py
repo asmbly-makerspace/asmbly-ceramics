@@ -112,3 +112,44 @@ def test_nothing_logged_holds_a_name_email_phone_message_or_token(
             assert not holds(record, secret), (record.getMessage(), secret)
     events = [r.message for r in caplog.records if r.name == "asmbly_ceramics"]
     assert {"signed_in", "drop_off_rejected", "rejection_undone", "signed_out"} <= set(events)
+
+
+def test_the_record_steps_and_history_hold_no_contact_details_and_echo_nothing_typed(
+    console: Console, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#42: the firing record, the steps and the history show staff usernames, studio items
+    and numbers only; a redirect after a save holds a fixed word, never a value typed."""
+    from asmbly_ceramics.domain.ids import LoadId
+
+    caplog.set_level(logging.DEBUG)
+    console.drop_off(1, name=NAME)
+    console.sign_in()
+    started = console.post(
+        "/console/loads", {"kiln": "athena", "firing_type": "bisque", "date": "2026-11-13"}
+    )
+    assert started.status_code == 303
+    assert console.post("/console/loads/L-1/add", {"drop_off": "AC-1"}).status_code == 303
+
+    def version() -> str:
+        load = console.world.records.load(LoadId(1))
+        assert load is not None
+        return str(load.version)
+
+    saved = console.post("/console/loads/L-1/record", {"version": version(), "max_temp_f": "2236"})
+    corrected = console.post(
+        "/console/loads/L-1/steps/started/time", {"version": version(), "at": "2026-11-13T11:17"}
+    )
+    page = console.get("/console/loads/L-1").text
+
+    for answer in (started, saved, corrected):
+        location = answer.headers.get("location", "")
+        assert "2236" not in location
+        assert "11:17" not in location
+        assert "11%3A17" not in location
+        assert details_in(location) == []
+    after_members = page.split('id="record"')[1]  # the record, the emails and the history
+    assert details_in(after_members) == []
+    assert "Max temp: 2,236 °F" in after_members
+    for record in caplog.records:
+        assert not holds(record, "2236"), record.getMessage()
+        assert not holds(record, NAME), record.getMessage()
