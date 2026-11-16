@@ -20,8 +20,8 @@ waiting list, search, rejection, kiln loads, settings, the daily close, counts),
 adapters (DynamoDB, S3, SES, Cognito tokens, Parameter Store) and the public drop-off
 form and the staff console (`web/`, `web/console/`: Starlette pages, the photo upload
 script and the security headers; the console is the waiting list, search, one drop-off
-and its photos, rejection, loads, settings and their history, counts, and the emails
-needing attention). They are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
+and its photos, rejection, loads with their firing record and history, the firing log
+and its CSV, settings and their history, counts, and the emails needing attention). They are tested without AWS. `infra/bootstrap.yaml` is the bootstrap stack (deploy roles,
 permissions boundary, the two addresses), which the maintainer deploys by hand with
 [its runbook](docs/runbooks/aws-bootstrap.md). The stack `asmbly-ceramics-bootstrap`
 exists in AWS and the GitHub environments `stage` and `prod` exist (`main` only); the
@@ -33,7 +33,9 @@ time, and their alarms), which a merge to `main` deploys to stage and then prod 
 is in place. The prod form's address isn't published until the switch from ClickUp
 (#8), and the console needs the `ceramics` group and the app's sign-in client from
 asmbly-staff-login. The plan's remaining phase is in
-[.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md).
+[.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md). The firing record and log (#42) are being built from
+[.implementation_plans/firing-records-and-notes/](.implementation_plans/firing-records-and-notes/README.md),
+and firing notes (#17), planned there too, are still to come.
 
 | Story | What changes for people |
 | --- | --- |
@@ -45,6 +47,7 @@ asmbly-staff-login. The plan's remaining phase is in
 | #7 | Finished drop-offs close, and personal details are deleted |
 | #8 | The studio switches from ClickUp |
 | #9 | Members see the kiln schedule |
+| #42 | Staff keep a firing record on each load, and read each kiln's firing log |
 
 What was decided is in epic #1; the reasons are in
 [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md), and

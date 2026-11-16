@@ -2,7 +2,7 @@
 phase_id: 9
 title: "Console: notes on a load and the notes search"
 epic: 1
-implements: [17]
+implements: [17, 42]
 depends_on: [7, 8]
 domain: [web, docs]
 estimated_size: L
@@ -31,8 +31,8 @@ estimated_size: L
 
 The load page shows its notes and lets staff add, edit and remove them. The "Firing log"
 tab has a Notes view to search notes by kiln, glaze type, clay body, ruling and date, each
-linking to its load. The firing log shows each load's note count. With this phase #17 is
-done.
+linking to its load. The firing log shows each load's note count, the last of #42's
+criteria. With this phase #17 and #42 are done.
 
 ## Files to create
 
@@ -186,5 +186,6 @@ tells ceramics staff about notes and sets this phase `[x]`.
 
 - [ ] Note routes and the `/console/notes` search; phase 8's use cases wired.
 - [ ] The firing log's notes column and CSV columns.
-- [ ] #17's criteria are all met: its pull request says `Closes #17`.
+- [ ] #17's and #42's criteria are all met: its pull request says `Closes #17` and
+      `Closes #42`.
 - [ ] The plan is complete: move it to `DONE/` in a `chore:` pull request.

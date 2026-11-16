@@ -37,6 +37,11 @@ def austin_day(day: date) -> str:
     return f"{_DAYS[day.weekday()]} {_MONTHS[day.month - 1]} {day.day}"
 
 
+def austin_date(day: date) -> str:
+    """`Fri Nov 13, 2026`: `austin_day` with its year, for a page that lists past years."""
+    return f"{austin_day(day)}, {day.year}"
+
+
 def austin_time(at: datetime) -> str:
     """`Fri Nov 13, 10:42 AM`, in Austin time."""
     local = at.astimezone(STUDIO_TZ)

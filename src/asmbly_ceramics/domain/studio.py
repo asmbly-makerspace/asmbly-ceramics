@@ -356,10 +356,8 @@ def set_default_program(
     """
     _check_change(by, at)
     item = studio.item(CatalogList.FIRING_TYPES, firing_type)
-    cones = {cone.id for cone in studio.cones if not cone.retired}
-    if item.default_program is not None and item.default_program.cone is not None:
-        cones.add(item.default_program.cone)
-    program: Program | None = read_program(values, cones)
+    named = None if item.default_program is None else item.default_program.cone
+    program: Program | None = read_program(values, nameable_cone_ids(studio, named))
     if program == Program():
         program = None
     if program == item.default_program:
@@ -369,6 +367,23 @@ def set_default_program(
         return studio, SettingChange(at, by, f"Cleared the default program for {item.name}")
     shown = describe_program(studio, program)
     return studio, SettingChange(at, by, f"Default program for {item.name}: {shown}")
+
+
+def nameable_cones(studio: Studio, named: ItemId | None) -> tuple[CatalogItem, ...]:
+    """The cones a program (a firing type's default or a load's record) may name, in the
+    studio's order: the active ones, and `named`, the one it already names, retired or
+    not, so a program whose cone was retired can still have its other fields changed.
+    The one rule `set_default_program`, the firing record and their forms all follow."""
+    return tuple(cone for cone in studio.cones if not cone.retired or cone.id == named)
+
+
+def nameable_cone_ids(studio: Studio, named: ItemId | None) -> frozenset[ItemId]:
+    """The IDs of `nameable_cones`, as `firing.read_program` takes them, with `named` even
+    when the studio no longer lists it (a cone deleted after a load's record named it)."""
+    ids = {cone.id for cone in nameable_cones(studio, named)}
+    if named is not None:
+        ids.add(named)
+    return frozenset(ids)
 
 
 def describe_program(studio: Studio, program: Program) -> str:

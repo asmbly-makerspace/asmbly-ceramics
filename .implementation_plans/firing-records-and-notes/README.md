@@ -93,7 +93,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 
 | Story | Title | Phases |
 | --- | --- | --- |
-| #42 | Staff keep a firing record on each load, and read each kiln's firing log | 1, 2, 3, 4, 5, 6, 7 |
+| #42 | Staff keep a firing record on each load, and read each kiln's firing log | 1, 2, 3, 4, 5, 6, 7, 9 |
 | #17 | Staff keep firing notes they can look up later | 2, 3, 4, 8, 9 |
 
 ## Phase tracker
@@ -106,7 +106,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 | [4](phase-4-records-events-notes-ranges.md) | Records: events, notes and date ranges, in the fake and DynamoDB | app, infra | L | [~] In progress |
 | [5](phase-5-use-cases-record-and-log.md) | Use cases: test loads, history, the firing record, corrections, the firing log | app | L | [~] In progress |
 | [6](phase-6-console-load-page.md) | Console: the load page's steps, firing record, test and history | web | L | [~] In progress |
-| [7](phase-7-console-firing-log-and-settings.md) | Console: the firing log, its CSV, and the new settings | web, docs | L | [ ] Pending |
+| [7](phase-7-console-firing-log-and-settings.md) | Console: the firing log, its CSV, and the new settings | web, docs | L | [~] In progress |
 | [8](phase-8-use-cases-notes.md) | Use cases: firing notes | app | M | [ ] Pending |
 | [9](phase-9-console-notes.md) | Console: notes on a load and the notes search | web, docs | L | [ ] Pending |
 

@@ -52,7 +52,14 @@ from asmbly_ceramics.domain.load import (
     suggest_numbers,
 )
 from asmbly_ceramics.domain.notes import move_note
-from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, KilnCounts, Studio
+from asmbly_ceramics.domain.studio import (
+    CatalogItem,
+    CatalogList,
+    KilnCounts,
+    Studio,
+    nameable_cone_ids,
+    nameable_cones,
+)
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.ids import IdNumbers
 from asmbly_ceramics.ports.records import MAX_CHANGES, Change, Conflict, Put, Records, Update
@@ -163,9 +170,9 @@ def _change_lines(old: Load, new: Load, studio: Studio) -> str:
 
 
 def record_cones(studio: Studio, record: FiringRecord) -> tuple[CatalogItem, ...]:
-    """The cones a record can name, in the studio's order: the active ones, and the one its
-    program already names, retired or not (as `set_default_program` allows)."""
-    return tuple(cone for cone in studio.cones if not cone.retired or cone.id == record.program.cone)
+    """The cones a record can name (`studio.nameable_cones`, as `set_default_program`
+    allows)."""
+    return nameable_cones(studio, record.program.cone)
 
 
 class StartLoad:
@@ -369,9 +376,7 @@ class SaveFiringRecord:
         returned as it is. `NotFound`, `InvalidRecord`, `Conflict`."""
         load = _load(self._records, load_id)
         studio = self._studio()
-        cones = {cone.id for cone in studio.cones if not cone.retired}
-        if load.record.program.cone is not None:
-            cones.add(load.record.program.cone)  # retired since, or even gone from the list
+        cones = nameable_cone_ids(studio, load.record.program.cone)  # even one gone from the list
         saved = set_firing_record(load, read_firing_record(values, cones))
         _check_version(load, version)
         what = _record_line(load.record, saved.record, studio)

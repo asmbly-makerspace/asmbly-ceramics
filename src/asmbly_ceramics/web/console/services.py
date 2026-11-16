@@ -71,7 +71,7 @@ class ConsoleServices:
     start_firing: StartFiring
     mark_fired: MarkFired
     delete_load: DeleteLoad
-    # The firing record and log (#42); their pages come in phases 6 and 7
+    # The firing record (the load page) and the firing log (#42)
     save_firing_record: SaveFiringRecord
     correct_step_time: CorrectStepTime
     firing_log: FiringLog
@@ -83,7 +83,7 @@ class ConsoleServices:
     retire_item: RetireCatalogItem
     restore_item: RestoreCatalogItem
     delete_item: DeleteCatalogItem
-    set_default_program: SetDefaultProgram  # its page comes in phase 7
+    set_default_program: SetDefaultProgram  # the settings page's programs, counts and new elements (#42)
     set_kiln_counts: SetKilnCounts
     record_new_elements: RecordNewElements
     # Weekly counts (#7)

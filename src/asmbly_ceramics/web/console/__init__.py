@@ -1,6 +1,6 @@
 """The staff console (#3 to #7): sign-in, the waiting list and search, one drop-off with
 its photos, rejection with its preview and undo, the emails needing attention, kiln
-loads, the studio's settings and the weekly counts.
+loads, the firing log and its CSV, the studio's settings and the weekly counts.
 
 `create_app` adds `console_routes()` when it is given `ConsoleServices` (the console
 function's app); the form function's app has none, so it serves no `/console` page.
@@ -8,7 +8,16 @@ function's app); the form function's app has none, so it serves no `/console` pa
 
 from starlette.routing import BaseRoute, Route
 
-from asmbly_ceramics.web.console import auth, counts, dropoffs, emails, loads, settings, waiting
+from asmbly_ceramics.web.console import (
+    auth,
+    counts,
+    dropoffs,
+    emails,
+    firing_log,
+    loads,
+    settings,
+    waiting,
+)
 from asmbly_ceramics.web.console.services import ConsoleServices
 
 __all__ = ["ConsoleServices", "console_routes"]
@@ -20,6 +29,8 @@ def console_routes() -> list[BaseRoute]:
     drop_off = "/console/drop-offs/{id}"
     load = "/console/loads/{load}"
     catalog = "/console/settings/{list}"
+    firing_type = "/console/settings/firing-types/{item}"
+    kiln = "/console/settings/kilns/{item}"
     return [
         Route("/console", waiting.waiting_page, methods=["GET"]),
         Route("/console/search", waiting.search, methods=["POST"]),
@@ -44,10 +55,15 @@ def console_routes() -> list[BaseRoute]:
         Route(load + "/record", loads.save_record, methods=["POST"]),
         Route(load + "/steps/{step}/time", loads.correct_step_time, methods=["POST"]),
         Route(load + "/emails/{drop_off}/retry", loads.retry_email, methods=["POST"]),
+        Route("/console/firing-log", firing_log.firing_log_page, methods=["GET"]),
+        Route("/console/firing-log.csv", firing_log.firing_log_csv, methods=["GET"]),
         Route("/console/settings", settings.settings_page, methods=["GET"]),
         Route("/console/settings/history", settings.history_page, methods=["GET"]),
         Route("/console/settings/email", settings.save_email_settings, methods=["POST"]),
         Route("/console/settings/test-email", settings.send_test_email, methods=["POST"]),
+        Route(firing_type + "/program", settings.set_default_program, methods=["POST"]),
+        Route(kiln + "/counts", settings.set_kiln_counts, methods=["POST"]),
+        Route(kiln + "/new-elements", settings.record_new_elements, methods=["POST"]),
         Route(catalog + "/add", settings.add_item, methods=["POST"]),
         Route(catalog + "/retire", settings.retire_item, methods=["POST"]),
         Route(catalog + "/restore", settings.restore_item, methods=["POST"]),

@@ -35,6 +35,8 @@ GETS = [
     "/console/settings",
     "/console/settings/history",
     "/console/counts",
+    "/console/firing-log",
+    "/console/firing-log.csv",
 ]
 POSTS = [
     "/console/search",
@@ -59,6 +61,9 @@ POSTS = [
     "/console/settings/kilns/retire",
     "/console/settings/kilns/restore",
     "/console/settings/kilns/delete",
+    "/console/settings/firing-types/bisque/program",
+    "/console/settings/kilns/athena/counts",
+    "/console/settings/kilns/athena/new-elements",
     "/console/sign-out",
 ]
 PHOTOS = {path for path in GETS if "/photos/" in path}
@@ -444,7 +449,8 @@ def test_every_console_route_is_in_the_checked_lists() -> None:
     checked = {
         p.replace("L-1/emails/{id}/", "L-1/emails/{drop_off}/").replace("L-1", "{load}") for p in checked
     }
-    checked = {p.replace("/settings/kilns/", "/settings/{list}/") for p in checked}
+    checked = {p.replace("/bisque/", "/{item}/").replace("/athena/", "/{item}/") for p in checked}
+    checked = {p if "{item}" in p else p.replace("/settings/kilns/", "/settings/{list}/") for p in checked}
     checked = {p.replace("/steps/fired/", "/steps/{step}/") for p in checked}
     for route in console_routes():
         assert isinstance(route, Route)

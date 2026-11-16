@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 7: Console: the firing log, its CSV, and the new settings
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -35,8 +35,9 @@ estimated_size: L
 
 A "Firing log" tab lists fired loads by kiln, date range and kind, with the record's main
 fields as columns and a CSV download. Settings lets staff set each firing type's default
-program, each kiln's counts, and "New elements". With this phase #42 is done, and the
-docs describe it.
+program, each kiln's counts, and "New elements", and the docs describe them. This phase
+refs #42; #42's firing log also has a notes count column, which phase 9 adds, so phase 9
+is the one that closes #42 (with #17).
 
 ## Files to create
 
@@ -54,6 +55,11 @@ docs describe it.
 - `docs/architecture.md`: the load's test flag, steps, record and history; the firing log;
   the studio's new lists and fields.
 - `docs/README.md`: nothing unless it indexes pages (check).
+- `CLAUDE.md`: "What this repository serves" (the settings that are data) and "The shape
+  of the code" ("Settings as data") gain the cones, clay bodies, default programs and kiln
+  counts. Add or correct only; no rule is cut.
+- `README.md`: the Status paragraph names the firing record and the firing log among the
+  console's pages, and #42 in the stories table.
 - `.implementation_plans/firing-records-and-notes/README.md`: phase tracker.
 
 ## Implementation details
@@ -125,6 +131,11 @@ Each saved change shows in the settings history (phase 2 writes it).
 studio's cones, clay bodies, default programs and kiln counts. "Today" mentions the
 firing log. Nothing in decision records changes.
 
+`CLAUDE.md`'s list of settings that are data, and its domain model's list, add the cones,
+clay bodies, each firing type's default program and each kiln's firing counts. `README.md`'s
+Status says the console has the firing record and the firing log, and its stories table
+gains #42.
+
 ## Tests
 
 `tests/web/console/test_firing_log.py`:
@@ -184,7 +195,46 @@ revert pull request. After prod's smoke test passes, the maintainer tells cerami
 
 ## Hand-off
 
-- [ ] `GET /console/firing-log`, `/console/firing-log.csv`; `csv_cell`.
-- [ ] The firing log template has a place for the notes column (phase 9).
-- [ ] Settings routes for programs, counts and new elements.
-- [ ] #42's criteria are all met: its pull request says `Closes #42`.
+Status stays `[~] In progress` until the maintainer walks the stage check above after the
+merge (counts set, a made-up load fired with its suggested numbers, the log filtered to
+tests, the CSV opened in a spreadsheet, new elements recorded); a later pull request sets
+`[x]`.
+
+- [x] `GET /console/firing-log` (`firing_log.firing_log_page`) and
+      `/console/firing-log.csv` (`firing_log.firing_log_csv`), both behind
+      `require_staff`; `firing_log.csv_cell` prefixes `'` to a cell starting with `=`,
+      `+`, `-`, `@`, a tab or a carriage return (`FORMULA_STARTS`), and every CSV cell
+      passes it. `CSV_COLUMNS` is the header row. Query parameters are read by
+      `_query` (an item ID's shape, `parse_date`, `KINDS`) and `_read` (an unknown kiln
+      or an `InvalidLogRange` falls back with `PICK_KILN` or the range's message); a
+      refused value is never echoed. "Download CSV" carries `LogQuery.as_params()`, the
+      checked query as given: with no dates it sends none, so the CSV reads the same
+      default range (with `LOG_DEFAULT_AHEAD`) as the page. The page's date fields hold
+      only the dates the query gave (blank by default, so the filter form, sent back,
+      keeps loads dated ahead), and a line under the filter says the range shown. The
+      CSV never falls back: a refused kiln or range answers 400 with its message
+      (`PageError`). Its record cells are `domain.firing.record_values`' texts (the cone
+      by name). The filename is built from `view.kiln`, `view.start` and `view.end`. The
+      Fired column and the counts line show the year (`mail.compose.austin_date`).
+- [x] `firing_log.html` has the notes column behind `show_notes` (true once any
+      `FiringLogRow.notes` is not None): phase 9 fills `notes` and the column appears.
+      A Kiln column shows when all kilns are listed.
+- [x] Settings routes `POST /console/settings/firing-types/{item}/program`
+      (`settings.set_default_program`), `/console/settings/kilns/{item}/counts`
+      (`settings.set_kiln_counts`) and `/console/settings/kilns/{item}/new-elements`
+      (`settings.record_new_elements`), each behind `require_staff_post`, `{item}` checked
+      with `is_item_id` (404), `UnknownItem` 404, `InvalidRecord` / `InvalidSetting` 400
+      with the message next to each field, the typed values kept and a top banner
+      (`CHECK_PROGRAM`, `CHECK_COUNTS`), `Conflict` 409 (`CHANGED_ELSEWHERE`, the typed
+      program or counts kept, open), `CommitOutcomeUnknown` 503. The program form's cones
+      are `domain.studio.nameable_cones`, the rule `set_default_program` and the firing
+      record also use. The counts form starts blank (the summary shows the stored counts
+      with their date), so saving it untouched can't re-date old counts. All three are in
+      `tests/web/console/test_auth.py`'s `POSTS` (signed out, outside the group, CSRF,
+      origin). The "New elements…" confirm step is a `<details>` with "Yes, new
+      elements".
+- [x] The "Firing log" tab in `layout.html` (`tab == "firing-log"`).
+- [x] `docs/architecture.md`, `CLAUDE.md` (settings as data) and `README.md` (Status, #42).
+- [x] This phase's pull request says `Refs #42`, not `Closes #42`: the notes count
+      column of #42's firing log comes with phase 9, which closes #42 and #17.
+- `sam validate` and `sam build` weren't run (no `sam` here; no template change).

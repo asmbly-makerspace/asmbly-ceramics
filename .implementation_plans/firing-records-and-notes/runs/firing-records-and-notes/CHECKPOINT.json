@@ -165,7 +165,7 @@
    ],
    "status": "done",
    "base_sha": "b2f6d21",
-   "squashed_sha": null,
+   "squashed_sha": "21d16c4",
    "review_rounds": 2,
    "cold_review": "fixed",
    "split_from": null,
@@ -190,18 +190,20 @@
    "depends_on": [
     "6"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "21d16c4",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 2,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
-   "closes": [
+   "closes": [],
+   "refs": [
     42
    ],
-   "refs": [],
-   "admin_actions": [],
+   "admin_actions": [
+    "Maintainer, after the merge: walk the stage check, tell ceramics staff about the firing log and kiln counts, set [x]"
+   ],
    "notes": ""
   },
   {
@@ -248,7 +250,8 @@
    "split_from": null,
    "parked_branch": null,
    "closes": [
-    17
+    17,
+    42
    ],
    "refs": [],
    "admin_actions": [],
@@ -431,6 +434,36 @@
    "review_lead": "APPROVED",
    "privacy": "FLAG (1 WARN, a missing test) fixed",
    "warns_fixed": 5
+  },
+  {
+   "ts": "2026-11-16T22:36:50Z",
+   "type": "squash",
+   "phase": "phase-6-console-load-page",
+   "sha": "21d16c4"
+  },
+  {
+   "ts": "2026-11-16T22:36:50Z",
+   "type": "phase_start",
+   "phase": "phase-7-console-firing-log-and-settings"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "phase_done",
+   "phase": "phase-7-console-firing-log-and-settings"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "cold_review",
+   "phase": "phase-7-console-firing-log-and-settings",
+   "review_lead": "APPROVED after fix rounds (BLOCK fixed)",
+   "privacy": "CLEAR"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "decision",
+   "topic": "story closing",
+   "choice": "phase 7 refs #42; phase 9 closes #17 and #42",
+   "reason": "#42 firing-log criterion includes the notes count column built in phase 9"
   }
  ]
 }

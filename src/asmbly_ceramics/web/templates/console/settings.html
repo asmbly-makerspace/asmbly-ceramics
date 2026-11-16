@@ -86,6 +86,85 @@
           {% endif %}
         </td>
       </tr>
+      {% if row.program %}
+      {% set program = row.program %}
+      <tr class="row-extra">
+        <td colspan="3">
+          <details{% if program.open %} open{% endif %}>
+            <summary>Default program: {{ program.summary or "none" }}</summary>
+            <form method="post" action="/console/settings/firing-types/{{ item.id }}/program">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="version" value="{{ studio.version }}">
+              <p class="hint">Fills in each new {{ item.name }} load's firing record. Leave every field blank to clear it.</p>
+              <div class="form-row">
+              {% for name in ("cone", "speed") %}
+              {% set field_id = "prog-" ~ item.id ~ "-" ~ name %}
+              <div class="field{% if name in program.errors %} field-invalid{% endif %}">
+                <label for="{{ field_id }}">{{ labels[name] }}</label>
+                {% if name in program.errors %}<p class="field-error" id="{{ field_id }}-error">{{ program.errors[name] }}</p>{% endif %}
+                <select id="{{ field_id }}" name="{{ name }}"{% if name in program.errors %} aria-describedby="{{ field_id }}-error"{% endif %}>
+                  <option value="">—</option>
+                  {% for value, shown in (program.cones if name == "cone" else speeds) %}
+                  <option value="{{ value }}"{% if program.fields[name] == value %} selected{% endif %}>{{ shown }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endfor %}
+              {% for name, unit in (("preheat_hours", "hours"), ("hold_minutes", "min")) %}
+              {% set field_id = "prog-" ~ item.id ~ "-" ~ name %}
+              {% set low, high = whole[name] %}
+              <div class="field{% if name in program.errors %} field-invalid{% endif %}">
+                <label for="{{ field_id }}">{{ labels[name] }}</label>
+                {% if name in program.errors %}<p class="field-error" id="{{ field_id }}-error">{{ program.errors[name] }}</p>{% endif %}
+                <div class="unit-row">
+                  <input type="number" id="{{ field_id }}" name="{{ name }}" value="{{ program.fields[name] }}" inputmode="numeric" min="{{ low }}" max="{{ high }}" step="1" class="input-narrow"{% if name in program.errors %} aria-describedby="{{ field_id }}-error"{% endif %}>
+                  <span class="unit">{{ unit }}</span>
+                </div>
+              </div>
+              {% endfor %}
+              </div>
+              <button type="submit">Save program</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
+      {% if row.counts %}
+      {% set counts = row.counts %}
+      <tr class="row-extra">
+        <td colspan="3">
+          <details{% if counts.open %} open{% endif %}>
+            <summary>Firing counts: {{ counts.summary or "not set" }}</summary>
+            <form method="post" action="/console/settings/kilns/{{ item.id }}/counts">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="version" value="{{ studio.version }}">
+              <p class="hint">{{ item.name }}'s counts today. Each fired load's suggested firing numbers count on from them.</p>
+              {% if counts.error and counts.error_field not in ("since_elements", "all_time") %}<p class="field-error">{{ counts.error }}</p>{% endif %}
+              <div class="form-row">
+              {% for name, label in (("since_elements", "Firings since new elements"), ("all_time", "All time")) %}
+              {% set field_id = "counts-" ~ item.id ~ "-" ~ name %}
+              <div class="field{% if counts.error_field == name %} field-invalid{% endif %}">
+                <label for="{{ field_id }}">{{ label }}</label>
+                {% if counts.error_field == name %}<p class="field-error" id="{{ field_id }}-error">{{ counts.error }}</p>{% endif %}
+                <input type="number" id="{{ field_id }}" name="{{ name }}" value="{{ counts.fields[name] }}" inputmode="numeric" min="0" max="{{ count_max }}" step="1" class="input-narrow"{% if counts.error_field == name %} aria-describedby="{{ field_id }}-error"{% endif %}>
+              </div>
+              {% endfor %}
+              </div>
+              <button type="submit">Save counts</button>
+            </form>
+          </details>
+          <details>
+            <summary>New elements…</summary>
+            <form method="post" action="/console/settings/kilns/{{ item.id }}/new-elements">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="version" value="{{ studio.version }}">
+              <p>Firing # for {{ item.name }} restarts at 1 from its next firing. The all-time count carries on.</p>
+              <button type="submit">Yes, new elements</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
     {% endfor %}
     </tbody>
   </table>

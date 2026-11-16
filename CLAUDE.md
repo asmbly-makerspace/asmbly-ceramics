@@ -45,7 +45,7 @@ without signing in, which gives each drop-off an ID (`AC-1`, `AC-2`, …) on scr
 **staff console** where ceramics staff build kiln loads, fire them, reject drop-offs
 and manage the studio's settings. People get an email with their drop-off's photos when
 it is received, fired, or rejected. It replaces the studio's ClickUp drop-off form.
-About 80 drop-offs and 6 firings a week. Epic #1 has the stories (#2 to #9) and what was
+About 80 drop-offs and 6 firings a week. Epic #1 has the stories (#2 to #9, #17 and #42) and what was
 decided; [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md)
 has the reasons.
 
@@ -58,7 +58,9 @@ has the reasons.
   over the staff sign-in; the app's sign-in client is added there, by a pull request
   there.
 - **Kilns, firing types, glaze types, rejection reasons, the pickup window and hours, and
-  the sending address are data** that staff manage in the console (#6), not code.
+  the sending address are data** that staff manage in the console (#6), not code. So are
+  the cones, the clay bodies, each firing type's default program and each kiln's firing
+  counts (#42).
 - **Out of scope** (epic #1): payments or firing fees, importing anything from ClickUp,
   membership checks, pickup tracking or shelf locations, the dip glaze mix log.
 
@@ -90,7 +92,10 @@ the deploy are recorded in
   interface the domain and the use cases call, with an AWS adapter and an in-memory fake
   for tests. A new feature (the kiln schedule, #9; a glaze log later) adds a use case and,
   if it must, an adapter, without reworking the others.
-- **Settings as data.** Nothing a story calls a setting is a constant in the code.
+- **Settings as data.** Nothing a story calls a setting is a constant in the code: the
+  studio's lists (kilns, firing types, glaze types, rejection reasons, cones, clay
+  bodies), the default programs, the kilns' firing counts, the pickup window and hours,
+  and the sending address.
 
 ## Done means verified
 
@@ -190,7 +195,7 @@ detail, account ID or photo is committed. If you couldn't run a check, say which
 ## Tracking
 
 Work is tracked in GitHub Issues on this repository; there is no other tracker. Epic #1
-lists the stories (#2 to #9) and the work they need in asmbly-staff-login, AsmblyMCPs
+lists the stories (#2 to #9, #17 and #42) and the work they need in asmbly-staff-login, AsmblyMCPs
 and the facilities repository, which is tracked there. A commit or pull request that
 finishes an issue says `Closes #2`; earlier partial work says `Refs #2`. If you find
 follow-up work you won't do now, open an issue for it. Issues are public: describe a

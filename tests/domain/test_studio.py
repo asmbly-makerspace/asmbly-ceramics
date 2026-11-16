@@ -24,6 +24,8 @@ from asmbly_ceramics.domain.studio import (
     is_valid_email,
     kind_name,
     kinds_name,
+    nameable_cone_ids,
+    nameable_cones,
     names_cone,
     record_new_elements,
     restore_item,
@@ -546,6 +548,21 @@ def test_set_default_program_takes_active_cones_or_the_one_it_names() -> None:
     with pytest.raises(errors.InvalidRecord) as refused:
         set_default_program(studio, ItemId("bisque"), GLAZE_PROGRAM, STAFF, LATER)
     assert list(refused.value.errors) == ["cone"]
+
+
+def test_nameable_cones_are_the_active_ones_and_the_one_already_named() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.CONES, CONE_6, STAFF, LATER)
+    active = [cone.id for cone in studio.cones if not cone.retired]
+
+    assert [cone.id for cone in nameable_cones(studio, None)] == active
+    named = [cone.id for cone in nameable_cones(studio, CONE_6)]
+    assert set(named) == {*active, CONE_6}
+    assert named == [cone.id for cone in studio.cones if cone.id in named]  # the studio's order
+    assert nameable_cone_ids(studio, CONE_6) == frozenset(named)
+    # A cone gone from the list still counts for the program that names it.
+    gone = ItemId("item-99")
+    assert [cone.id for cone in nameable_cones(studio, gone)] == active
+    assert nameable_cone_ids(studio, gone) == frozenset({*active, gone})
 
 
 def test_set_default_program_on_a_retired_firing_type() -> None:

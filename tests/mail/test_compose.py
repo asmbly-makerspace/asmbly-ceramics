@@ -406,3 +406,13 @@ def test_the_composer_imports_no_web_layer() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert loaded.stdout.strip() == "[]"
+
+
+def test_austin_date_is_austin_day_with_its_year() -> None:
+    from datetime import date
+
+    from asmbly_ceramics.mail.compose import austin_date, austin_day
+
+    assert austin_day(date(2026, 11, 13)) == "Fri Nov 13"
+    assert austin_date(date(2026, 11, 13)) == "Fri Nov 13, 2026"
+    assert austin_date(date(2027, 1, 1)) == "Fri Jan 1, 2027"

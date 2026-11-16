@@ -403,6 +403,9 @@ a { color: var(--accent-strong); }
 .list .muted { color: var(--muted); font-size: var(--font-size-small); }
 .list .row-actions { text-align: right; white-space: nowrap; }
 .row-actions .inline-form + .inline-form { margin-left: var(--space-2); }
+/* A settings item's own forms (default program, firing counts) sit under its row, as part of it. */
+.list tr:has(+ .row-extra) > * { border-bottom: var(--none); }
+.list .row-extra > td { padding-top: var(--none); }
 @media (hover: hover) {
   .table-box > .list tbody tr:hover { background: var(--row-hover); }
 }
