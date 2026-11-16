@@ -101,7 +101,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
 | [1](phase-1-load-record-and-steps.md) | The load: test firings, who moved it, the firing record | app | L | [ ] Pending |
-| [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app | L | [ ] Pending |
+| [2](phase-2-studio-cones-clays-programs-counts.md) | The studio: cones, clay bodies, default programs, kiln counts | app, web | L | [ ] Pending |
 | [3](phase-3-load-history-and-notes-domain.md) | The domain: a load's history and firing notes | app | M | [ ] Pending |
 | [4](phase-4-records-events-notes-ranges.md) | Records: events, notes and date ranges, in the fake and DynamoDB | app, infra | L | [ ] Pending |
 | [5](phase-5-use-cases-record-and-log.md) | Use cases: test loads, history, the firing record, corrections, the firing log | app | L | [ ] Pending |
@@ -116,7 +116,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
   AsmblyMCPs or the facilities repository, no by-hand AWS step.
 - `drop-off-and-firing` is complete; this plan builds on its domain, ports, adapters and
   console.
-- Phases: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 9, and 4 → 8 → 9.
+- Phases: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 9, and 5 → 8 → 9.
 
 ## Parallelism
 
@@ -125,10 +125,10 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
   `tests/domain/builders.py`.
 - **5, 6, 7** run in order: 6 and 7 share `web/console/__init__.py`,
   `web/console/loads.py` and `web/templates/console/`; 5 changes the use cases both call.
-- **8 and 5: parallel-safe.** 8 creates `use_cases/notes.py` and
+- **8 and 6, 8 and 7: parallel-safe.** 8 creates `use_cases/notes.py` and
   `tests/use_cases/test_notes.py` only, with its fixtures in its own test module; it
   doesn't touch `composition.py` (phase 9 wires it) or `tests/use_cases/conftest.py`.
-- **8 and 6, 8 and 7: parallel-safe**, for the same reason.
+  It waits for 5, whose `InvalidLogRange` and `LOG_RANGE_MAX` it reuses.
 - **9** waits for 7 and 8: it shares the load page and the firing log with 7, and wires
   8's use cases.
 - `docs/architecture.md` is changed by 7 and 9, which are sequential anyway.

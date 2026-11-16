@@ -158,8 +158,9 @@ def matches(note: FiringNote, f: NoteFilter) -> bool:
 - `test_write_note_on_loading_firing_and_fired_loads`; `test_no_note_on_deleted_load`.
 - `test_text_required`; `test_text_max_length`; `test_text_crlf_to_lf`;
   `test_text_control_characters_refused`; `test_text_with_email_refused`;
-  `test_text_with_phone_refused` (several formats: `512 555 0100`, `(512) 555-0100`,
-  `+1.512.555.0100`, built in code); `test_text_with_cone_and_temperature_numbers_kept`
+  `test_text_with_phone_refused` (ten-digit numbers written with spaces, with an area
+  code in parentheses and a dash, and with a leading `+1` and dots, each built in code
+  from digits, never a literal in the test file); `test_text_with_cone_and_temperature_numbers_kept`
   (`^6 at 2,236 °F for 7 min` is fine); `test_messages_never_quote_text`.
 - `test_tags_must_be_active_items`; `test_repeated_tag_refused`; `test_too_many_tags`.
 - `test_edit_note_keeps_written_and_stamps_edited`; `test_edit_keeps_retired_tag`;
