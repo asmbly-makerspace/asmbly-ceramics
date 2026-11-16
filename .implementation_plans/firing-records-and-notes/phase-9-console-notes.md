@@ -46,6 +46,8 @@ criteria. With this phase #17 and #42 are done.
 ## Files to modify
 
 - `src/asmbly_ceramics/composition.py`: wire phase 8's use cases.
+- `tests/use_cases/conftest.py`: phase 8's use cases on the `world` fixture (and
+  `tests/use_cases/test_notes.py` then uses them from there).
 - `src/asmbly_ceramics/web/console/__init__.py`: routes.
 - `src/asmbly_ceramics/web/console/loads.py`, `templates/console/load.html`: include the
   notes.
@@ -111,8 +113,8 @@ shows "Firings" and "Notes" as two links (the design's toggle), the current one 
 
 ### web: the firing log's notes column
 
-`FiringLogRow.notes` is filled from `NoteCounts` (phase 8) in the page handler, or by
-passing `NoteCounts` into `FiringLog` (whichever keeps `FiringLog`'s tests simplest; say
+`FiringLogRow.notes` is filled from `NoteCounts(loads)` (phase 8, given the rows'
+loads) in the page handler, or by passing `NoteCounts` into `FiringLog` (whichever keeps `FiringLog`'s tests simplest; say
 which in the hand-off). The column shows the count, with a "✕ n" tag when any is "not
 allowed"; the CSV gains `notes` and `not allowed notes` columns.
 

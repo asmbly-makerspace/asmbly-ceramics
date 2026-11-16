@@ -51,7 +51,7 @@ from asmbly_ceramics.domain.load import (
     step_time,
     suggest_numbers,
 )
-from asmbly_ceramics.domain.notes import move_note
+from asmbly_ceramics.domain.notes import move_note, remove_note
 from asmbly_ceramics.domain.studio import (
     CatalogItem,
     CatalogList,
@@ -339,9 +339,11 @@ class DeleteLoad:
 
     def __call__(self, load_id: LoadId, version: int, staff: StaffMember) -> Load:
         """A load started by mistake, deleted while loading or firing: its drop-offs go back
-        to the waiting list, in one commit with the load and its history line (at most
-        1 + 48 + 1 changes).
-        `NotFound` (deleted already), `FiredLoadNotDeletable`, `Conflict`."""
+        to the waiting list and its notes are removed (by the staff member deleting, so a
+        deleted load's tags count as used nowhere), in one commit with the load and its
+        history line. `NotFound` (deleted already), `FiredLoadNotDeletable`,
+        `TooManyNotesToMove` (more notes than the commit holds beside the load, its
+        drop-offs and the line), `Conflict`."""
         load = _load(self._records, load_id)
         members = [_drop_off(self._records, id) for id in load.members] if can_delete(load) else []
         # Another action landed between the load's read and its members' (a fire, a remove,
@@ -354,8 +356,13 @@ class DeleteLoad:
         at = self._clock.now()
         deleted, waiting = delete_load(load, members, staff.username, at)
         _check_version(load, version)
+        notes = self._records.notes_for(load.id)
+        room = MAX_CHANGES - 2 - len(waiting)
+        if len(notes) > room:
+            raise TooManyNotesToMove(load.id, room, deleting=True)
         changes: list[Change] = [Update(deleted)]
         changes.extend(Update(drop_off) for drop_off in waiting)
+        changes.extend(Update(remove_note(note, staff.username, at)) for note in notes)
         changes.append(_event(deleted, staff, at, "Deleted the load"))
         self._records.commit(changes)
         log_event("load_deleted", load_id=str(load.id), count=len(waiting), user=staff.username)

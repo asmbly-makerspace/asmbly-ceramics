@@ -68,8 +68,18 @@ NUMBERS_READ_AHEAD = timedelta(days=60)
 # The firing log (#42): the longest date range one page reads, and the range it opens with.
 LOG_RANGE_MAX_YEARS = 5
 LOG_RANGE_MAX = timedelta(days=LOG_RANGE_MAX_YEARS * 366)
+# `domain.ranges.log_range` checks a range against `LOG_RANGE_MAX`, for the log and the
+# notes search alike.
 LOG_DEFAULT_RANGE = timedelta(weeks=12)
 # With no end chosen, the log also reads load dates this far after today: a load dated
 # ahead may already be fired, and the range it opens with ends today.
 LOG_DEFAULT_AHEAD = timedelta(days=60)
+# Firing notes (#17): how far back the notes search looks when the page gives no start.
+NOTES_DEFAULT_RANGE = timedelta(days=365)
+# How far a note's `written_at` is expected to be from its load's date: a note is written
+# after the firing, or while loading, before the load's date. The notes search reads the
+# loads dated this much around its range in one go (any other load it needs, it reads by
+# its ID), and the firing log's note counts read from this much before the earliest of
+# its loads was started (a started time corrected later than the real one).
+NOTE_LOAD_SLACK = timedelta(days=30)
 SENDING_DOMAIN = "asmbly.org"

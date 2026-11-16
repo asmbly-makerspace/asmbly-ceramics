@@ -51,6 +51,10 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
         errors.TooManyNotesToMove(L4, 98),
         "Load L-4 has more than 98 notes, so its kiln can't be changed.",
     ),
+    (
+        errors.TooManyNotesToMove(L4, 50, deleting=True),
+        "Load L-4 has more than 50 notes, so it can't be deleted. Remove some of its notes first.",
+    ),
     (errors.MessageRequired(), "This reason needs a message."),
     (errors.MessageTooLong(1000), "The message is longer than 1,000 characters."),
     (errors.NotRejected(AC12), "AC-12 isn't rejected."),

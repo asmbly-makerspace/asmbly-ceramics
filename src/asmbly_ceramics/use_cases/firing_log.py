@@ -1,19 +1,19 @@
 """The firing log (#42): a kiln's fired loads in a date range, as its workbook tab listed them.
 
 It reads fired loads by their date from the index (`Records.loads_dated_between`), a
-range of at most `LOG_RANGE_MAX`, so its cost doesn't grow with the years kept. The page
-shows the rows and the CSV downloads them (phase 7). Rows hold staff usernames, studio
-items and record values, never a person's details. A read: it logs nothing.
+range of at most `LOG_RANGE_MAX` (`domain.ranges.log_range`), so its cost doesn't grow
+with the years kept. The page shows the rows and the CSV downloads them (phase 7). Rows
+hold staff usernames, studio items and record values, never a person's details. A read: it logs nothing.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
-from asmbly_ceramics.domain.errors import InvalidLogRange
 from asmbly_ceramics.domain.ids import ItemId
-from asmbly_ceramics.domain.limits import LOG_DEFAULT_AHEAD, LOG_DEFAULT_RANGE, LOG_RANGE_MAX, STUDIO_TZ
+from asmbly_ceramics.domain.limits import LOG_DEFAULT_AHEAD, LOG_DEFAULT_RANGE, STUDIO_TZ
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.ranges import log_range
 from asmbly_ceramics.domain.studio import CatalogList, KilnCounts, Studio
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.records import Records
@@ -65,11 +65,13 @@ class FiringLog:
         `kiln` (or every kiln), of `kind`. `UnknownItem` for a kiln the studio
         doesn't have. A range longer than `LOG_RANGE_MAX` or ending before it
         starts is `InvalidLogRange`; so is an `end` of `date.max` (the read's half-open
-        end is `end + 1 day`). Reads `loads_dated_between` only. A read: logs nothing."""
+        end is `end + 1 day`), by `domain.ranges.log_range`. Reads `loads_dated_between`
+        only. A read: logs nothing."""
         studio = self._studio()
         counts = None if kiln is None else studio.item(CatalogList.KILNS, kiln).counts
-        start, end, read_end = self._range(start, end)
-        dated = self._records.loads_dated_between({LoadStatus.FIRED}, start, read_end)
+        today = self._clock.now().astimezone(STUDIO_TZ).date()
+        span = log_range(start, end, today, LOG_DEFAULT_RANGE, LOG_DEFAULT_AHEAD)
+        dated = self._records.loads_dated_between({LoadStatus.FIRED}, span.start, span.read_end)
         loads = [
             load
             for load in dated
@@ -84,27 +86,11 @@ class FiringLog:
         return FiringLogView(
             rows=tuple(_row(studio, load) for load in loads),
             kiln=kiln,
-            start=start,
-            end=end,
+            start=span.start,
+            end=span.end,
             kind=kind,
             counts=counts,
         )
-
-    def _range(self, start: date | None, end: date | None) -> tuple[date, date, date]:
-        """(start, end, the read's half-open end), the defaults filled in."""
-        ahead = timedelta(0)
-        if end is None:
-            end = self._clock.now().astimezone(STUDIO_TZ).date()
-            ahead = LOG_DEFAULT_AHEAD
-        try:
-            if start is None:
-                start = end - LOG_DEFAULT_RANGE
-            read_end = end + timedelta(days=1) + ahead
-        except OverflowError:  # a range at the calendar's edge
-            raise InvalidLogRange() from None
-        if end < start or end - start > LOG_RANGE_MAX:
-            raise InvalidLogRange()
-        return start, end, read_end
 
 
 def _row(studio: Studio, load: Load) -> FiringLogRow:

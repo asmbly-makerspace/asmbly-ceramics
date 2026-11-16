@@ -206,10 +206,14 @@ class InvalidLogRange(DomainError):
 
 
 class TooManyNotesToMove(DomainError):
-    """A kiln change moves the load's notes in its commit, which holds at most `limit`."""
+    """A kiln change moves the load's notes in its commit, and a delete removes them in its
+    own; the commit holds at most `limit` of them. `deleting` says which was refused."""
 
-    def __init__(self, load_id: LoadId, limit: int) -> None:
-        super().__init__(f"Load {load_id} has more than {limit} notes, so its kiln can't be changed.")
+    def __init__(self, load_id: LoadId, limit: int, *, deleting: bool = False) -> None:
+        refused = (
+            "it can't be deleted. Remove some of its notes first" if deleting else "its kiln can't be changed"
+        )
+        super().__init__(f"Load {load_id} has more than {limit} notes, so {refused}.")
         self.load_id = load_id
 
 

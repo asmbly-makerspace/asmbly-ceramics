@@ -192,7 +192,7 @@
    ],
    "status": "done",
    "base_sha": "21d16c4",
-   "squashed_sha": null,
+   "squashed_sha": "5db368b",
    "review_rounds": 2,
    "cold_review": "fixed",
    "split_from": null,
@@ -216,11 +216,11 @@
    "depends_on": [
     "5"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "5db368b",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 2,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [],
@@ -464,6 +464,30 @@
    "topic": "story closing",
    "choice": "phase 7 refs #42; phase 9 closes #17 and #42",
    "reason": "#42 firing-log criterion includes the notes count column built in phase 9"
+  },
+  {
+   "ts": "2026-11-16T23:17:00Z",
+   "type": "squash",
+   "phase": "phase-7-console-firing-log-and-settings",
+   "sha": "5db368b"
+  },
+  {
+   "ts": "2026-11-16T23:17:00Z",
+   "type": "phase_start",
+   "phase": "phase-8-use-cases-notes"
+  },
+  {
+   "ts": "2026-11-16T23:43:55Z",
+   "type": "phase_done",
+   "phase": "phase-8-use-cases-notes"
+  },
+  {
+   "ts": "2026-11-16T23:43:55Z",
+   "type": "cold_review",
+   "phase": "phase-8-use-cases-notes",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 6
   }
  ]
 }

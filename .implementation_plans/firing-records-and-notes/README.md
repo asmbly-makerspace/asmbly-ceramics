@@ -107,7 +107,7 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
 | [5](phase-5-use-cases-record-and-log.md) | Use cases: test loads, history, the firing record, corrections, the firing log | app | L | [~] In progress |
 | [6](phase-6-console-load-page.md) | Console: the load page's steps, firing record, test and history | web | L | [~] In progress |
 | [7](phase-7-console-firing-log-and-settings.md) | Console: the firing log, its CSV, and the new settings | web, docs | L | [~] In progress |
-| [8](phase-8-use-cases-notes.md) | Use cases: firing notes | app | M | [ ] Pending |
+| [8](phase-8-use-cases-notes.md) | Use cases: firing notes | app | L | [x] Complete |
 | [9](phase-9-console-notes.md) | Console: notes on a load and the notes search | web, docs | L | [ ] Pending |
 
 ## Dependencies

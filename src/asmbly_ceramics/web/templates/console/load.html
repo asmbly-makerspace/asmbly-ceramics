@@ -13,7 +13,7 @@
 {% if confirm_delete %}
 <section class="panel panel-danger" id="confirm-delete" aria-labelledby="confirm-delete-title">
   <h3 id="confirm-delete-title">Delete load {{ load.id }}?</h3>
-  <p><strong>This can't be undone.</strong> The load disappears from the console for everyone, and its number isn't used again.</p>
+  <p><strong>This can't be undone.</strong> The load disappears from the console for everyone, its notes are removed with it, and its number isn't used again.</p>
   {% if members %}
   <p>{{ view.total_drop_offs }} drop-off{{ "" if view.total_drop_offs == 1 else "s" }} in it go{{ "es" if view.total_drop_offs == 1 else "" }} back to the waiting list: <span class="mono">{% for row in members %}{{ row.drop_off.id }}{{ ", " if not loop.last }}{% endfor %}</span>. No one is emailed.</p>
   {% else %}

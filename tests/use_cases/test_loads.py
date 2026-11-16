@@ -1293,3 +1293,52 @@ def test_view_load_no_suggestion_once_numbered(world: World) -> None:
     assert world.view_load(load.id).suggested == (None, None)
     assert "loads_dated_between" not in world.records.reads[reads:]
     assert world.view_load(world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER).id).suggested == (None, None)
+
+
+def test_delete_load_removes_its_notes(world: World) -> None:
+    """A deleted load's notes are removed with it, so its tags count as used nowhere (#17)."""
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    load = world.records.load(load_id)
+    assert load is not None
+    note = a_note(
+        1, load, glaze_types=("commercial-glaze",), clay_bodies=("buffalo-wallow",), studio=world.studio()
+    )
+    world.records.commit([Put(note)])
+    assert world.records.is_item_used(CatalogList.CLAY_BODIES, ItemId("buffalo-wallow"))
+    world.clock.advance(timedelta(minutes=1))
+
+    world.delete_load(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert last_commit_types(world) == ["DropOff", "FiringNote", "Load", "LoadEvent"]
+    removed = world.records.note(load_id, NoteId(1))
+    assert removed is not None
+    assert (removed.removed_by, removed.removed_at) == ("robin", NOW + timedelta(minutes=1))
+    assert world.records.notes_for(load_id) == []
+    assert not world.records.is_item_used(CatalogList.CLAY_BODIES, ItemId("buffalo-wallow"))
+    assert not world.records.is_item_used(CatalogList.GLAZE_TYPES, ItemId("commercial-glaze"))
+
+
+def test_delete_load_with_too_many_notes_is_refused(world: World) -> None:
+    for number in (1, 2):
+        dropped_off(world, number)
+    load_id = loaded(world, AC_1, AC_2)
+    room = MAX_CHANGES - 2 - 2
+    put_notes(world, load_id, 1, room)
+    world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)  # at the limit: exactly MAX_CHANGES
+    assert len(world.records.commits[-1]) == MAX_CHANGES
+
+    other = loaded(world)
+    put_notes(world, other, room + 1, MAX_CHANGES - 1)
+    commits = len(world.records.commits)
+    with pytest.raises(TooManyNotesToMove) as refused:
+        world.delete_load(other, version(world, other), STAFF_MEMBER)
+    assert (
+        refused.value.message
+        == f"Load {other} has more than {MAX_CHANGES - 2} notes, so it can't be deleted."
+        " Remove some of its notes first."
+    )
+    assert len(world.records.commits) == commits
+    still = world.records.load(other)
+    assert still is not None
+    assert still.status is LoadStatus.LOADING

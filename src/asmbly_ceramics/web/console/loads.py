@@ -752,7 +752,7 @@ async def delete_load(request: Request) -> Response:
         services(request).delete_load(id, version, staff.member)
     except NotFound:
         raise _load_not_found(id) from None
-    except FiredLoadNotDeletable as refused:
+    except (FiredLoadNotDeletable, TooManyNotesToMove) as refused:
         return _refused(request, staff, id, problem=refused.message)
     except Conflict as conflict:
         return _conflicted(request, staff, id, conflict)

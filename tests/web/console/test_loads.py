@@ -791,6 +791,7 @@ def test_delete_asks_first_and_names_what_goes_back_to_waiting(staff: Console) -
     page = text(asked)
     assert "Delete load L-1?" in page
     assert "This can't be undone." in page
+    assert "its notes are removed with it" in page
     assert "2 drop-offs in it go back to the waiting list" in page
     assert "AC-1, AC-2" in page
     assert 'name="typed_id"' in page
@@ -875,6 +876,22 @@ def test_delete_from_a_stale_page_is_a_conflict(staff: Console) -> None:
 
     assert answer.status_code == 409
     assert "L-1 changed while you were working" in text(answer)
+    assert load_of(staff).status is LoadStatus.LOADING
+
+
+def test_a_delete_with_too_many_notes_is_refused_not_a_500(staff: Console) -> None:
+    start(staff)
+    load = load_of(staff)
+    studio = staff.world.studio()
+    notes = [a_note(number, load, glaze_types=(), clay_bodies=(), studio=studio) for number in range(1, 100)]
+    staff.world.records.commit([Put(note) for note in notes])
+
+    answer = delete(staff, "L-1")
+
+    assert answer.status_code == 400
+    assert "Load L-1 has more than 98 notes, so it can't be deleted. Remove some of its notes first." in text(
+        answer
+    )
     assert load_of(staff).status is LoadStatus.LOADING
 
 

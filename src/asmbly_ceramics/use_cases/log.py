@@ -5,7 +5,8 @@ alarms match these field names, so they are a contract. Each field has its own s
 and a value without it is logged as `invalid` instead (the request doesn't fail, as
 `ports.errors.error_code` does for codes):
 
-- `drop_off_id`: a drop-off's ID (`AC-12`), as `str(drop_off.id)`; `load_id`: `L-4`.
+- `drop_off_id`: a drop-off's ID (`AC-12`), as `str(drop_off.id)`; `load_id`: `L-4`;
+  `note_id`: a firing note's ID, `N-12`.
 - `user`: a staff username: a handle of at most 40 characters with at least one letter,
   no `@`, `:` or `#`.
 - `kind`, `outcome`, `list`: a lowercase snake_case word (an email kind, a fixed
@@ -34,7 +35,7 @@ import re
 from collections.abc import Callable
 
 from asmbly_ceramics.domain.email import is_error_code
-from asmbly_ceramics.domain.ids import is_drop_off_id, is_item_id, is_load_id
+from asmbly_ceramics.domain.ids import is_drop_off_id, is_item_id, is_load_id, is_note_id
 from asmbly_ceramics.ports.staff import is_staff_username
 
 _EVENT = re.compile(r"[a-z][a-z0-9_]{0,63}", flags=re.ASCII)
@@ -68,6 +69,7 @@ def _is_code(value: object) -> bool:
 _SHAPES: dict[str, Callable[[object], bool]] = {
     "drop_off_id": is_drop_off_id,
     "load_id": is_load_id,
+    "note_id": is_note_id,
     "user": is_staff_username,  # the shape `ports.staff` gives a username: one regex
     "kind": _matches(_WORD),
     "outcome": _matches(_WORD),
