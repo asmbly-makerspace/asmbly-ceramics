@@ -88,7 +88,7 @@
    ],
    "status": "done",
    "base_sha": "509132d",
-   "squashed_sha": null,
+   "squashed_sha": "62814e0",
    "review_rounds": 2,
    "cold_review": "fixed",
    "split_from": null,
@@ -112,11 +112,11 @@
    "depends_on": [
     "3"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "62814e0",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 1,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [],
@@ -124,7 +124,9 @@
     42,
     17
    ],
-   "admin_actions": [],
+   "admin_actions": [
+    "maintainer, after merge: check both smoke tests pass, then open a load page and the settings page on stage; flip phase 4 to [x]"
+   ],
    "notes": ""
   },
   {
@@ -355,6 +357,30 @@
    "phase": "phase-3-load-history-and-notes-domain",
    "review_lead": "APPROVED after fix round",
    "privacy": "CLEAR after fix round"
+  },
+  {
+   "ts": "2026-11-16T21:01:11Z",
+   "type": "squash",
+   "phase": "phase-3-load-history-and-notes-domain",
+   "sha": "62814e0"
+  },
+  {
+   "ts": "2026-11-16T21:01:11Z",
+   "type": "phase_start",
+   "phase": "phase-4-records-events-notes-ranges"
+  },
+  {
+   "ts": "2026-11-16T21:28:05Z",
+   "type": "phase_done",
+   "phase": "phase-4-records-events-notes-ranges"
+  },
+  {
+   "ts": "2026-11-16T21:28:05Z",
+   "type": "cold_review",
+   "phase": "phase-4-records-events-notes-ranges",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 3
   }
  ]
 }

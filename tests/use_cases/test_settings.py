@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -17,13 +17,15 @@ from asmbly_ceramics.domain.errors import (
     TestEmailFailed,
     UnknownItem,
 )
-from asmbly_ceramics.domain.firing import Program, Speed
+from asmbly_ceramics.domain.firing import FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import ItemId
+from asmbly_ceramics.domain.limits import NUMBERS_DATE_MARGIN, STUDIO_TZ
+from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import CatalogList, ItemStatus, KilnCounts, Studio
 from asmbly_ceramics.ports.errors import RecordsUnavailable
-from asmbly_ceramics.ports.records import BadCursor, Conflict, Update
+from asmbly_ceramics.ports.records import BadCursor, Conflict, Put, Update
 from asmbly_ceramics.ports.staff import StaffMember
-from tests.domain.builders import NOW, STAFF, a_sending_address, an_address
+from tests.domain.builders import NOW, STAFF, a_load, a_sending_address, an_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import ATHENA, BISQUE, STAFF_EMAIL, STAFF_MEMBER, dropped_off, loaded
 
@@ -422,6 +424,67 @@ def test_record_new_elements_counts_fired_loads(world: World, caplog: pytest.Log
     assert (event["list"], event["item"], event["user"]) == ("kilns", "helios", STAFF)
 
 
+def fired_dated(number: int, on: date, fired_at: datetime, total: int) -> Load:
+    """A fired Helios load dated `on` (noon in Austin), fired at `fired_at`, numbered `total`."""
+    load = a_load(number, LoadStatus.FIRED, kiln="helios", at=datetime.combine(on, time(12), STUDIO_TZ))
+    return replace(load, fired_at=fired_at, record=FiringRecord(all_time_number=total))
+
+
+def test_record_new_elements_reads_since_counts(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    counts_day = NOW.astimezone(STUDIO_TZ).date()
+    first = counts_day - NUMBERS_DATE_MARGIN
+    later = NOW + timedelta(hours=2)
+    # Dated on the window's first day, fired after the counts: read and counted.
+    on_edge = fired_dated(90, first, NOW + timedelta(hours=1), 300)
+    # Dated the day before, fired later still: not read, so not counted.
+    outside = fired_dated(91, first - timedelta(days=1), later, 900)
+    world.records.commit([Put(on_edge), Put(outside)])
+    world.clock.advance(timedelta(hours=3))
+    reads = len(world.records.reads)
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 300, world.clock.now())
+    assert world.records.date_ranges[-1] == (first, date.max)
+    assert "loads_dated_between" in world.records.reads[reads:]
+    assert "loads_in" not in world.records.reads[reads:]
+
+
+def test_record_new_elements_counts_a_load_dated_before_the_counts_day(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    the_day_before = NOW.astimezone(STUDIO_TZ).date() - timedelta(days=1)
+    world.records.commit([Put(fired_dated(90, the_day_before, NOW + timedelta(hours=1), 252))])
+    world.clock.advance(timedelta(hours=2))
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+
+
+def test_record_new_elements_counts_a_fired_load_dated_after_today(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    next_month = NOW.astimezone(STUDIO_TZ).date() + timedelta(days=30)
+    world.records.commit([Put(fired_dated(90, next_month, NOW + timedelta(hours=1), 252))])
+    world.clock.advance(timedelta(hours=2))
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+
+
+def test_record_new_elements_without_counts_looks_back_400_days(world: World) -> None:
+    def fired(number: int, days_ago: int, total: int) -> Load:
+        load = a_load(number, LoadStatus.FIRED, kiln="helios", at=NOW - timedelta(days=days_ago))
+        return replace(load, record=FiringRecord(all_time_number=total))
+
+    # Dated 401 days ago: not read, though its (made-up) firing time is the latest.
+    too_old = replace(fired(90, 401, 900), fired_at=NOW - timedelta(days=1))
+    world.records.commit([Put(too_old), Put(fired(91, 399, 300))])
+    saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 300, NOW)
+
+
 def test_record_new_elements_without_counts_or_firings_starts_at_0(world: World) -> None:
     saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
     assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 0, NOW)
@@ -432,7 +495,7 @@ def test_record_new_elements_unknown_kiln_and_conflict(world: World) -> None:
     reads = len(world.records.reads)
     with pytest.raises(UnknownItem):
         world.record_new_elements(ItemId("hestia"), stale, STAFF_MEMBER)
-    assert "loads_in" not in world.records.reads[reads:]
+    assert "loads_dated_between" not in world.records.reads[reads:]
     change_email(world, window="21")
     with pytest.raises(Conflict):
         world.record_new_elements(HELIOS, stale, STAFF_MEMBER)

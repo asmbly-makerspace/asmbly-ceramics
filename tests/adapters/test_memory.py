@@ -5,7 +5,7 @@ port's contract would let a use case pass here and fail against AWS.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -29,7 +29,7 @@ from asmbly_ceramics.adapters.memory.secrets import MemorySecrets
 from asmbly_ceramics.adapters.memory.staff_tokens import MemoryStaffTokens, s256
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, mark_sent, new_email, rejection_occasion
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.limits import (
     DEVICE_LIMIT,
     LOAD_CAPACITY,
@@ -80,6 +80,7 @@ from tests.domain.builders import (
     a_sending_address,
     a_studio,
     an_address,
+    an_event,
 )
 
 NAIVE = datetime(2026, 11, 13, 12, 0)  # noqa: DTZ001 - the naive time the fakes must refuse
@@ -257,6 +258,47 @@ def test_records_failure_switch_raises_and_writes_nothing() -> None:
         records.drop_off(DropOffId(1))
     with pytest.raises(RecordsUnavailable):
         records.drop_offs_in({DropOffState.WAITING})
+
+
+def test_records_new_reads_are_recorded_and_honour_the_failure_switch() -> None:
+    records = MemoryRecords()
+    day = NOW.date()
+    reads: list[Callable[[], object]] = [
+        lambda: records.note(LoadId(1), NoteId(1)),
+        lambda: records.load_events(LoadId(1)),
+        lambda: records.notes_for(LoadId(1)),
+        lambda: records.notes_written_between(NOW, NOW + timedelta(days=1)),
+        lambda: records.loads_dated_between({LoadStatus.FIRED}, day, day + timedelta(days=1)),
+    ]
+    for read in reads:
+        read()
+    assert records.reads == [
+        "note",
+        "load_events",
+        "notes_for",
+        "notes_written_between",
+        "loads_dated_between",
+    ]
+    records.fail_reads_with = RecordsUnavailable("InternalServerError")
+    for read in reads:
+        with pytest.raises(RecordsUnavailable):
+            read()
+
+
+def test_records_empty_or_reversed_date_range_reads_nothing() -> None:
+    records = MemoryRecords()
+    records.fail_reads_with = RecordsUnavailable("InternalServerError")  # not reached
+    day = NOW.date()
+    assert records.loads_dated_between({LoadStatus.FIRED}, day, day) == []
+    assert records.loads_dated_between({LoadStatus.FIRED}, day + timedelta(days=1), day) == []
+    assert records.reads == []
+    assert records.date_ranges == []
+
+
+def test_records_events_at_one_instant_are_not_in_written_order() -> None:
+    records = MemoryRecords()
+    records.commit([Put(an_event(1, "Started")), Put(an_event(1, "Fired"))])
+    assert [e.what for e in records.load_events(LoadId(1))] == ["Fired", "Started"]
 
 
 def test_records_email_key_includes_the_occasion() -> None:
@@ -470,11 +512,14 @@ def test_ids_never_repeat() -> None:
     assert len(set(drop_offs)) == 50
     assert drop_offs == sorted(drop_offs)
     assert [str(ids.next_load_id()), str(ids.next_load_id())] == ["L-1", "L-2"]
+    assert [str(ids.next_note_id()), str(ids.next_note_id())] == ["N-1", "N-2"]
     ids.fail_with = IdsUnavailable("ProvisionedThroughputExceededException")
     with pytest.raises(IdsUnavailable):
         ids.next_drop_off_id()
     with pytest.raises(IdsUnavailable):
         ids.next_load_id()
+    with pytest.raises(IdsUnavailable):
+        ids.next_note_id()
 
 
 def test_ids_skip_leaves_a_gap() -> None:
@@ -482,6 +527,7 @@ def test_ids_skip_leaves_a_gap() -> None:
     assert str(ids.next_drop_off_id()) == "AC-1"
     ids.skip(3)
     assert str(ids.next_drop_off_id()) == "AC-5"
+    assert str(ids.next_note_id()) == "N-4"
     for n in [0, -1]:
         with pytest.raises(ValueError, match="at least 1"):
             ids.skip(n)

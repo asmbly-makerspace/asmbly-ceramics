@@ -156,6 +156,15 @@ A note on a load that was later deleted: `LoadNotes` isn't reached (the load pag
 set of the deleted loads' IDs from `loads_in({DELETED})`, whichever reads less; say which
 in the hand-off).
 
+Decision point: a note on a deleted load must not keep its glaze types and clay bodies
+"used" forever. Today `is_item_used` counts every note that isn't removed, whatever its
+load's status (phase 4), so a deleted load's notes would stop staff from deleting a tag
+nobody can see used. Either `DeleteLoad` removes the load's notes in the same commit (an
+`Update` of each to removed, which `is_item_used` already leaves out), or `is_item_used`
+leaves out notes on deleted loads (the port's docstring, the fake and the adapter
+together) and that is said in the port. Pick one, test it, and say which in the
+hand-off.
+
 ### Privacy
 
 The note use cases log note IDs (`N-12`), load IDs (`L-4`), staff usernames and the
@@ -213,3 +222,5 @@ None.
 - [ ] `WriteNote`, `EditNote`, `RemoveNote`, `LoadNotes`, `SearchNotes`, `NoteCounts`;
       `NoteInput`, `NoteRow`, `NoteSearchView`, `NoteCount`; not yet wired.
 - [ ] How `SearchNotes` leaves out deleted loads' notes.
+- [ ] How a deleted load's notes stop pinning their tags (`DeleteLoad` removes them, or
+      `is_item_used` leaves them out).

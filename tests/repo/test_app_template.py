@@ -7,6 +7,7 @@ phase 9's scheduler), each function's role holds only what its use cases call, a
 names, retention and alarms are what the plan says.
 """
 
+import fnmatch
 import json
 import re
 from datetime import UTC, datetime
@@ -15,11 +16,12 @@ from typing import Any
 import pytest
 
 from asmbly_ceramics.adapters.aws import keys
-from asmbly_ceramics.adapters.aws.ids import DROP_OFF_COUNTER
+from asmbly_ceramics.adapters.aws.ids import DROP_OFF_COUNTER, LOAD_COUNTER, NOTE_COUNTER
 from asmbly_ceramics.adapters.aws.photos import KEPT_PREFIX, UPLOADS_PREFIX
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, claim, new_email
-from asmbly_ceramics.domain.ids import DropOffId, LoadId
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, LoadId, NoteId
 from asmbly_ceramics.use_cases.emails import EMAIL_FAILED
 from tests.repo.cloudformation import load_template
 from tests.repo.files import REPO
@@ -577,7 +579,8 @@ def test_the_addresses_are_ssm_parameters_resolved_by_cloudformation(name: str) 
 # The console (phase 8) -------------------------------------------------------------------------
 
 LOADS = _partition_prefix(keys.load_key(LoadId(1)), "L-1")
-LOAD_COUNTER_PK = keys.counter_key("load")["PK"]["S"]
+LOAD_COUNTER_PK = keys.counter_key(LOAD_COUNTER)["PK"]["S"]
+NOTE_COUNTER_PK = keys.counter_key(NOTE_COUNTER)["PK"]["S"]
 
 
 def test_the_console_reads_and_deletes_only_kept_photos_and_reads_its_session_key() -> None:
@@ -601,8 +604,9 @@ def test_the_console_reads_and_deletes_only_kept_photos_and_reads_its_session_ke
     assert sorted(leading_keys(get)) == sorted([DROP_OFFS, EMAILS, LOADS, STUDIO])
     table_query, index_query = granted("ConsoleFunction", "dynamodb:Query")
     assert table_query["Resource"] == TABLE
-    # A drop-off's emails and the settings history: never SUBMISSION#, RATE# or COUNTER#.
-    assert leading_keys(table_query) == [EMAILS, STUDIO]
+    # A drop-off's emails, the settings history, a load's history and notes: never
+    # SUBMISSION#, RATE# or COUNTER#.
+    assert leading_keys(table_query) == [EMAILS, STUDIO, LOADS]
     assert sub(index_query["Resource"]) == "${RecordsTable.Arn}/index/*"
 
 
@@ -613,7 +617,7 @@ def test_the_console_sends_only_the_test_email_and_nothing_else() -> None:
             assert not action.startswith("ses:") or action == "ses:SendEmail", action
 
 
-def test_the_console_writes_with_put_item_only_and_updates_only_the_load_counter() -> None:
+def test_the_console_writes_with_put_item_only_and_updates_only_its_counters() -> None:
     every = [
         a for s in statements("ConsoleFunction").values() for a in actions(s) if a.startswith("dynamodb:")
     ]
@@ -627,13 +631,37 @@ def test_the_console_writes_with_put_item_only_and_updates_only_the_load_counter
         assert forbidden not in every
     [update] = granted("ConsoleFunction", "dynamodb:UpdateItem")
     assert update["Resource"] == TABLE
-    assert leading_keys(update) == [LOAD_COUNTER_PK]  # never the form's drop-off counter
+    assert leading_keys(update) == [LOAD_COUNTER_PK, NOTE_COUNTER_PK]  # never the form's drop-off counter
     [put] = granted("ConsoleFunction", "dynamodb:PutItem")
     assert sorted(leading_keys(put)) == sorted([DROP_OFFS, EMAILS, LOADS, STUDIO])
     assert put["Condition"]["ForAnyValue:StringEquals"] == {
         "dynamodb:EnclosingOperation": ["TransactWriteItems"]
     }
     assert put["Condition"]["StringEqualsIfExists"] == {"dynamodb:ReturnValues": "NONE"}
+
+
+def test_console_queries_load_partitions() -> None:
+    """A load's history and notes are in its own partition (`keys`), which the console may
+    query; no other function may query a partition of the base table (the close queries
+    only index/GSI1)."""
+    at = datetime(2026, 11, 13, 18, 30, tzinfo=UTC)
+    event_pk = keys.item_key(LoadEvent(LoadId(4), at, "kiln-tech", "Fired"))["PK"]["S"]
+    note_pk = keys.note_key(LoadId(4), NoteId(12))["PK"]["S"]
+    assert {event_pk, note_pk} == {keys.load_key(LoadId(4))["PK"]["S"]}
+    [table_query] = [s for s in granted("ConsoleFunction", "dynamodb:Query") if s["Resource"] == TABLE]
+    assert LOADS in leading_keys(table_query)
+    assert fnmatch.fnmatchcase(event_pk, LOADS)
+    for function in ("FormFunction", "MailerFunction", "CloseFunction"):
+        assert not [s for s in granted(function, "dynamodb:Query") if s["Resource"] == TABLE]
+
+
+def test_console_counts_loads_and_notes_only() -> None:
+    [update] = granted("ConsoleFunction", "dynamodb:UpdateItem")
+    assert update["Sid"] == "CountIds"
+    assert leading_keys(update) == [LOAD_COUNTER_PK, NOTE_COUNTER_PK]
+    assert DROP_OFF_COUNTER_PK not in leading_keys(update)
+    [form_update] = granted("FormFunction", "dynamodb:UpdateItem")
+    assert leading_keys(form_update) == [DROP_OFF_COUNTER_PK]  # unchanged
 
 
 def test_the_console_routes_go_to_the_console_function_only() -> None:

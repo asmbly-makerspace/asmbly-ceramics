@@ -8,13 +8,15 @@ One table, string keys `PK` and `SK`, two global secondary indexes:
 | Load | `LOAD#L-4` | `META` | `LOAD#<status>` / `<date>#L-4` | | |
 | Studio | `STUDIO` | `CURRENT` | | | |
 | Settings history | `STUDIO` | `HISTORY#<at>#<16 hex>` | | | |
+| Load history | `LOAD#L-4` | `EVENT#<at>#<16 hex>` | | | |
+| Firing note | `LOAD#L-4` | `NOTE#N-12` | `NOTE` (removed: `NOTE#removed`) / `<written_at>#N-12` | | |
 | Email (outbox) | `EMAIL#AC-12` | `<kind>[#<occasion>]` | | `EMAIL#<status>` / `<created>#AC-12#<kind>` | |
-| ID counters | `COUNTER#dropoff`, `COUNTER#load` | `META` | | | |
+| ID counters | `COUNTER#dropoff`, `COUNTER#load`, `COUNTER#note` | `META` | | | |
 | Rate-limit hits | `RATE#<keyed hash>` | `META` | | | a day after the window |
 | Submission | `SUBMISSION#<keyed hash>` | `META` | | | `expires_at` |
 
-Every item has a top-level `type` string; a drop-off, a load, an email and the studio
-also have a `version` number. Times are UTC with
+Every item has a top-level `type` string; a drop-off, a load, an email, the studio and
+a note also have a `version` number. Times are UTC with
 fixed microseconds and a `Z` (`2026-11-13T18:30:00.000000Z`), so they sort as strings;
 a load's date is `YYYY-MM-DD`. A drop-off's personal details are their own top-level
 attributes (`contact_name`, `contact_email`, `contact_phone`, `rejection_message`), and an
@@ -30,6 +32,12 @@ with the defaults: not a test, no firing stamps, an empty record.
 The studio item holds each list as a list of maps. A firing type's map has a
 `default_program` map and a kiln's a `counts` map only when set. A studio stored before
 #42 and #17 has no `cones` or `clay_bodies` and reads with the starting lists.
+
+A load's partition holds its `META` item, its history (`EVENT#`) and its notes
+(`NOTE#`); a query of the partition names the prefix it wants in its key condition, so
+the others aren't read. A note's tags are lists of item IDs (an empty list is stored as
+one), its ruling is left out when it has none, and a removed note moves to the
+`NOTE#removed` index partition, so a search's range read never meets it.
 
 Lists sort in Python after a query, so an ID's number needs no padding in a sort key.
 """
@@ -47,8 +55,10 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_email_occasion
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, ConeReading, FiringRecord, Program, Speed
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote, Ruling
 from asmbly_ceramics.domain.photos import PhotoRef
 from asmbly_ceramics.domain.studio import (
     STARTING_CLAY_BODIES,
@@ -68,6 +78,8 @@ DROP_OFF = "drop_off"
 LOAD = "load"
 STUDIO = "studio"
 HISTORY = "history"
+LOAD_EVENT = "load_event"
+NOTE = "note"
 EMAIL = "email"
 COUNTER = "counter"
 RATE = "rate"
@@ -77,6 +89,10 @@ META = "META"
 STUDIO_PK = "STUDIO"
 STUDIO_SK = "CURRENT"
 HISTORY_PREFIX = "HISTORY#"
+EVENT_PREFIX = "EVENT#"
+NOTE_PREFIX = "NOTE#"
+NOTE_PARTITION = "NOTE"  # GSI1PK of every note that isn't removed
+REMOVED_NOTE_PARTITION = "NOTE#removed"
 GSI1 = "GSI1"
 GSI2 = "GSI2"
 
@@ -116,8 +132,16 @@ def drop_off_key(id: DropOffId) -> AttributeMap:
     return key(f"DROPOFF#{id}", META)
 
 
+def load_pk(id: LoadId) -> str:
+    return f"LOAD#{id}"
+
+
 def load_key(id: LoadId) -> AttributeMap:
-    return key(f"LOAD#{id}", META)
+    return key(load_pk(id), META)
+
+
+def note_key(load_id: LoadId, note_id: NoteId) -> AttributeMap:
+    return key(load_pk(load_id), f"{NOTE_PREFIX}{note_id}")
 
 
 def studio_key() -> AttributeMap:
@@ -188,9 +212,14 @@ def new_history_sk(at: datetime) -> str:
     return f"{HISTORY_PREFIX}{iso(at)}#{secrets.token_hex(HISTORY_SUFFIX_HEX // 2)}"
 
 
+def new_event_sk(at: datetime) -> str:
+    """A load event's sort key: as a settings change's, under `EVENT#`."""
+    return f"{EVENT_PREFIX}{iso(at)}#{secrets.token_hex(HISTORY_SUFFIX_HEX // 2)}"
+
+
 def item_key(item: Item) -> AttributeMap:
-    """The key an entity is stored under. A `SettingChange` gets a new random one each
-    call: call once per change."""
+    """The key an entity is stored under. A `SettingChange` or a `LoadEvent` gets a new
+    random one each call: call once per change."""
     match item:
         case DropOff():
             return drop_off_key(item.id)
@@ -204,6 +233,10 @@ def item_key(item: Item) -> AttributeMap:
             return submission_key(item.token_hash)
         case SettingChange():
             return key(STUDIO_PK, new_history_sk(item.at))
+        case LoadEvent():
+            return key(load_pk(item.load_id), new_event_sk(item.at))
+        case FiringNote():
+            return note_key(item.load_id, item.id)
 
 
 # Entity -> item -----------------------------------------------------------------------
@@ -211,7 +244,7 @@ def item_key(item: Item) -> AttributeMap:
 
 def to_item(entity: Item, stored_key: AttributeMap, version: int | None) -> AttributeMap:
     """The whole item for `entity`, under `stored_key`, at `version` (`None` for an item
-    that has none: a settings change, a submission). `None` attributes are left out,
+    that has none: a settings change, a load event, a submission). `None` attributes are left out,
     never stored as nulls."""
     attributes: dict[str, object] = {"version": version, **_attributes(entity)}
     item = dict(stored_key)
@@ -263,6 +296,16 @@ def _attributes(entity: Item) -> dict[str, object]:
             }
         case SettingChange():
             return {"type": HISTORY, "at": iso(entity.at), "by": entity.by, "what": entity.what}
+        case LoadEvent():
+            return {
+                "type": LOAD_EVENT,
+                "load_id": str(entity.load_id),
+                "at": iso(entity.at),
+                "by": entity.by,
+                "what": entity.what,
+            }
+        case FiringNote():
+            return _note(entity)
         case Email():
             return {
                 "type": EMAIL,
@@ -329,6 +372,27 @@ def _drop_off(d: DropOff) -> dict[str, object]:
             "rejection_at": iso(d.rejection.at),
         }
     return attributes
+
+
+def _note(note: FiringNote) -> dict[str, object]:
+    return {
+        "type": NOTE,
+        "GSI1PK": REMOVED_NOTE_PARTITION if note.removed else NOTE_PARTITION,
+        "GSI1SK": f"{iso(note.written_at)}#{note.id}",
+        "id": str(note.id),
+        "load_id": str(note.load_id),
+        "kiln": note.kiln,
+        "text": note.text,
+        "glaze_types": [str(tag) for tag in note.glaze_types],
+        "clay_bodies": [str(tag) for tag in note.clay_bodies],
+        "ruling": None if note.ruling is None else note.ruling.value,
+        "written_by": note.written_by,
+        "written_at": iso(note.written_at),
+        "edited_by": note.edited_by,
+        "edited_at": _iso_or_none(note.edited_at),
+        "removed_by": note.removed_by,
+        "removed_at": _iso_or_none(note.removed_at),
+    }
 
 
 _RECORD_NUMBERS = (
@@ -449,6 +513,15 @@ def from_item(item: Mapping[str, Any]) -> Item:
             )
         case "history":
             return SettingChange(at=parse_iso(values["at"]), by=values["by"], what=values["what"])
+        case "load_event":
+            return LoadEvent(
+                load_id=LoadId.parse(values["load_id"]),
+                at=parse_iso(values["at"]),
+                by=values["by"],
+                what=values["what"],
+            )
+        case "note":
+            return _to_note(values)
         case "email":
             return Email(
                 drop_off_id=DropOffId.parse(values["drop_off_id"]),
@@ -510,6 +583,26 @@ def _to_drop_off(values: dict[str, Any]) -> DropOff:
         closed_at=_time_or_none(values.get("closed_at")),
         deleted_by=values.get("deleted_by"),
         deleted_at=_time_or_none(values.get("deleted_at")),
+        version=values["version"],
+    )
+
+
+def _to_note(values: dict[str, Any]) -> FiringNote:
+    ruling = values.get("ruling")
+    return FiringNote(
+        id=NoteId.parse(values["id"]),
+        load_id=LoadId.parse(values["load_id"]),
+        kiln=ItemId(values["kiln"]),
+        text=values["text"],
+        glaze_types=tuple(ItemId(tag) for tag in values["glaze_types"]),
+        clay_bodies=tuple(ItemId(tag) for tag in values["clay_bodies"]),
+        ruling=None if ruling is None else Ruling(ruling),
+        written_by=values["written_by"],
+        written_at=parse_iso(values["written_at"]),
+        edited_by=values.get("edited_by"),
+        edited_at=_time_or_none(values.get("edited_at")),
+        removed_by=values.get("removed_by"),
+        removed_at=_time_or_none(values.get("removed_at")),
         version=values["version"],
     )
 

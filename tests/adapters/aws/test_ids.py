@@ -6,7 +6,7 @@ import pytest
 from botocore.stub import Stubber
 
 from asmbly_ceramics.adapters.aws.ids import DynamoDbIdNumbers
-from asmbly_ceramics.domain.ids import LoadId
+from asmbly_ceramics.domain.ids import LoadId, NoteId
 from asmbly_ceramics.ports.errors import IdsUnavailable
 from tests.adapters.conftest import TABLE, a_client, assert_nothing_holds
 
@@ -36,6 +36,13 @@ def test_next_load_id_uses_its_own_counter() -> None:
     with Stubber(client) as stubber:
         stubber.add_response("update_item", {"Attributes": {"next_number": {"N": "4"}}}, expected("load"))
         assert DynamoDbIdNumbers(client, TABLE).next_load_id() == LoadId(4)
+
+
+def test_next_note_id_uses_its_own_counter() -> None:
+    client = a_client("dynamodb")
+    with Stubber(client) as stubber:
+        stubber.add_response("update_item", {"Attributes": {"next_number": {"N": "12"}}}, expected("note"))
+        assert DynamoDbIdNumbers(client, TABLE).next_note_id() == NoteId(12)
 
 
 def test_counter_failure_raises_ids_unavailable(caplog: pytest.LogCaptureFixture) -> None:

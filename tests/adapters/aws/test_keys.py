@@ -11,8 +11,9 @@ from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, claim, mark_sent, new_email, rejection_occasion
 from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, FiringRecord, Program, Speed
-from asmbly_ceramics.domain.ids import DropOffId, ItemId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote, edit_note, remove_note
 from asmbly_ceramics.domain.studio import (
     STARTING_CLAY_BODIES,
     STARTING_CONES,
@@ -34,7 +35,10 @@ from tests.domain.builders import (
     TEST_PHONE_DIGITS,
     a_drop_off,
     a_load,
+    a_note,
     a_sending_address,
+    a_studio,
+    an_event,
 )
 
 
@@ -64,6 +68,8 @@ def every_kind() -> list[Item]:
         replace(ready, version=4),
         new_email(DropOffId(2), EmailKind.REJECTED, NOW, rejection_occasion(NOW)),
         a_submission(),
+        an_event(4, "Started firing"),
+        replace(a_note(12, a_load(4)), version=2),
     ]
 
 
@@ -404,3 +410,54 @@ def test_a_default_program_of_the_wrong_type_reads_as_none_and_is_logged(
     assert record.levelno == logging.ERROR
     assert getattr(record, "item", None) == "bisque"
     assert getattr(record, "error_code", None) == "UnexpectedItem"
+
+
+# Load events and notes (#42, #17)
+
+
+def test_event_item() -> None:
+    event = an_event(4, "Fired")
+    item = keys.to_item(event, keys.item_key(event), None)
+    assert item["PK"] == {"S": "LOAD#L-4"}
+    assert item["SK"]["S"].startswith("EVENT#2026-11-13T18:30:00.000000Z#")
+    assert len(item["SK"]["S"].rsplit("#", 1)[1]) == keys.HISTORY_SUFFIX_HEX
+    assert keys.item_key(event) != keys.item_key(event)  # two at one instant both land
+    assert item["type"] == {"S": "load_event"}
+    assert "version" not in item
+    assert "GSI1PK" not in item  # read by its load's partition only
+    assert keys.from_item(item) == event
+
+
+def test_note_item_round_trip() -> None:
+    note = replace(a_note(12, a_load(4), glaze_types=("house-dip-glaze",), clay_bodies=()), version=1)
+    edited = edit_note(
+        note, "Pinholes at the shoulder.", [], [], None, "glaze-lead", NOW + timedelta(hours=1), a_studio()
+    )
+    for entity in (note, edited):
+        item = keys.to_item(entity, keys.item_key(entity), entity.version + 1)
+        assert item["PK"] == {"S": "LOAD#L-4"}
+        assert item["SK"] == {"S": "NOTE#N-12"}
+        assert item["GSI1PK"] == {"S": "NOTE"}
+        assert item["GSI1SK"] == {"S": "2026-11-13T18:30:00.000000Z#N-12"}  # written, not edited
+        assert keys.from_item(item) == replace(entity, version=entity.version + 1)
+    assert keys.to_item(note, keys.item_key(note), 2)["clay_bodies"] == {"L": []}
+    assert keys.note_key(LoadId(4), NoteId(12)) == keys.item_key(note)
+
+
+def test_removed_note_leaves_the_note_partition() -> None:
+    removed = remove_note(a_note(12, a_load(4)), STAFF, NOW + timedelta(hours=1))
+    item = keys.to_item(removed, keys.item_key(removed), 1)
+    assert item["GSI1PK"] == {"S": "NOTE#removed"}
+    assert item["removed_by"] == {"S": STAFF}
+    assert keys.from_item(item) == replace(removed, version=1)
+
+
+def test_note_with_no_ruling() -> None:
+    note = a_note(3, ruling=None)
+    item = keys.to_item(note, keys.item_key(note), 1)
+    assert "ruling" not in item
+    assert "edited_at" not in item
+    assert "removed_at" not in item
+    parsed = keys.from_item(item)
+    assert isinstance(parsed, FiringNote)
+    assert parsed.ruling is None

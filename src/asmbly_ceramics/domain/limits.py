@@ -54,4 +54,10 @@ LOAD_CAPACITY = 48
 STALE_SENDING_AFTER = timedelta(minutes=15)  # an email sending, or pending, this long is stuck
 UNSENT_EMAIL_CLOSE_AFTER = timedelta(days=30)  # fired or rejected, its email never went (#20)
 STUDIO_TZ = ZoneInfo("America/Chicago")
+# How far back a kiln with no counts looks for its latest numbered firing (#42): its
+# fired loads are read by date, so the read stays the same size as the years go by.
+NUMBERS_LOOKBACK = timedelta(days=400)
+# How long before a kiln's counts' day it still looks for a load fired after the counts
+# (#42): a load's date is the day staff chose, which can come well before its firing.
+NUMBERS_DATE_MARGIN = timedelta(days=60)
 SENDING_DOMAIN = "asmbly.org"

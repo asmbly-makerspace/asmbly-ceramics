@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 4: Records: events, notes and date ranges, in the fake and DynamoDB
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -154,9 +154,13 @@ removed notes, `Put` refusals), and the failure switch the fake already has.
 
 ### app: `RecordNewElements`
 
-Reads `records.loads_dated_between({FIRED}, since, tomorrow)` filtered by kiln, where
-`since` is the kiln's `counts.as_of` date (or 400 days back when it has no counts), in
-place of `loads_in({FIRED})`.
+Reads `records.loads_dated_between({FIRED}, since, date.max)` filtered by kiln, where
+`since` is `NUMBERS_DATE_MARGIN` (60 days, `domain/limits.py`) before the kiln's
+`counts.as_of` Austin day (or `NUMBERS_LOOKBACK`, 400 days, back when it has no counts),
+in place of `loads_in({FIRED})`. A load's date is the day staff chose, not when it was
+fired: a load dated a few days before the counts' day can be fired after them, and one
+dated after today can already be fired, so the range starts a margin early and has no
+end; `suggest_numbers` then keeps only the loads fired after the counts.
 
 ### infra: `infra/app.yaml`, `ConsoleFunction`
 
@@ -165,7 +169,8 @@ place of `loads_in({FIRED})`.
 - `CountLoadIds` becomes `CountIds` (Sid only), `dynamodb:LeadingKeys: [COUNTER#load,
   COUNTER#note]`, comment "load and note numbers only".
 - `ReadRecords` and `WriteRecords` already cover `LOAD#*` (events and notes are under it)
-  and need no change. `QueryIndexes` already covers `GSI1`.
+  and need no change but their comments: a note read by key, and the `Put` of a load's
+  events and notes. `QueryIndexes` already covers `GSI1`.
 - No other function's role changes; the form, the mailer and the close never read
   events or notes. No new resource, name or tag; the function boundary already allows
   the table (decision 0003), so the bootstrap is unchanged.
@@ -233,8 +238,27 @@ None.
 
 ## Hand-off
 
-- [ ] `Records.load_events`, `loads_dated_between`, `note`, `notes_for`,
+- [x] `Records.load_events`, `loads_dated_between`, `note`, `notes_for`,
       `notes_written_between`; `Put` of a `LoadEvent` or `FiringNote`; `Update` of a
-      `FiringNote`; `IdNumbers.next_note_id`, in the fake and DynamoDB.
-- [ ] `is_item_used` counts notes for clay bodies and glaze types.
-- [ ] The console role queries `LOAD#*` and counts `COUNTER#note`.
+      `FiringNote`; `IdNumbers.next_note_id`, in the fake and DynamoDB, one contract
+      (`tests/adapters/contract/test_events_and_notes.py`, on the fake and on moto).
+      `loads_dated_between` takes plain dates (`TypeError` for a `datetime`); an empty or
+      reversed range lists nothing and sends no query. A load's partition is read
+      strongly consistent (`EVENT#` or `NOTE#` only). A refused note's `Conflict` names
+      the note (`N-12`), a refused event its load.
+- [x] `is_item_used` counts notes that aren't removed for clay bodies and glaze types.
+- [x] The console role queries `LOAD#*` and counts `COUNTER#note` (`CountIds`).
+- [x] `RecordNewElements` reads `loads_dated_between({FIRED}, since, date.max)`, `since`
+      `NUMBERS_DATE_MARGIN` (60 days) before the counts' Austin day, or
+      `NUMBERS_LOOKBACK` (400 days) back without counts, both in `domain/limits.py`;
+      phase 5's suggestion reuses this window. A load dated after today is read; one
+      dated more than the margin before the counts' day but fired after them isn't
+      (said in the docstring). The fake records each range it is asked for
+      (`MemoryRecords.date_ranges`), so a test pins the window.
+- [x] The fake lists a load's events at one instant in no promised order (ties sort by
+      a scrambled suffix, like the adapter's random one), and an empty or reversed date
+      range returns `[]` without recording a read or failing.
+- `keys`: `load_pk`, `note_key`, `EVENT_PREFIX`, `NOTE_PREFIX`, `NOTE_PARTITION`,
+  `REMOVED_NOTE_PARTITION`; `adapters/aws/ids.py`: `LOAD_COUNTER`, `NOTE_COUNTER`.
+- Unchanged: `WeeklyCounts` still reads `loads_in({FIRED})` (not in this plan's scope).
+- `sam validate` and `sam build` weren't run in this build (no `sam` here); CI runs them.

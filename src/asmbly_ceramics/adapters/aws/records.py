@@ -21,7 +21,7 @@ page (https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Transac
 import logging
 import uuid
 from collections.abc import Collection, Iterator, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError, ParamValidationError
@@ -32,8 +32,10 @@ from asmbly_ceramics.adapters.aws.deadline import DeadlinePassed
 from asmbly_ceramics.adapters.aws.errors import log_aws_error, retry_attempts
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio, names_cone
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import (
@@ -119,6 +121,9 @@ class DynamoDbRecords:
         with deadline.cleanup():
             return self._get(keys.submission_key(token_hash), Submission)
 
+    def note(self, load_id: LoadId, note_id: NoteId) -> FiringNote | None:
+        return self._get(keys.note_key(load_id, note_id), FiringNote)
+
     # Lists ----------------------------------------------------------------------------
 
     def drop_offs_in(self, states: Collection[DropOffState]) -> list[DropOff]:
@@ -169,6 +174,40 @@ class DynamoDbRecords:
             for load in self._entities(Load, self._gsi1(keys.load_partition(status)))
         ]
         return sorted(found, key=lambda load: (load.date, load.id))
+
+    def loads_dated_between(self, statuses: Collection[LoadStatus], start: date, end: date) -> list[Load]:
+        if isinstance(start, datetime) or isinstance(end, datetime):
+            raise TypeError("a date range takes plain dates")
+        if start >= end:
+            return []  # DynamoDB refuses a BETWEEN whose low end is above its high end
+        # The sort key is `<date>#L-n`: `<start>#` sorts before every load dated `start`,
+        # and `~` after every ID character, so `<end - 1 day>#~` after every load dated
+        # the range's last day.
+        low, high = f"{start.isoformat()}#", f"{(end - timedelta(days=1)).isoformat()}#~"
+        found = [
+            load
+            for status in _in_order(statuses, _ALL_STATUSES)
+            for load in self._entities(Load, self._gsi1(keys.load_partition(status), between=(low, high)))
+            if start <= load.date < end
+        ]
+        return sorted(found, key=lambda load: (load.date, load.id))
+
+    def load_events(self, load_id: LoadId) -> list[LoadEvent]:
+        # Oldest first is the sort key's order: the time, then the random suffix.
+        return self._entities(LoadEvent, self._in_load(load_id, keys.EVENT_PREFIX))
+
+    def notes_for(self, load_id: LoadId) -> list[FiringNote]:
+        notes = self._entities(FiringNote, self._in_load(load_id, keys.NOTE_PREFIX))
+        return _newest_first(n for n in notes if not n.removed)
+
+    def notes_written_between(self, start: datetime, end: datetime) -> list[FiringNote]:
+        low, high = keys.iso(start), keys.iso(end)  # aware, else ValueError
+        if start >= end:
+            return []  # DynamoDB refuses a BETWEEN whose low end is above its high end
+        # `<time>#N-n` sorts after `<time>`: BETWEEN keeps `start`'s notes and drops
+        # `end`'s, the half-open range; removed notes are in another index partition.
+        found = self._entities(FiringNote, self._gsi1(keys.NOTE_PARTITION, between=(low, high)))
+        return _newest_first(n for n in found if not n.removed and start <= n.written_at < end)
 
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]:
         found = self._entities(
@@ -244,6 +283,8 @@ class DynamoDbRecords:
             case CatalogList.FIRING_TYPES:
                 searches = [(drop_off_partitions, "firing_type"), (load_partitions, "firing_type")]
             case CatalogList.GLAZE_TYPES:
+                if self._any_note_with("glaze_types", id):
+                    return True
                 searches = [(drop_off_partitions, "glaze_type")]
             case CatalogList.REASONS:
                 searches = [([keys.drop_off_partition(s) for s in _REJECTION_STATES], "rejection_reason")]
@@ -253,7 +294,7 @@ class DynamoDbRecords:
                     return True
                 searches = [(load_partitions, "program_cone")]
             case CatalogList.CLAY_BODIES:
-                return False  # nothing names a clay body until firing notes (#17)
+                return self._any_note_with("clay_bodies", id)
         return any(
             self._any_with(partition, attribute, id)
             for partitions, attribute in searches
@@ -272,6 +313,28 @@ class DynamoDbRecords:
             Select="COUNT",
         )
         return any(page.get("Count", 0) > 0 for page in pages)
+
+    def _any_note_with(self, attribute: str, value: str) -> bool:
+        """Any note that isn't removed has `value` in its `attribute` list (removed notes
+        are in another index partition)."""
+        pages = self._pages(
+            IndexName=keys.GSI1,
+            KeyConditionExpression="GSI1PK = :pk",
+            FilterExpression="contains(#a, :v)",
+            ExpressionAttributeNames={"#a": attribute},
+            ExpressionAttributeValues={":pk": {"S": keys.NOTE_PARTITION}, ":v": {"S": value}},
+            Select="COUNT",
+        )
+        return any(page.get("Count", 0) > 0 for page in pages)
+
+    def _in_load(self, load_id: LoadId, prefix: str) -> Iterator[Mapping[str, Any]]:
+        """The items in the load's partition whose sort key starts with `prefix`, in
+        sort key order; the load's `META` and the other kinds aren't read."""
+        return self._query(
+            KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+            ExpressionAttributeValues={":pk": {"S": keys.load_pk(load_id)}, ":prefix": {"S": prefix}},
+            ConsistentRead=True,
+        )
 
     def _get[T](self, key: keys.AttributeMap, kind: type[T]) -> T | None:
         try:
@@ -347,7 +410,9 @@ def _action(table: str, change: Change, stored_key: keys.AttributeMap) -> dict[s
     under its version check. Either stores an entity at `version + 1`."""
     match change:
         case Put(item=item):
-            version = item.version + 1 if isinstance(item, DropOff | Load | Email | Studio) else None
+            version = None
+            if isinstance(item, DropOff | Load | Email | Studio | FiringNote):
+                version = item.version + 1
             return {
                 "Put": {
                     "TableName": table,
@@ -385,18 +450,24 @@ def _commit_error(error: ClientError, changes: Sequence[Change]) -> Exception:
 
 
 def _conflict_id(item: Item) -> str:
-    """The drop-off or load ID a refused change names, as the fake gives it."""
+    """The drop-off, load or note ID a refused change names, as the fake gives it."""
     match item:
-        case DropOff() | Load():
+        case DropOff() | Load() | FiringNote():
             return str(item.id)
         case Email() | Submission():
             return str(item.drop_off_id)
+        case LoadEvent():
+            return str(item.load_id)
         case Studio() | SettingChange():
             return ""
 
 
 def _in_order[T](wanted: Collection[T], every: tuple[T, ...]) -> list[T]:
     return [value for value in every if value in wanted]
+
+
+def _newest_first(notes: Iterator[FiringNote]) -> list[FiringNote]:
+    return sorted(notes, key=lambda n: (n.written_at, n.id.number), reverse=True)
 
 
 def _by_created(drop_offs: list[DropOff]) -> list[DropOff]:

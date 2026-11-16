@@ -13,7 +13,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.adapters.aws.errors import log_aws_error
-from asmbly_ceramics.domain.ids import DropOffId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, LoadId, NoteId
 from asmbly_ceramics.ports.errors import IdsUnavailable
 
 if TYPE_CHECKING:
@@ -23,6 +23,10 @@ else:
 
 DROP_OFF_COUNTER = "dropoff"
 """The drop-off counter's name (`COUNTER#dropoff`); the form's IAM grant names it too."""
+LOAD_COUNTER = "load"
+"""The load counter's name (`COUNTER#load`); the console's IAM grant names it too."""
+NOTE_COUNTER = "note"
+"""The note counter's name (`COUNTER#note`); the console's IAM grant names it too."""
 
 
 class DynamoDbIdNumbers:
@@ -34,7 +38,10 @@ class DynamoDbIdNumbers:
         return DropOffId(self._next(DROP_OFF_COUNTER))
 
     def next_load_id(self) -> LoadId:
-        return LoadId(self._next("load"))
+        return LoadId(self._next(LOAD_COUNTER))
+
+    def next_note_id(self) -> NoteId:
+        return NoteId(self._next(NOTE_COUNTER))
 
     def _next(self, which: str) -> int:
         try:

@@ -432,7 +432,8 @@ Resources:
       Policies:
         - Version: '2012-10-17'
           Statement:
-            # Drop-offs, their emails, their loads and the studio, read by key.
+            # Drop-offs, their emails, their loads, a load's note (in its LOAD#L-n
+            # partition) and the studio, read by key.
             - Sid: ReadRecords
               Effect: Allow
               Action: dynamodb:GetItem
@@ -440,15 +441,16 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: [DROPOFF#*, EMAIL#*, LOAD#*, STUDIO]
-            # A drop-off's emails (its EMAIL#AC-n partition) and the settings history
-            # (the STUDIO partition's HISTORY# items).
+            # A drop-off's emails (its EMAIL#AC-n partition), the settings history
+            # (the STUDIO partition's HISTORY# items), and a load's history and notes
+            # (its LOAD#L-n partition's EVENT# and NOTE# items).
             - Sid: QueryByPartition
               Effect: Allow
               Action: dynamodb:Query
               Resource: !GetAtt RecordsTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: [EMAIL#*, STUDIO]
+                  dynamodb:LeadingKeys: [EMAIL#*, STUDIO, LOAD#*]
             # The waiting list and search (GSI1 by state) and the emails needing
             # attention (GSI2 by status).
             - Sid: QueryIndexes
@@ -456,9 +458,9 @@ Resources:
               Action: dynamodb:Query
               Resource: !Sub '${RecordsTable.Arn}/index/*'
             # A rejection, its undo, a retried email, a load and its drop-offs, the
-            # ready emails "Fired" queues, the studio and its history: each a
-            # transactional Put of the whole item under its version check (phase 4's
-            # commit).
+            # ready emails "Fired" queues, the studio and its history, and a load's
+            # events and notes (in its LOAD#L-n partition): each a transactional Put of
+            # the whole item under its version check (phase 4's commit).
             - Sid: WriteRecords
               Effect: Allow
               Action: dynamodb:PutItem
@@ -490,14 +492,15 @@ Resources:
               Condition:
                 StringLike:
                   s3:prefix: dropoffs/*
-            # Load numbers: the only UpdateItem the console sends (an ADD on the counter).
-            - Sid: CountLoadIds
+            # Load and note numbers: the only UpdateItem the console sends (an ADD on a
+            # counter).
+            - Sid: CountIds
               Effect: Allow
               Action: dynamodb:UpdateItem
               Resource: !GetAtt RecordsTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: [COUNTER#load] # the console takes load numbers only
+                  dynamodb:LeadingKeys: [COUNTER#load, COUNTER#note] # load and note numbers only
             # The console's own key: never the form's hash-key or form-key.
             - Sid: ReadSessionKey
               Effect: Allow

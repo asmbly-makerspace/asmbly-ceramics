@@ -7,12 +7,14 @@ nothing.
 import itertools
 from collections.abc import Collection, Hashable, Iterable, Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import LIVE_STATUSES, Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio, names_cone
 from asmbly_ceramics.ports.records import (
     MAX_CHANGES,
@@ -32,13 +34,16 @@ _STUDIO_KEY = ("studio",)
 class MemoryRecords:
     def __init__(self) -> None:
         self._items: dict[Hashable, Item] = {}
-        self._suffix = itertools.count(1)  # the adapter's random suffix on a SettingChange key
+        self._suffix = itertools.count(1)  # the adapter's random suffix on a SettingChange or LoadEvent key
         self.fail_next_commit_with: Exception | None = None
         self.fail_reads_with: Exception | None = None
         self.commits: list[tuple[Change, ...]] = []  # the commits that succeeded
         # Every read, by the method's name, once per call (failed ones too), so a test can
         # prove which items a use case read. `commit` doesn't append.
         self.reads: list[str] = []
+        # Every date range `loads_dated_between` was asked to read, in order, so a test can
+        # pin the window a use case picks. An empty or reversed range reads nothing.
+        self.date_ranges: list[tuple[date, date]] = []
 
     def commit(self, changes: Sequence[Change]) -> None:
         changes = tuple(changes)
@@ -78,6 +83,9 @@ class MemoryRecords:
     def submission(self, token_hash: str) -> Submission | None:
         return self._get("submission", ("submission", token_hash), Submission)
 
+    def note(self, load_id: LoadId, note_id: NoteId) -> FiringNote | None:
+        return self._get("note", ("note", load_id, note_id), FiringNote)
+
     def drop_offs_in(self, states: Collection[DropOffState]) -> list[DropOff]:
         self._read("drop_offs_in")
         return _by_created(d for d in self._all(DropOff) if d.state in states)
@@ -97,6 +105,38 @@ class MemoryRecords:
     def loads_in(self, statuses: Collection[LoadStatus]) -> list[Load]:
         self._read("loads_in")
         return _by_date(load for load in self._all(Load) if load.status in statuses)
+
+    def loads_dated_between(self, statuses: Collection[LoadStatus], start: date, end: date) -> list[Load]:
+        _check_dates(start, end)
+        if start >= end:
+            return []  # like the adapter: nothing is read, so nothing can fail
+        self.date_ranges.append((start, end))
+        self._read("loads_dated_between")
+        return _by_date(
+            load for load in self._all(Load) if load.status in statuses and start <= load.date < end
+        )
+
+    def load_events(self, load_id: LoadId) -> list[LoadEvent]:
+        self._read("load_events")
+        # Events at one instant come in no promised order (the adapter's is its random
+        # suffix's): ties sort by a scrambled suffix, not in the order they were written.
+        keyed = sorted(
+            ((key[2], _scrambled(key[3])), item)
+            for key, item in self._items.items()
+            if isinstance(item, LoadEvent) and isinstance(key, tuple) and item.load_id == load_id
+        )
+        return [item for _, item in keyed]
+
+    def notes_for(self, load_id: LoadId) -> list[FiringNote]:
+        self._read("notes_for")
+        return _newest_first(n for n in self._all(FiringNote) if n.load_id == load_id and not n.removed)
+
+    def notes_written_between(self, start: datetime, end: datetime) -> list[FiringNote]:
+        _check_range(start, end)
+        self._read("notes_written_between")
+        return _newest_first(
+            n for n in self._all(FiringNote) if not n.removed and start <= n.written_at < end
+        )
 
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]:
         self._read("emails_for")
@@ -132,6 +172,7 @@ class MemoryRecords:
         self._read("is_item_used")
         drop_offs = [d for d in self._all(DropOff) if d.state is not DropOffState.DELETED]
         loads = [load for load in self._all(Load) if load.status in LIVE_STATUSES]
+        notes = [n for n in self._all(FiringNote) if not n.removed]
         match which:
             case CatalogList.KILNS:
                 return any(load.kiln == id for load in loads)
@@ -140,7 +181,7 @@ class MemoryRecords:
                     load.firing_type == id for load in loads
                 )
             case CatalogList.GLAZE_TYPES:
-                return any(d.glaze_type == id for d in drop_offs)
+                return any(d.glaze_type == id for d in drop_offs) or any(id in n.glaze_types for n in notes)
             case CatalogList.REASONS:
                 return any(d.rejection is not None and d.rejection.reason == id for d in drop_offs)
             case CatalogList.CONES:
@@ -149,7 +190,7 @@ class MemoryRecords:
                     isinstance(studio, Studio) and names_cone(studio, id)
                 )
             case CatalogList.CLAY_BODIES:
-                return False  # nothing names a clay body until firing notes (#17)
+                return any(id in n.clay_bodies for n in notes)
 
     def _allowed(self, change: Change, key: Hashable) -> bool:
         stored = self._items.get(key)
@@ -173,6 +214,10 @@ class MemoryRecords:
                 return ("submission", item.token_hash)
             case SettingChange():
                 return ("setting_change", item.at, next(self._suffix))
+            case LoadEvent():
+                return ("load_event", item.load_id, item.at, next(self._suffix))
+            case FiringNote():
+                return ("note", item.load_id, item.id)
 
     def _get[T](self, read: str, key: Hashable, kind: type[T]) -> T | None:
         self._read(read)
@@ -191,19 +236,21 @@ class MemoryRecords:
 def _stored(item: Item) -> Item:
     """The item as stored: an entity's version goes up by one."""
     match item:
-        case DropOff() | Load() | Email() | Studio():
+        case DropOff() | Load() | Email() | Studio() | FiringNote():
             return replace(item, version=item.version + 1)
-        case SettingChange() | Submission():
+        case SettingChange() | Submission() | LoadEvent():
             return item
 
 
 def _conflict_id(item: Item) -> str:
-    """The drop-off or load ID a refused change names, when it has one."""
+    """The drop-off, load or note ID a refused change names, when it has one."""
     match item:
-        case DropOff() | Load():
+        case DropOff() | Load() | FiringNote():
             return str(item.id)
         case Email() | Submission():
             return str(item.drop_off_id)
+        case LoadEvent():
+            return str(item.load_id)
         case Studio() | SettingChange():
             return ""
 
@@ -224,12 +271,28 @@ def _parse_cursor(cursor: str) -> tuple[datetime, int]:
     return parsed
 
 
+def _scrambled(suffix: int) -> int:
+    """A stable stand-in for the adapter's random suffix: a multiplicative hash, so two
+    events at one instant don't come back in the order they were written."""
+    return (suffix * 2654435761) % 2**32
+
+
 def _by_created(drop_offs: Iterable[DropOff]) -> list[DropOff]:
     return sorted(drop_offs, key=lambda d: (d.created_at, d.id))
 
 
 def _by_date(loads: Iterable[Load]) -> list[Load]:
     return sorted(loads, key=lambda load: (load.date, load.id))
+
+
+def _newest_first(notes: Iterable[FiringNote]) -> list[FiringNote]:
+    return sorted(notes, key=lambda n: (n.written_at, n.id.number), reverse=True)
+
+
+def _check_dates(start: date, end: date) -> None:
+    """Plain dates only: a `datetime` is a `date` too, and would compare wrongly."""
+    if isinstance(start, datetime) or isinstance(end, datetime):
+        raise TypeError("a date range takes plain dates")
 
 
 def _check_range(start: datetime, end: datetime) -> None:

@@ -145,7 +145,9 @@ The record's groups stack to one column below 40rem (the design's
 - `test_start_test_load`; `test_test_checkbox_other_value_is_false`;
   `test_empty_test_load_can_start_firing`; `test_test_tag_on_lists_and_page`;
   `test_change_load_marks_test`.
-- `test_history_listed_and_escaped` (a kiln name with `<b>` shows escaped).
+- `test_history_listed_and_escaped` (a kiln name with `<b>` shows escaped). A test
+  that checks the history's order advances the clock between steps: two events at one
+  instant come in no promised order (`Records.load_events`).
 - `test_record_limits_match_domain` (every `min`/`max`/`maxlength` in the form equals
   `domain/limits.py`).
 

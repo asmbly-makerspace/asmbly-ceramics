@@ -124,8 +124,9 @@ class StepView:
 
 - `suggested`: only when the record has no firing number and no all-time number yet;
   from `suggest_numbers(kiln.counts, fired)`, with `fired` the kiln's fired loads from
-  `loads_dated_between({FIRED}, since, tomorrow)` (`since` the counts' date, or 400 days
-  back), this load left out. Read only for a loading or firing load, or a fired load with
+  `loads_dated_between({FIRED}, since, date.max)` (`since` `NUMBERS_DATE_MARGIN` before
+  the counts' Austin day, or `NUMBERS_LOOKBACK` back; the window `RecordNewElements`
+  uses, phase 4), this load left out. Read only for a loading or firing load, or a fired load with
   no numbers, so a fired load's page reads no more than it needs.
 - `record_fields`: the domain's formatting, so the page and the history line agree (put
   `record_values(record) -> dict[str, str]` in `domain/firing.py` if it isn't there).
@@ -216,6 +217,10 @@ at most 98 notes (the load and its history line are the other two), and `ChangeL
 - `test_view_load_steps_with_who`; `test_view_load_old_load_firing_not_recorded`;
   `test_view_load_history_oldest_first`; `test_view_load_suggested_numbers`;
   `test_view_load_no_suggestion_once_numbered`.
+
+A test that checks the order of a load's history advances the clock between the steps
+it takes: `Records.load_events` promises no order for two events at one instant, and the
+fake scrambles them.
 
 `tests/use_cases/test_firing_log.py`:
 

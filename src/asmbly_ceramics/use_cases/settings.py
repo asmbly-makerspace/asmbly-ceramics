@@ -9,11 +9,12 @@ hours text or an item's name.
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from types import MappingProxyType
 
 from asmbly_ceramics.domain.errors import NoStaffEmail, TestEmailFailed
 from asmbly_ceramics.domain.ids import ItemId
+from asmbly_ceramics.domain.limits import NUMBERS_DATE_MARGIN, NUMBERS_LOOKBACK, STUDIO_TZ
 from asmbly_ceramics.domain.load import LoadStatus, suggest_numbers
 from asmbly_ceramics.domain.studio import (
     CatalogList,
@@ -221,13 +222,22 @@ class RecordNewElements(_StudioChange):
         its all-time count carries on from its latest fired load's, or its counts.
         `UnknownItem`, `Conflict`.
 
-        The `loads_in` read is eventually consistent: a load marked fired a moment ago
-        may be missed, so the all-time count can come out one short. Staff can correct
-        it with `SetKilnCounts`."""
+        Reads the fired loads dated from `NUMBERS_DATE_MARGIN` before the counts' (Austin)
+        day on, or from `NUMBERS_LOOKBACK` ago when the kiln has no counts, never every
+        fired load. The range has no end: a load dated after today may already be fired.
+        `suggest_numbers` then keeps those fired after the counts. A load dated more than
+        the margin before the counts' day but fired after them isn't read. The read is
+        eventually consistent: a load marked fired a moment ago may be missed, so the
+        all-time count can come out one short. Staff can correct either with
+        `SetKilnCounts`."""
         current = self._studio()
         counts = current.item(CatalogList.KILNS, kiln).counts  # `UnknownItem` before any load is read
-        # Phase 4 reads these by date range instead of every fired load.
-        fired = [load for load in self._records.loads_in({LoadStatus.FIRED}) if load.kiln == kiln]
+        if counts is None:
+            since = self._now().astimezone(STUDIO_TZ).date() - NUMBERS_LOOKBACK
+        else:
+            since = counts.as_of.astimezone(STUDIO_TZ).date() - NUMBERS_DATE_MARGIN
+        dated = self._records.loads_dated_between({LoadStatus.FIRED}, since, date.max)
+        fired = [load for load in dated if load.kiln == kiln]
         _, next_all_time = suggest_numbers(counts, fired)
         so_far = 0 if next_all_time is None else next_all_time - 1
         new, change = record_new_elements(current, kiln, so_far, staff.username, self._now())
