@@ -163,10 +163,10 @@ def needs_attention(email: Email, now: datetime) -> bool:
 
 
 def is_history(drop_off: DropOff, email: Email) -> bool:
-    """`email` is past acting on: its drop-off is closed (its address is gone, #7), or it is
+    """`email` is past acting on: its drop-off is closed or deleted (its address is gone), or it is
     a rejected email whose rejection was undone (`is_still_rejected`). The console lists
     no such email as needing attention, and none is retried or sent."""
-    return drop_off.state is DropOffState.CLOSED or (
+    return drop_off.state in (DropOffState.CLOSED, DropOffState.DELETED) or (
         email.kind is EmailKind.REJECTED and not is_still_rejected(drop_off, email.occasion)
     )
 

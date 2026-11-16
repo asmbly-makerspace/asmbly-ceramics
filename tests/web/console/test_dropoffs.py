@@ -5,6 +5,7 @@ import html
 import re
 from datetime import timedelta
 
+import httpx2
 import pytest
 
 from asmbly_ceramics.domain.dropoff import DropOffState
@@ -461,3 +462,137 @@ def test_the_reject_panel_s_repr_holds_no_message() -> None:
     panel = Panel(open=True, reason=OTHER, message=TEST_MESSAGE)
     assert TEST_MESSAGE not in repr(panel)
     assert TEST_MESSAGE not in str(panel)
+
+
+# --- deleting a drop-off made by mistake or as a test ----------------------------------------
+
+
+def delete(console: Console, typed: str | None = None, *, version: str | None = None) -> httpx2.Response:
+    data = {"version": version or console.version(AC_1)}
+    if typed is not None:
+        data |= {"confirm": "1", "typed_id": typed}
+    return console.post(f"{PAGE}/delete", data)
+
+
+def test_a_waiting_drop_off_offers_delete_behind_a_closed_panel(ready: Console) -> None:
+    page = html.unescape(ready.get(PAGE).text)
+    assert "<summary>Delete this drop-off</summary>" in page
+    assert f'action="{PAGE}/delete"' in page
+    assert "Delete AC-1…" in page
+    assert 'name="typed_id"' not in page  # the confirmation comes only after asking
+
+
+def test_delete_asks_first_and_says_what_goes(ready: Console) -> None:
+    asked = delete(ready)
+
+    assert asked.status_code == 200
+    page = html.unescape(asked.text)
+    assert "Delete AC-1?" in page
+    assert "This can't be undone." in page
+    assert "no email is sent" in page
+    assert 'name="typed_id"' in page
+    assert "Delete AC-1 for good" in page
+    assert "<summary>Delete this drop-off</summary>" not in page
+    assert state(ready) is DropOffState.WAITING
+    assert ready.world.photos.kept_count(AC_1) == 4
+
+
+@pytest.mark.parametrize("typed", ["", "AC-2", "1", "yes", "L-1", "AC-11"])
+def test_delete_refuses_unless_the_id_is_typed_exactly(ready: Console, typed: str) -> None:
+    refused = delete(ready, typed)
+
+    assert refused.status_code == 400
+    page = html.unescape(refused.text)
+    assert "Type AC-1 exactly to delete this drop-off." in page
+    assert "Delete AC-1?" in page  # still asking
+    assert state(ready) is DropOffState.WAITING
+    assert ready.world.photos.kept_count(AC_1) == 4
+
+
+@pytest.mark.parametrize("typed", ["AC-1", " ac-1 "])
+def test_delete_with_the_id_typed_erases_the_person_and_their_photos(
+    ready: Console, typed: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO)
+
+    done = delete(ready, typed)
+
+    assert done.status_code == 303
+    assert done.headers["location"] == f"{PAGE}?done=deleted"
+    assert state(ready) is DropOffState.DELETED
+    assert ready.world.photos.kept_count(AC_1) == 0
+    assert email_of(ready.world, AC_1, EmailKind.RECEIVED).status is EmailStatus.CANCELLED
+    page = html.unescape(ready.get(done.headers["location"]).text)
+    assert "AC-1 was deleted: its contact details and photos are gone, and no email was sent." in page
+    assert f"Deleted by {STAFF}" in page
+    assert TEST_NAME not in page
+    assert TEST_EMAIL not in page
+    assert "/photos/1" not in page
+    assert "Delete this drop-off" not in page
+    assert "Reject…" not in page
+    assert ready.get(f"{PAGE}/photos/1").status_code == 404
+    assert ("drop_off_deleted", STAFF) in [(r.message, getattr(r, "user", None)) for r in caplog.records]
+    again = delete(ready, "AC-1")
+    assert again.status_code == 400
+    assert "AC-1 is deleted: only a waiting drop-off can be deleted." in html.unescape(again.text)
+
+
+def test_a_deleted_notice_shows_only_for_a_deleted_drop_off(ready: Console) -> None:
+    assert "was deleted" not in ready.get(f"{PAGE}?done=deleted").text
+
+
+def test_a_drop_off_in_a_load_says_to_remove_it_first(ready: Console) -> None:
+    loaded(ready.world, AC_1)
+    assert "Delete this drop-off" not in ready.get(PAGE).text
+
+    for answer in (delete(ready), delete(ready, "AC-1")):
+        assert answer.status_code == 400
+        page = html.unescape(answer.text)
+        assert (
+            "AC-1 is in load: only a waiting drop-off can be deleted. Remove it from load L-1 first." in page
+        )
+    assert state(ready) is DropOffState.IN_LOAD
+    assert ready.world.photos.kept_count(AC_1) == 4
+
+
+def test_a_rejected_drop_off_cannot_be_deleted(ready: Console) -> None:
+    reject(ready)
+    assert "Delete this drop-off" not in ready.get(PAGE).text
+    answer = delete(ready, "AC-1")
+    assert answer.status_code == 400
+    assert "AC-1 is rejected: only a waiting drop-off can be deleted." in html.unescape(answer.text)
+    assert state(ready) is DropOffState.REJECTED
+
+
+def test_delete_from_a_stale_page_is_a_conflict(ready: Console) -> None:
+    shown = ready.version(AC_1)
+    load_id = loaded(ready.world, AC_1)
+    ready.world.remove_from_load(load_id, AC_1, STAFF_MEMBER)
+
+    answer = delete(ready, "AC-1", version=shown)
+
+    assert answer.status_code == 409
+    assert "AC-1 changed while you were looking." in html.unescape(answer.text)
+    assert ready.world.photos.kept_count(AC_1) == 4
+
+
+def test_photos_that_cant_be_deleted_delete_nothing(ready: Console) -> None:
+    ready.world.photos.fail_with = PhotosUnavailable("ServiceUnavailable")
+
+    answer = delete(ready, "AC-1")
+
+    ready.world.photos.fail_with = None
+    assert answer.status_code == 503
+    assert "Its photos couldn't be deleted, so nothing was." in html.unescape(answer.text)
+    assert state(ready) is DropOffState.WAITING
+
+
+def test_a_delete_that_may_not_have_landed_says_so(ready: Console) -> None:
+    ready.world.records.fail_next_commit_with = CommitOutcomeUnknown("RequestTimeout")
+
+    answer = delete(ready, "AC-1")
+
+    assert answer.status_code == 503
+    assert "That may or may not have been saved." in html.unescape(answer.text)

@@ -88,6 +88,14 @@ def test_closed_drop_offs_still_count() -> None:
     assert dict(counts.rejections) == {ItemId("other"): 1}
 
 
+def test_a_deleted_drop_off_doesnt_count() -> None:
+    deleted = a_drop_off(1, DropOffState.DELETED, at=austin(MONDAY, 9))  # made by mistake or as a test
+    kept = a_drop_off(2, at=austin(MONDAY, 10))
+    counts = count_week(WEEK, [deleted, kept], [], [])
+    assert dict(counts.drop_offs) == {ItemId("bisque"): 1}
+    assert dict(counts.pieces) == {ItemId("bisque"): kept.pieces}
+
+
 def test_an_undone_rejection_doesnt_count() -> None:
     undone = a_drop_off(1, at=austin(MONDAY, 9))  # waiting again: no rejection
     assert count_week(WEEK, [], [], [undone]).rejections == {}

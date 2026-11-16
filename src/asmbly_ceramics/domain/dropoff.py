@@ -1,4 +1,5 @@
-"""A drop-off: what the public form sends (#2), its rejection and the same-day undo (#5).
+"""A drop-off: what the public form sends (#2), its rejection and the same-day undo (#5),
+and deleting one made by mistake or as a test.
 
 Everything the form sends is hostile until `DropOffDetails.create` has checked it, on the
 server, every field at once. The person's name, email, phone and a rejection's message
@@ -14,6 +15,7 @@ from enum import StrEnum
 from typing import Self
 
 from asmbly_ceramics.domain.errors import (
+    DropOffNotDeletable,
     InvalidDetails,
     ItemRetired,
     MessageRequired,
@@ -51,6 +53,7 @@ class DropOffState(StrEnum):
     FIRED = "fired"
     REJECTED = "rejected"
     CLOSED = "closed"
+    DELETED = "deleted"  # made by mistake or as a test: its details and photos gone at once
 
     @property
     def label(self) -> str:
@@ -173,6 +176,8 @@ class DropOff:
     rejection: Rejection | None = None
     fired_at: datetime | None = None
     closed_at: datetime | None = None
+    deleted_by: str | None = None  # staff username
+    deleted_at: datetime | None = None
     version: int = 0
 
 
@@ -230,6 +235,35 @@ def undo_rejection(drop_off: DropOff, at: datetime) -> DropOff:
     if at.astimezone(STUDIO_TZ).date() != drop_off.rejection.at.astimezone(STUDIO_TZ).date():
         raise UndoTooLate(drop_off.id)
     return replace(drop_off, state=DropOffState.WAITING, rejection=None)
+
+
+def can_be_deleted(drop_off: DropOff) -> bool:
+    """`delete_drop_off` accepts `drop_off`: it is waiting (in no load, not fired, not rejected)."""
+    return drop_off.state is DropOffState.WAITING
+
+
+def require_deletable(drop_off: DropOff) -> None:
+    """`DropOffNotDeletable` unless `drop_off` can be deleted now: one in a load is removed
+    from it first, a fired or rejected one has emailed the person so it closes in its
+    time, and a deleted one is deleted already. A page asks before "Delete AC-12?"."""
+    if not can_be_deleted(drop_off):
+        raise DropOffNotDeletable(drop_off.id, drop_off.state.label)
+
+
+def delete_drop_off(drop_off: DropOff, by: str, at: datetime) -> DropOff:
+    """Delete a waiting drop-off made by mistake or as a test. Like a close (#7) its
+    name, email, phone and photo refs go, but at once and with no email; the record
+    stays, marked deleted with who did it and when, so a slip with its ID still finds it.
+
+    `DropOffNotDeletable` unless it is waiting (`require_deletable`).
+    """
+    _check_aware(at)
+    if not by:
+        raise ValueError("deleting a drop-off needs the staff username")
+    require_deletable(drop_off)
+    return replace(
+        drop_off, state=DropOffState.DELETED, contact=None, photos=(), deleted_by=by, deleted_at=at
+    )
 
 
 def _active(studio: Studio, which: CatalogList, id: str) -> CatalogItem | None:

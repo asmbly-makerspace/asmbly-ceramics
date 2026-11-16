@@ -262,6 +262,7 @@ def test_is_history_for_a_closed_drop_off_or_an_undone_rejection() -> None:
     stale = new_email(DropOffId(1), EmailKind.REJECTED, NOW, rejection_occasion(NOW - timedelta(hours=1)))
 
     assert is_history(a_drop_off(1, DropOffState.CLOSED), received)
+    assert is_history(a_drop_off(1, DropOffState.DELETED), received)  # its address is gone too
     assert not is_history(a_drop_off(1, DropOffState.FIRED), received)
     assert not is_history(rejected_drop_off, current)
     assert is_history(rejected_drop_off, stale)

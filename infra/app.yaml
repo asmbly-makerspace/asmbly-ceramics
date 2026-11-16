@@ -476,6 +476,12 @@ Resources:
               Effect: Allow
               Action: s3:GetObject
               Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
+            # Deleting a drop-off made by mistake or as a test: one DeleteObjects of its
+            # known keys, without listing, as the close does.
+            - Sid: DeleteKeptPhotos
+              Effect: Allow
+              Action: s3:DeleteObject
+              Resource: !Sub '${PhotoBucket.Arn}/dropoffs/*'
             # read lists dropoffs/AC-n/ after a 403, so a gone photo is UploadMissing.
             - Sid: ListKeptPhotos
               Effect: Allow

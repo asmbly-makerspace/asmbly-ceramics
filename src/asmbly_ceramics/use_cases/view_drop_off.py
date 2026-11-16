@@ -5,7 +5,7 @@ its rejection can still be undone. A read: nothing is logged.
 from dataclasses import dataclass
 from datetime import datetime
 
-from asmbly_ceramics.domain.dropoff import DropOff, can_be_rejected, undo_rejection
+from asmbly_ceramics.domain.dropoff import DropOff, can_be_deleted, can_be_rejected, undo_rejection
 from asmbly_ceramics.domain.email import Email, needs_acting_on
 from asmbly_ceramics.domain.errors import NotFound, NotRejected, UndoTooLate
 from asmbly_ceramics.domain.ids import DropOffId
@@ -27,6 +27,7 @@ class DropOffView:
     emails_needing_attention: tuple[Email, ...]
     can_undo_rejection: bool
     can_reject: bool  # the domain's `can_be_rejected`
+    can_delete: bool  # the domain's `can_be_deleted`
     reasons: tuple[CatalogItem, ...]  # active ones, for the reject form
 
 
@@ -65,6 +66,7 @@ class ViewDropOff:
             ),
             can_undo_rejection=_can_undo(drop_off, now),
             can_reject=can_be_rejected(drop_off),
+            can_delete=can_be_deleted(drop_off),
             reasons=active_items(studio.reasons),
         )
 

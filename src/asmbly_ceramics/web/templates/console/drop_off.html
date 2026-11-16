@@ -12,6 +12,28 @@
   {% endif %}
 </div>
 
+{% if confirm_delete %}
+<section class="panel panel-danger" id="confirm-delete" aria-labelledby="confirm-delete-title">
+  <h3 id="confirm-delete-title">Delete {{ drop_off.id }}?</h3>
+  <p><strong>This can't be undone.</strong> The name, email, phone number and photos are deleted now, and no email is sent. It leaves the waiting list and the weekly counts. Only for a drop-off made by mistake or as a test.</p>
+  <p>Its number isn't used again; a slip with {{ drop_off.id }} still finds it, marked deleted.</p>
+  <form method="post" action="/console/drop-offs/{{ drop_off.id }}/delete">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ drop_off.version }}">
+    <input type="hidden" name="confirm" value="1">
+    <div class="field{% if delete_error %} field-invalid{% endif %}">
+      <label for="typed_id">To confirm, type the drop-off's ID, <span class="mono">{{ drop_off.id }}</span></label>
+      {% if delete_error %}<p class="field-error" id="typed_id-error">{{ delete_error }}</p>{% endif %}
+      <input type="text" id="typed_id" name="typed_id" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus{% if delete_error %} aria-describedby="typed_id-error"{% endif %}>
+    </div>
+    <div class="actions">
+      <button type="submit" class="button-danger">Delete {{ drop_off.id }} for good</button>
+      <a class="cancel" href="/console/drop-offs/{{ drop_off.id }}">Keep this drop-off</a>
+    </div>
+  </form>
+</section>
+{% endif %}
+
 <div class="drop-off-body">
 {% if drop_off.contact %}
 <div class="photos">
@@ -23,7 +45,9 @@
 
 <section class="details panel">
   <h3>Details</h3>
-  {% if not drop_off.contact %}
+  {% if deleted %}
+  <p>{{ state }}; its contact details and photos were deleted, and no email was sent.</p>
+  {% elif not drop_off.contact %}
   <p>Closed on {{ closed_on }}; its contact details and photos were deleted.</p>
   {% endif %}
   <dl class="summary">
@@ -105,5 +129,17 @@
   </form>
 </section>
 {% endif %}
+{% endif %}
+
+{% if can_delete and not confirm_delete %}
+<details class="panel">
+  <summary>Delete this drop-off</summary>
+  <p>Only for a drop-off made by mistake or as a test. Its contact details and photos are deleted at once, and no email is sent. You'll be asked to confirm.</p>
+  <form method="post" action="/console/drop-offs/{{ drop_off.id }}/delete" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ drop_off.version }}">
+    <button type="submit" class="button-danger">Delete {{ drop_off.id }}…</button>
+  </form>
+</details>
 {% endif %}
 {% endblock %}

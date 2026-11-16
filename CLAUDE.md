@@ -81,7 +81,7 @@ the deploy are recorded in
 
 - **A domain model at the center.** Drop-offs, loads, kilns, firing types, glaze types,
   rejection reasons and settings, with their states (a drop-off is waiting, in a load,
-  fired, rejected or closed; a load is loading, firing or fired, or deleted if it was started by mistake) and the rules between
+  fired, rejected or closed, or deleted if it was made by mistake; a load is loading, firing or fired, or deleted if it was started by mistake) and the rules between
   them, as plain Python in `src/asmbly_ceramics/` that imports no AWS library and no web
   framework. The stories' rules ("a fired load can't be changed") live there, once, with
   tests that need no AWS.

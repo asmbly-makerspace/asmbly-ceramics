@@ -47,6 +47,7 @@ Ref: `CLAUDE.md`, Planned shape; the plan's Domain model.
 - [ ] Every state change is a function or method that returns the new value or raises a
       `DomainError` subclass naming the reason and the IDs, never contact details.
 - [ ] The transitions match the plan: a drop-off `waiting → in_load → fired → closed`,
+      `waiting → deleted` (details and photos gone at once),
       `waiting → rejected → closed`, undo only the same Austin day; a load
       `loading → firing → fired`, or `deleted` from `loading` or `firing` (its members
       back to `waiting`), members changed only while `loading`, at most 48; a fired load

@@ -130,7 +130,7 @@ class MemoryRecords:
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         self._read("is_item_used")
-        drop_offs = self._all(DropOff)
+        drop_offs = [d for d in self._all(DropOff) if d.state is not DropOffState.DELETED]
         loads = [load for load in self._all(Load) if load.status in LIVE_STATUSES]
         match which:
             case CatalogList.KILNS:

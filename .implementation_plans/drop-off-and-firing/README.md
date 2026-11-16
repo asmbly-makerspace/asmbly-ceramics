@@ -73,7 +73,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
   otherwise), `photos: tuple[PhotoRef, ...]` (1 to 6), `created_at`, `state`,
   `load_id: LoadId | None`, `rejection: Rejection | None` (reason, message up to 1,000
   characters, by, at; the message is `None` once closed), `fired_at`, `closed_at`,
-  `version`.
+  `deleted_by` (username), `deleted_at`, `version`.
 
   ```
   waiting ──add_to_load──▶ in_load ──(load fired)──▶ fired ──close──▶ closed
@@ -81,7 +81,12 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
      │  │◀────remove──────────┘          (only while the load is loading)
      │  └──reject──▶ rejected ──close──▶ closed
      └──undo (same Austin day)──┘
+  waiting ──delete (made by mistake or as a test)──▶ deleted
   ```
+
+  *Deleted*: like *closed*, its name, email, phone and photos are gone, but at once,
+  by staff after typing its ID, with no email; it is in no list or count, and its ID
+  still finds it.
 
   *Overdue* is not a state: a drop-off still `waiting` 60 or more whole Austin days
   after the Austin date of its `created_at` (`days_waiting`) is shown as overdue, never
@@ -118,6 +123,7 @@ and the IDs ("AC-12 is already in load L-4") and holds no personal detail.
 | 10 submissions per device, 30 per address, in 10 minutes (#2) | `domain/limits.py`; counted by the `RateLimiter` port |
 | Search: `AC-12`, `ac12`, `12` or part of a name (#3) | `domain/search.py`, `parse_query` and `matches` |
 | Waiting oldest first; bisque and glaze totals in pieces (#3); overdue at 60 days waiting, in whole Austin days (#7) | `domain/waiting.py` |
+| Delete only a waiting drop-off; its details and photos go at once, no email (added after #7) | `domain/dropoff.py`, `delete_drop_off` |
 | Add only a waiting drop-off not in a load; a different firing type needs confirming; nothing changes once firing; at most 48 (#4) | `domain/load.py` |
 | `loading → firing → fired`; firing again sends nothing (#4) | `domain/load.py`; `Email` keys in `domain/email.py` |
 | A load started by mistake is deleted only while loading or firing, never once fired; its drop-offs go back to waiting (added after #4) | `domain/load.py`, `delete_load` |

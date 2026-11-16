@@ -41,6 +41,7 @@ POSTS = [
     "/console/drop-offs/AC-1/reject/preview",
     "/console/drop-offs/AC-1/reject",
     "/console/drop-offs/AC-1/undo-reject",
+    "/console/drop-offs/AC-1/delete",
     "/console/drop-offs/AC-1/emails/received/retry",
     "/console/loads",
     "/console/loads/L-1/add",

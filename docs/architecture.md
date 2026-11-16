@@ -67,8 +67,11 @@ What the domain code settles, beyond the stories:
   (1 to 50), a firing type (bisque or glaze), a glaze type (glaze only), and 1 to 6
   photos. It is *waiting*, then in a load, *fired*, or *rejected* (with a reason and an
   optional message; undoable the same day), and finally *closed*, which keeps the ID,
-  dates, firing type, pieces, load and reason and deletes everything personal. A drop-off
-  still waiting after 60 days shows as overdue.
+  dates, firing type, pieces, load and reason and deletes everything personal. A waiting
+  drop-off made by mistake (or as a test) can be *deleted* by staff after they type its
+  ID: like a close, but at once and with no email, its details and photos are deleted
+  and it leaves every list and count, while its ID still finds it. A drop-off still
+  waiting after 60 days shows as overdue.
 - A **load** is a kiln, a firing type and a date. It goes *loading → firing → fired*;
   drop-offs are added and removed only while it is loading, and a fired load and its
   drop-offs can't change. A load started by mistake (or for a test) can be deleted while
