@@ -26,6 +26,7 @@ from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail,
 from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
+    AddManyToLoad,
     AddToLoad,
     ChangeLoad,
     CorrectStepTime,
@@ -101,6 +102,7 @@ class World:
     start_load: StartLoad
     change_load: ChangeLoad
     add_to_load: AddToLoad
+    add_many_to_load: AddManyToLoad
     remove_from_load: RemoveFromLoad
     start_firing: StartFiring
     mark_fired: MarkFired
@@ -181,6 +183,7 @@ def world() -> World:
         start_load=StartLoad(records, ids, clock, studio),
         change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
+        add_many_to_load=AddManyToLoad(records),
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),

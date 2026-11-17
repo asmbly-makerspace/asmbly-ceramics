@@ -57,6 +57,7 @@ def console_services(world: World) -> ConsoleServices:
         view_load=world.view_load,
         change_load=world.change_load,
         add_to_load=world.add_to_load,
+        add_many_to_load=world.add_many_to_load,
         remove_from_load=world.remove_from_load,
         start_firing=world.start_firing,
         mark_fired=world.mark_fired,

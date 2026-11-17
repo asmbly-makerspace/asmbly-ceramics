@@ -17,6 +17,7 @@ from asmbly_ceramics.domain.errors import (
     FiringTypeMismatch,
     InvalidRecord,
     ItemRetired,
+    LoadFull,
     LoadNotLoading,
     NotFound,
     NotInLoad,
@@ -271,6 +272,76 @@ def test_a_different_firing_type_asks_then_adds_when_confirmed(world: World) -> 
 
     load = world.add_to_load(load_id, AC_1, confirmed=True, staff=STAFF_MEMBER)
     assert load.members == (AC_1,)
+
+
+def test_add_many_moves_every_one_in_a_single_commit(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    dropped_off(world, 3)
+    load_id = loaded(world)
+    commits = len(world.records.commits)
+
+    load = world.add_many_to_load(load_id, [AC_2, AC_1, AC_2], staff=STAFF_MEMBER)
+
+    assert load.members == (AC_2, AC_1)
+    assert len(world.records.commits) == commits + 1
+    assert [row.drop_off.id for row in world.waiting().rows] == [DropOffId(3)]
+    assert [e["drop_off_id"] for e in events(caplog, "added_to_load")] == ["AC-2", "AC-1"]
+
+
+def test_add_many_adds_none_when_one_is_refused(world: World) -> None:
+    dropped_off(world, 1)
+    dropped_off(world, 2, firing_type="glaze", glaze_type="house-dip-glaze")
+    load_id = loaded(world)
+    commits = len(world.records.commits)
+
+    with pytest.raises(FiringTypeMismatch) as asked:
+        world.add_many_to_load(load_id, [AC_1, AC_2], staff=STAFF_MEMBER)
+
+    assert asked.value.drop_off_id == AC_2
+    assert len(world.records.commits) == commits
+    assert world.view_load(load_id).members == ()
+
+
+def test_add_many_with_none_given_changes_nothing(world: World) -> None:
+    load_id = loaded(world)
+    commits = len(world.records.commits)
+
+    assert world.add_many_to_load(load_id, [], staff=STAFF_MEMBER).members == ()
+    assert len(world.records.commits) == commits
+
+
+def test_two_staff_adding_many_at_once_one_gets_a_conflict(world: World) -> None:
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    dropped_off(world, 3)
+    load_id = loaded(world)
+    stale = world.records.load(load_id)
+    world.add_to_load(load_id, AC_1, confirmed=False, staff=STAFF_MEMBER)
+    read = world.records.load
+
+    def stale_read(id: LoadId) -> object:
+        return stale if id == load_id else read(id)
+
+    world.records.load = stale_read  # type: ignore[assignment,method-assign]  # the fake read replaced to stage a race
+    with pytest.raises(Conflict):
+        world.add_many_to_load(load_id, [AC_2, DropOffId(3)], staff=STAFF_MEMBER)
+    world.records.load = read  # type: ignore[method-assign]  # the fake read replaced to stage a race
+
+    assert world.view_load(load_id).load.members == (AC_1,)
+    assert [row.drop_off.id for row in world.waiting().rows] == [AC_2, DropOffId(3)]
+
+
+def test_add_many_refuses_past_the_loads_capacity(world: World) -> None:
+    ids = [DropOffId(n) for n in range(1, LOAD_CAPACITY + 2)]
+    world.records.commit([Put(a_drop_off(id.number)) for id in ids])
+    load_id = loaded(world)
+
+    with pytest.raises(LoadFull):
+        world.add_many_to_load(load_id, ids, staff=STAFF_MEMBER)
+
+    assert world.view_load(load_id).members == ()
 
 
 def test_remove_puts_it_back_in_the_waiting_list(world: World, caplog: pytest.LogCaptureFixture) -> None:

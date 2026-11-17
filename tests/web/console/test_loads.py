@@ -35,10 +35,10 @@ from asmbly_ceramics.domain.limits import (
 from asmbly_ceramics.domain.load import Load, LoadStatus
 from asmbly_ceramics.domain.studio import STARTING_CONES, CatalogList
 from asmbly_ceramics.mail.compose import austin_time
-from asmbly_ceramics.ports.records import Conflict, Put, Update
+from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Put, Update
 from asmbly_ceramics.use_cases.loads import NOTES_MOVED_MAX
 from asmbly_ceramics.use_cases.reject import RejectRequest
-from tests.domain.builders import NOW, STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE, a_load, a_note
+from tests.domain.builders import NOW, STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE, a_drop_off, a_load, a_note
 from tests.use_cases.flows import ATHENA, HELIOS, STAFF_MEMBER, fired, loaded, send_all
 from tests.web.console.conftest import OUTSIDER, Console, events
 
@@ -261,6 +261,173 @@ def test_adding_from_all_firing_types_comes_back_to_all_firing_types(staff: Cons
     plain = add(staff, "AC-1")
     assert plain.headers["location"] == "/console/loads/L-1?done=added&id=AC-1"
     assert '<input type="hidden" name="all"' not in staff.get("/console/loads/L-1").text
+
+
+def test_add_selected_adds_every_ticked_drop_off(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    staff.drop_off(3)
+    start(staff)
+    page = staff.get("/console/loads/L-1").text
+    assert 'action="/console/loads/L-1/add-many"' in page
+    assert 'name="drop_off" value="AC-2" form="add-many"' in page
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-3"]})
+
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/loads/L-1?done=added-many&count=2"
+    assert load_of(staff).members == (DropOffId(1), DropOffId(3))
+    assert "2 drop-offs added." in text(staff.get(answer.headers["location"]))
+
+
+def test_add_selected_with_nothing_ticked_says_so(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {})
+
+    assert answer.status_code == 400
+    assert "Tick at least one drop-off in the waiting list." in text(answer)
+
+
+def test_add_selected_refuses_the_lot_when_one_is_another_firing_type(staff: Console) -> None:
+    staff.drop_off(1, firing_type="bisque")
+    staff.drop_off(2, firing_type="glaze", glaze_type="house-dip-glaze")
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-2"], "all": "1"})
+
+    assert answer.status_code == 409
+    assert "Nothing was added." in text(answer)
+    assert load_of(staff).members == ()
+    assert re.search(r'value="AC-1" form="add-many" checked', answer.text)  # still ticked
+
+
+def test_add_selected_refuses_one_already_in_another_load_and_adds_none(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    start(staff)
+    add(staff, "AC-2", load=LoadId(2))
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-2"]})
+
+    assert answer.status_code == 400
+    assert "AC-2 is already in load L-2." in text(answer)
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_is_refused_once_the_load_is_firing(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    add(staff, "AC-1")
+    v = str(load_of(staff).version)
+    staff.post("/console/loads/L-1/start-firing", {"version": v})
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "AC-2"})
+    empty = staff.post("/console/loads/L-1/add-many", {})
+
+    assert answer.status_code == empty.status_code == 400
+    assert "Tick at least one" not in text(empty)  # no waiting list on a firing load
+    assert load_of(staff).members == (DropOffId(1),)
+
+
+def test_add_selected_to_a_missing_load_is_a_404(staff: Console) -> None:
+    assert staff.post("/console/loads/L-9/add-many", {"drop_off": "AC-1"}).status_code == 404
+
+
+def test_the_added_many_notice_ignores_an_absurd_count(staff: Console) -> None:
+    start(staff)
+
+    page = staff.get("/console/loads/L-1?done=added-many&count=" + "9" * 5000)
+
+    assert page.status_code == 200
+    assert "added." not in text(page).split("Waiting")[0]
+
+
+def test_add_selected_that_clashes_keeps_the_ticks_and_adds_none(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    staff.world.records.fail_next_commit_with = Conflict(["L-1"])
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "AC-1", "all": "1"})
+
+    assert answer.status_code == 409
+    assert re.search(r'value="AC-1" form="add-many" checked', answer.text)
+    assert "Waiting · all firing types" in text(answer)
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_with_an_unknown_waiting_drop_off_is_refused(staff: Console) -> None:
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "AC-77"})
+
+    assert answer.status_code == 400
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_refuses_one_that_is_not_waiting(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    staff.post("/console/loads/L-1/add", {"drop_off": "AC-2"})
+    fire(staff)
+
+    start(staff)
+    answer = staff.post("/console/loads/L-2/add-many", {"drop_off": ["AC-1", "AC-2"]})
+
+    assert answer.status_code == 400
+    assert "Nothing was added." in text(answer)
+    assert load_of(staff, LoadId(2)).members == ()
+
+
+def test_add_selected_past_the_loads_capacity_says_nothing_was_added(staff: Console) -> None:
+    ids = [DropOffId(n) for n in range(1, LOAD_CAPACITY + 2)]
+    staff.world.records.commit([Put(a_drop_off(id.number)) for id in ids])
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": [str(id) for id in ids]})
+
+    assert answer.status_code == 400
+    assert f"a load holds at most {LOAD_CAPACITY} drop-offs. Nothing was added." in text(answer)
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_when_the_outcome_is_unknown_says_check_the_load(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    staff.world.records.fail_next_commit_with = CommitOutcomeUnknown("RequestTimeout")
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "AC-1"})
+
+    assert answer.status_code == 503
+    assert "may or may not have been saved" in text(answer)
+
+
+def test_add_selected_refuses_a_made_up_id(staff: Console) -> None:
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "nonsense"})
+
+    assert answer.status_code == 400
+
+
+def test_mark_fired_button_warns_that_emails_go_out(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    add(staff, "AC-1")
+    add(staff, "AC-2")
+    v = str(load_of(staff).version)
+    staff.post("/console/loads/L-1/start-firing", {"version": v})
+
+    page = text(staff.get("/console/loads/L-1"))
+    assert "this emails 2 people “Ready for pickup”" in page
+    v = str(load_of(staff).version)
+    asked = text(staff.post("/console/loads/L-1/fire", {"version": v}))
+    assert "Yes, mark fired and send 2 emails" in asked
 
 
 def test_a_load_started_at_the_same_moment_as_another_is_refused_not_a_500(staff: Console) -> None:

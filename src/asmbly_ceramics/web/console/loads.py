@@ -61,7 +61,7 @@ from asmbly_ceramics.domain.firing import (
     record_shown,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId, is_item_id
-from asmbly_ceramics.domain.limits import STUDIO_TZ
+from asmbly_ceramics.domain.limits import LOAD_CAPACITY, STUDIO_TZ
 from asmbly_ceramics.domain.load import (
     Load,
     LoadStatus,
@@ -91,6 +91,13 @@ PICK_FIRING_TYPE = "Pick a firing type from the list."
 BAD_DATE = "Enter a date like 2026-11-13."
 NO_MATCH = "No waiting drop-off matches that. Check the ID, or try part of the name."
 TYPE_SOMETHING = "Scan a slip, or type an ID or name."
+NOTHING_ADDED = " Nothing was added."
+TOO_MANY = "{count} won't fit: a load holds at most {capacity} drop-offs. Nothing was added."
+MIXED_TYPES = (
+    "{id} is {drop_off}, and this load is {load}. Nothing was added. "
+    "Untick it, or add it on its own with its Add button."
+)
+TICK_SOMETHING = "Tick at least one drop-off in the waiting list."
 MAYBE_SAVED = "That may or may not have been saved. Reload the load to check before trying again."
 START_CLASHED = "Another load was started at the same moment, and this one wasn't saved. Try again."
 TYPE_THE_ID = "Type {id} exactly to delete this load."
@@ -115,6 +122,7 @@ _CURRENT_STEP = {
 DONE = {
     "started": "Load started. Add drop-offs below.",
     "added": "{id} added.",
+    "added-many": "{count} added.",
     "removed": "{id} is back in the waiting list.",
     "changed": "Load changed.",
     "firing": "Firing started. Nothing can be added or removed now.",
@@ -166,6 +174,16 @@ def _choices(studio: Studio, which: CatalogList, current: ItemId | None) -> list
 def _test(form: Mapping[str, str]) -> bool:
     """ "This is a test firing" ticked: `test=1` exactly; anything else is not a test."""
     return form.get("test") == "1"
+
+
+def _drop_offs(count: int) -> str:
+    return f"{count} drop-off{'' if count == 1 else 's'}"
+
+
+BULK_FORM_FIELDS_MAX = 2 * LOAD_CAPACITY + 8
+"""Posted to "Add selected": a box ticked per drop-off, the CSRF token and the all-types flag.
+Up to this many ticks, more than a load holds is refused by `LoadFull`; beyond it the
+page answers 400 (nothing is added)."""
 
 
 def _item(raw: str) -> ItemId | None:
@@ -470,6 +488,7 @@ def _load_page(
     note_form: NoteForm | None = None,
     confirm_remove: NoteId | None = None,
     note_notice: str | None = None,
+    ticked: frozenset[DropOffId] = frozenset(),
     status: int = 200,
 ) -> Response:
     console = services(request)
@@ -509,6 +528,7 @@ def _load_page(
         "kilns": _choices(studio, CatalogList.KILNS, load.kiln),
         "firing_types": _choices(studio, CatalogList.FIRING_TYPES, load.firing_type),
         "waiting": view.waiting,
+        "ticked": ticked,  # a refused "Add selected" keeps its boxes ticked
         "all_types": all_types,
         "emails": emails,
         "notice": notice,
@@ -569,7 +589,11 @@ async def load_page(request: Request) -> Response:
     notice = None
     if done in DONE:
         about = _drop_off_param(request.query_params.get("id"))
-        if "{id}" not in DONE[done]:
+        if done == "added-many":
+            count = request.query_params.get("count", "")
+            if count.isascii() and count.isdigit() and len(count) <= 2 and 0 < int(count) <= LOAD_CAPACITY:
+                notice = DONE[done].format(count=_drop_offs(int(count)))
+        elif "{id}" not in DONE[done]:
             notice = DONE[done]
         elif about is not None:
             notice = DONE[done].format(id=about)
@@ -588,8 +612,17 @@ async def load_page(request: Request) -> Response:
     )
 
 
-def _done(id: LoadId, word: str, drop_off: DropOffId | None = None, *, all_types: bool = False) -> Response:
+def _done(
+    id: LoadId,
+    word: str,
+    drop_off: DropOffId | None = None,
+    *,
+    all_types: bool = False,
+    count: int | None = None,
+) -> Response:
     target = f"/console/loads/{id}?done={word}"
+    if count is not None:
+        target += f"&count={count}"
     if drop_off is not None:
         target += f"&id={drop_off}"
     if all_types:
@@ -606,10 +639,13 @@ def _refused(
     add: AddState | None = None,
     status: int = 400,
     all_types: bool = False,
+    ticked: frozenset[DropOffId] = frozenset(),
 ) -> Response:
     """The load as it is now, with the refusal; nothing was stored."""
     view = _view(request, id, all_types=all_types)
-    return _load_page(request, staff, view, all_types=all_types, problem=problem, add=add, status=status)
+    return _load_page(
+        request, staff, view, all_types=all_types, problem=problem, add=add, ticked=ticked, status=status
+    )
 
 
 def _conflicted(request: Request, staff: Staff, id: LoadId, conflict: Conflict) -> Response:
@@ -685,6 +721,57 @@ async def add_to_load(request: Request) -> Response:
     except CommitOutcomeUnknown:
         raise PageError(503, MAYBE_SAVED) from None
     return _done(id, "added", drop_off_id, all_types=all_types)
+
+
+async def add_many_to_load(request: Request) -> Response:
+    """ "Add selected" in the waiting list: every ticked drop-off, or none. A different
+    firing type than the load's is refused here (nothing is added); it is added on its own."""
+    staff, form = await require_staff_post(request, max_fields=BULK_FORM_FIELDS_MAX)
+    id = load_id(request)
+    console = services(request)
+    all_types = form.get("all") == "1"
+    ids = [_drop_off_param(raw) for raw in form.getlist("drop_off")]
+    if any(drop_off is None for drop_off in ids):
+        raise PageError(400)
+    wanted = [drop_off for drop_off in ids if drop_off is not None]
+    ticked = frozenset(wanted)
+    if not wanted:
+        view = _view(request, id, all_types=all_types)
+        try:
+            require_loading(view.load)  # a stale page: there is no waiting list to tick in
+        except LoadNotLoading as refused:
+            return _load_page(request, staff, view, all_types=all_types, problem=refused.message, status=400)
+        return _load_page(request, staff, view, all_types=all_types, problem=TICK_SOMETHING, status=400)
+    try:
+        console.add_many_to_load(id, wanted, staff=staff.member)
+    except NotFound as missing:
+        if isinstance(missing.id, LoadId):
+            raise _load_not_found(id) from None
+        return _refused(request, staff, id, problem=missing.message, all_types=all_types, ticked=ticked)
+    except FiringTypeMismatch as mismatch:
+        studio = console.studio()
+        problem = MIXED_TYPES.format(
+            id=mismatch.drop_off_id,
+            drop_off=item_name(studio, CatalogList.FIRING_TYPES, mismatch.drop_off_firing_type),
+            load=item_name(studio, CatalogList.FIRING_TYPES, mismatch.load_firing_type),
+        )
+        return _refused(request, staff, id, problem=problem, status=409, all_types=all_types, ticked=ticked)
+    except LoadFull:
+        problem = TOO_MANY.format(count=_drop_offs(len(ticked)), capacity=LOAD_CAPACITY)
+        return _refused(request, staff, id, problem=problem, all_types=all_types, ticked=ticked)
+    except (AlreadyInLoad, NotWaiting) as refused:
+        problem = refused.message + NOTHING_ADDED
+        return _refused(request, staff, id, problem=problem, all_types=all_types, ticked=ticked)
+    except LoadNotLoading as refused:
+        return _refused(request, staff, id, problem=refused.message, all_types=all_types, ticked=ticked)
+    except Conflict as conflict:
+        problem = _conflict_text(conflict, id)
+        return _refused(request, staff, id, problem=problem, status=409, all_types=all_types, ticked=ticked)
+    except CommitOutcomeUnknown:
+        raise PageError(503, MAYBE_SAVED) from None
+    return _done(
+        id, "added-many", all_types=all_types, count=len(ticked)
+    )  # the use case adds each repeat once, as `ticked` does)
 
 
 async def remove_from_load(request: Request) -> Response:

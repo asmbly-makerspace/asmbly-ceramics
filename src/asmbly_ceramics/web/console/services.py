@@ -11,6 +11,7 @@ from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail
 from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.loads import (
+    AddManyToLoad,
     AddToLoad,
     ChangeLoad,
     CorrectStepTime,
@@ -75,6 +76,7 @@ class ConsoleServices:
     view_load: ViewLoad
     change_load: ChangeLoad
     add_to_load: AddToLoad
+    add_many_to_load: AddManyToLoad
     remove_from_load: RemoveFromLoad
     start_firing: StartFiring
     mark_fired: MarkFired
