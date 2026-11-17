@@ -1,0 +1,136 @@
+{
+  "plan_name": "photo-form-follow-ups",
+  "run": "photo-form-follow-ups",
+  "issue": null,
+  "feature_branch": "claude/wizardly-bell-u8y238",
+  "worktree": null,
+  "status": "in-progress",
+  "stage": "phases",
+  "selected_phases": [
+    "1",
+    "2"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "mcp",
+    "sam": false,
+    "aws_read": false
+  },
+  "plan_sha": null,
+  "phases": [
+    {
+      "id": "phase-1-agent-guidance-for-the-photo-inputs",
+      "number": "1",
+      "title": "The agents guidance describes the two photo inputs",
+      "domain": [
+        "docs"
+      ],
+      "depends_on": [],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": 0,
+      "cold_review": null,
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [],
+      "notes": ""
+    },
+    {
+      "id": "phase-2-upload-script-behaviour-tests",
+      "number": "2",
+      "title": "A behavioural test of the upload script",
+      "domain": [
+        "web",
+        "docs"
+      ],
+      "depends_on": [
+        "1"
+      ],
+      "status": "pending",
+      "base_sha": null,
+      "squashed_sha": null,
+      "review_rounds": 0,
+      "cold_review": null,
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [],
+      "notes": ""
+    }
+  ],
+  "gate": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null,
+    "test_count": null,
+    "coverage": null,
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": null,
+    "result": null,
+    "squashed_sha": null
+  },
+  "docs": {
+    "base_sha": null,
+    "squashed_sha": null
+  },
+  "qa": {
+    "base_sha": null,
+    "squashed_sha": null,
+    "closes": [],
+    "refs": []
+  },
+  "pr": {
+    "number": null,
+    "result": null,
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "decision",
+      "topic": "branch",
+      "choice": "the session branch claude/wizardly-bell-u8y238 (restarted from origin/main) is the pull request head",
+      "reason": "the session may push only to its own branch; #52 on it already merged"
+    },
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "decision",
+      "topic": "github",
+      "choice": "GitHub MCP tools instead of gh",
+      "reason": "gh is not signed in here"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "planned"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "decision",
+      "topic": "JS test",
+      "choice": "node:test with vm on a DOM stub, run by pytest, no CI change; decision 0009 (proposed)",
+      "reason": "no dependency, no build step"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "decision",
+      "topic": "node missing",
+      "choice": "the test fails, never skips",
+      "reason": "CLAUDE.md forbids skipped tests"
+    }
+  ]
+}
