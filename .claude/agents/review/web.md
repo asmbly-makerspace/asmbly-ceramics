@@ -103,9 +103,11 @@ Ref: #3; decision 0002, Staff sign-in.
 
 ### Phones (WARN)
 
-- [ ] The form works one-handed on a phone: the photo field opens the camera or library
-      (`accept="image/jpeg,image/png,image/webp"`), `type="email"` and `type="tel"`
-      keyboards, tap targets large enough, errors next to their fields.
+- [ ] The form works one-handed on a phone: the library picker and, on a touch screen,
+      the "Take a photo" button (a camera input with `capture="environment"`) both work
+      and feed one list, both with `accept="image/jpeg,image/png,image/webp"`;
+      `type="email"` and `type="tel"` keyboards, tap targets large enough, errors next
+      to their fields.
 - [ ] Console pages used at the kiln are readable on a tablet: the waiting list, a load,
       the fire button.
 - [ ] Text and contrast follow the brand helper; nothing depends on hover.

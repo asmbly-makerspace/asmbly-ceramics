@@ -42,10 +42,12 @@ only what you find; don't produce a list of everything that passed.
 
 ### Cross-file consistency
 
-- **Domain and page limits:** the page's `maxlength`, `accept`, `min`/`max` and hint text
-  come from the domain constants (1 to 6 photos, 10 MB, 1 to 50 pieces, 1,000
-  characters), not copies that can drift. The presigned POST's size and type conditions
-  agree with the domain.
+- **Domain and page limits:** the page's `maxlength`, `min`/`max` and hint text come
+  from the domain constants (1 to 6 photos, 10 MB, 1 to 50 pieces, 1,000 characters),
+  not copies that can drift. The photo `accept` list, on both photo inputs, is one
+  template literal that matches the types the server's inspector accepts
+  (`adapters/images.py`). The presigned POST's size and type conditions agree with the
+  domain.
 - **Port, fake and adapter:** the same methods, the same signatures, the same errors.
   The fake fails the way the port's contract says the adapter can.
 - **Template and code:** every environment variable and Parameter Store name the

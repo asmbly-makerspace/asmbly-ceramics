@@ -1,6 +1,6 @@
 # Phase 1: The agents' guidance describes the two photo inputs
 
-> **Status:** [ ] Pending
+> **Status:** [x] Complete — 2026-11-17 on branch claude/wizardly-bell-u8y238
 
 ## Required reading
 
@@ -110,17 +110,17 @@ pass, in particular `tests/repo/test_claude.py` (skills and agents well formed),
 
 ## Acceptance criteria
 
-- [ ] `grep -rn "domain's list" .claude/` finds nothing.
-- [ ] `grep -rn 'image/\*' .claude/` finds nothing.
-- [ ] `coder.md` names both photo inputs (`#photos` with `multiple`, `#photos-camera` with
+- [x] `grep -rn "domain's list" .claude/` finds nothing.
+- [x] `grep -rn 'image/\*' .claude/` finds nothing.
+- [x] `coder.md` names both photo inputs (`#photos` with `multiple`, `#photos-camera` with
       `capture="environment"`), the "Take a photo" button shown on touch screens only, the
       one list they feed, and the accept list as the template's literal from decision
       0002, pinned by tests.
-- [ ] `architect.md` and `critic.md` no longer say the `accept` list comes from the
+- [x] `architect.md` and `critic.md` no longer say the `accept` list comes from the
       domain constants; they tie it to the server's inspector.
-- [ ] `review/web.md`'s phone check names the library picker and the "Take a photo"
+- [x] `review/web.md`'s phone check names the library picker and the "Take a photo"
       button.
-- [ ] No other file changes.
+- [x] No other file changes.
 
 ## Verification
 
@@ -144,6 +144,19 @@ None.
 
 ## Hand-off
 
-_Filled in when the phase is done._ Phase 2 relies on: `coder.md`'s photo bullet under
-**The form must work on a phone** in its new wording, so phase 2 can add one sentence
-after it pointing at the behavioural test.
+Done. Phase 2 can rely on:
+
+- `.claude/agents/build/coder.md`, under **The form must work on a phone**: the bullet
+  that starts "Photos come from two inputs that feed one list in `upload.js`" and ends
+  "never use `getUserMedia` (the phone's own camera app, not a viewfinder)." Phase 2
+  adds its sentence pointing at the behavioural test right after that bullet's last
+  sentence.
+- The **Hostile input** bullet in the same file now names the `accept` literal in
+  `form.html`, pinned by `tests/web/test_form.py`, with `adapters/images.py` as the
+  real check.
+- One deviation from the wording above: `plan/web.md` says "a wildcard of every image
+  type" instead of quoting `image/*`, so the acceptance grep for `image/\*` in
+  `.claude/` finds nothing.
+- Left as written (outside this phase's quoted sentences): `critic.md`'s "The presigned
+  POST's size and type conditions agree with the domain." The type condition is
+  decision 0002's `image/` prefix, not a domain constant; a later edit may reword it.

@@ -164,8 +164,9 @@ Flag anything that could derail the build:
   10 MB, 1 to 50 pieces, 1,000 characters, 48 per load, 60 days, `America/Chicago`) are
   named domain constants, not settings;
 - **a limit that must match in two places**: the domain constant and the page's
-  `maxlength`, `accept` or hint text; the presigned POST's size condition and the
-  domain's 10 MB;
+  `maxlength`, `min`/`max` or hint text; the page's photo `accept` list and the types
+  the server's inspector accepts (`adapters/images.py`); the presigned POST's size
+  condition and the domain's 10 MB;
 - **personal data on a new path**: a new log line, an error message, a URL, a public
   page, a test fixture or an email that could carry a name, email, phone, rejection
   message, photo or token;

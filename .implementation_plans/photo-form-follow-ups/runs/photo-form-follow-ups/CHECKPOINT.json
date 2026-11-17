@@ -17,7 +17,7 @@
     "sam": false,
     "aws_read": false
   },
-  "plan_sha": null,
+  "plan_sha": "68ad72f6e22db7e514380e0cf17a286f0558e6f4",
   "phases": [
     {
       "id": "phase-1-agent-guidance-for-the-photo-inputs",
@@ -27,11 +27,11 @@
         "docs"
       ],
       "depends_on": [],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "68ad72f6e22db7e514380e0cf17a286f0558e6f4",
       "squashed_sha": null,
-      "review_rounds": 0,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "clean",
       "split_from": null,
       "parked_branch": null,
       "closes": [],
@@ -39,7 +39,7 @@
         2
       ],
       "admin_actions": [],
-      "notes": ""
+      "notes": "privacy-guardian skipped: docs-only. Cold NOTEs: coder.md:131 getUserMedia wording and the quote in the hand-off; critic.md:49 still says the presigned POST type agrees with the domain; no test ties photo_accept to FORMATS; lead.md:204 example names MAX_PHOTOS/web/upload.js (real: PHOTOS_MAX in domain/limits.py, web/static/upload.js)"
     },
     {
       "id": "phase-2-upload-script-behaviour-tests",
@@ -131,6 +131,31 @@
       "topic": "node missing",
       "choice": "the test fails, never skips",
       "reason": "CLAUDE.md forbids skipped tests"
+    },
+    {
+      "ts": "2026-11-17T20:00:00Z",
+      "type": "phase_start",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "cold_review",
+      "phase": "1",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "phase_done",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "decision",
+      "topic": "privacy-guardian",
+      "choice": "skipped for phase 1",
+      "reason": "domain is docs only"
     }
   ]
 }
