@@ -179,3 +179,8 @@ the alternatives and the reasons:
 | The scheduled close | EventBridge Scheduler, daily at 03:17 Austin time |
 
 A later choice that changes one of these needs a new decision record.
+[Decision 0008](decisions/0008-the-form-caps-received-emails-per-day-and-per-recipient.md)
+(proposed) adds to the form's rate limit a daily cap on received emails, kept as a studio
+setting, and a limit per recipient address, with an alarm on the mailer's send volume;
+[harden-outgoing-email](../.implementation_plans/harden-outgoing-email/README.md) plans
+them.
