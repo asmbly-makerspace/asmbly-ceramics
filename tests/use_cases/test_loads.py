@@ -1296,8 +1296,8 @@ def fired_unnumbered(world: World, kiln: ItemId, *, drop_off: int | None = None)
 
 
 def test_view_load_counts_every_firing_numbered_or_not(world: World) -> None:
-    """Any firing counts toward the numbers (#42): an empty test, a test with drop-offs,
-    and a firing marked fired with no record saved."""
+    """Any firing counts toward the numbers (#42): an empty test and a test with
+    drop-offs, fired with no record saved (the rule reads neither `test` nor members)."""
     world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
     world.clock.advance(timedelta(hours=1))
     empty_test = fired_unnumbered(world, HELIOS)

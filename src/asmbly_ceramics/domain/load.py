@@ -222,8 +222,11 @@ def numbers_window(counts: KilnCounts | None, at: dt.datetime) -> tuple[dt.date,
     the counts' Austin day when that is later (a load's date can come well before its
     firing), and ends `NUMBERS_READ_AHEAD` after `at`'s day (a load dated after it may
     already be fired). So the read is bounded by those limits, not by the years kept:
-    a load dated outside it isn't read, and a kiln with no numbered firing in the
-    lookback gets its counts plus 1 suggested (staff can correct either)."""
+    a load dated outside it isn't read. Every fired load read after the counts counts as
+    one firing, numbered or not, so if the counts are older than `NUMBERS_LOOKBACK` and
+    no load in the window holds a number, the suggestion is the counts plus only the
+    firings in the window, plus 1: it undercounts, and staff correct it (or reset the
+    counts)."""
     _check_aware(at)
     day = at.astimezone(STUDIO_TZ).date()
     start = day - NUMBERS_LOOKBACK
