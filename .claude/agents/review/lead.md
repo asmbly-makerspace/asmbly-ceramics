@@ -150,7 +150,8 @@ Ref: decision 0002; the plan's phases 5 and 7.
 ### Page against domain (BLOCK)
 
 - [ ] The form's and console's limits (1 to 50 pieces, 1 to 6 photos, 10 MB, 10 per
-      device and 30 per address in 10 minutes, 1,000 characters, 48 per load) are read
+      device and 30 per address in 10 minutes, 3 per recipient address a day, 1,000
+      characters, 48 per load) are read
       from the domain's named constants wherever the page or `upload.js` shows or checks
       them. The page's check is a convenience; the server's is the rule.
 - [ ] The messages a page shows for a domain error come from that error, and hold no
@@ -162,7 +163,7 @@ Ref: decision 0002; the plan's phases 5 and 7.
 
 - [ ] Kilns, firing types, glaze types, rejection reasons, cones, clay bodies, each
       firing type's default program, each kiln's firing counts, the pickup window and
-      hours, and the sending address are read from `Studio` when used, never constants, never in
+      hours, the sending address and the daily cap on received emails are read from `Studio` when used, never constants, never in
       a template, never in an environment variable (beyond the one-time
       `initial-sending-address` seed). A change records who made it.
 

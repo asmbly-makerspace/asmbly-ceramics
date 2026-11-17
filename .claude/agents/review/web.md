@@ -55,7 +55,9 @@ Ref: #2; decision 0002, Photos and The rate limit.
       inspected by content (JPEG, PNG, WebP; HEIC refused next to the field).
 - [ ] The rate limit (10 per device, 30 per address, in 10 minutes) is checked on the
       server for upload slots and submissions, with the address from the **last**
-      `X-Forwarded-For` value, failing closed.
+      `X-Forwarded-For` value, failing closed. A submission is also counted against 3 per
+      recipient address a day and the studio's daily cap on received emails (300 to
+      start), after every field and photo has passed.
 - [ ] A refresh or double tap after Submit makes no second drop-off (redirect after POST,
       and a submission token or equivalent).
 - [ ] The received page shows the new ID and a summary without contact details, read

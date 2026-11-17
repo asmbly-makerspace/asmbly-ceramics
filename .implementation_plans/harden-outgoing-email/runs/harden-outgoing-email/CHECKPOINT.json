@@ -120,10 +120,10 @@
   "final_review": {
     "base_sha": "4204921a828b362769edd78c6c165cfeaa9231a7",
     "result": "fixed",
-    "squashed_sha": null
+    "squashed_sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2"
   },
   "docs": {
-    "base_sha": null,
+    "base_sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2",
     "squashed_sha": null
   },
   "qa": {
@@ -270,6 +270,12 @@
       "topic": "follow-up",
       "choice": "opened issue #49 (PutItem retry double count)",
       "reason": "predates branch"
+    },
+    {
+      "ts": "2026-11-17T07:47:08Z",
+      "type": "squash",
+      "unit": "final-review",
+      "sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2"
     }
   ]
 }

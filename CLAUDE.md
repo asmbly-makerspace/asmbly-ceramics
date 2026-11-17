@@ -60,7 +60,7 @@ has the reasons.
 - **Kilns, firing types, glaze types, rejection reasons, the pickup window and hours, and
   the sending address are data** that staff manage in the console (#6), not code. So are
   the cones, the clay bodies, each firing type's default program and each kiln's firing
-  counts (#42).
+  counts (#42), and the daily cap on received emails (300 to start, Settings › Emails).
 - **Firing notes** (#17) are text staff write on a load, kept with it and never deleted
   by the close. They hold no personal details: the server refuses one holding something
   shaped like an email address or a phone number. A note's text is never logged and
@@ -99,7 +99,9 @@ the deploy are recorded in
 - **Settings as data.** Nothing a story calls a setting is a constant in the code: the
   studio's lists (kilns, firing types, glaze types, rejection reasons, cones, clay
   bodies), the default programs, the kilns' firing counts, the pickup window and hours,
-  and the sending address.
+  the sending address, and the daily cap on received emails. The limit per recipient
+  address (3 a day) is a rule in `domain/limits.py`, not a setting
+  ([decision 0008](docs/decisions/0008-the-form-caps-received-emails-per-day-and-per-recipient.md)).
 
 ## Done means verified
 
@@ -134,8 +136,10 @@ detail, account ID or photo is committed. If you couldn't run a check, say which
 - Treat everything the public form sends as hostile: check every field on the server
   (type, length, format, the number of photos, each photo's real type and size) before
   anything is stored or sent, and escape it wherever it is shown or put in an email.
-  Limits from #2 (1 to 6 photos, 10 MB each, 10 submissions per device in 10 minutes)
-  are enforced by the server, not only the page.
+  Limits from #2 (1 to 6 photos, 10 MB each, 10 submissions per device in 10 minutes),
+  the daily cap on received emails (300 per environment per day to start, a setting) and
+  the limit per recipient address (3 per address per day) are enforced by the server,
+  not only the page.
 - Keep photos private: the bucket blocks all public access, and staff see photos only
   through the console, signed in. A photo's storage address alone gets "access denied"
   (#2). Never make a bucket, an object or a URL public to make something work.
