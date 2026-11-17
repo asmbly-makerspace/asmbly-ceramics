@@ -42,7 +42,7 @@
     <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ '' if ticked else record.fields[name] }}" inputmode="numeric" maxlength="{{ record.cone_reading_max }}" autocomplete="off"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
     <span class="unit">% bent</span>
   </div>
-  <label class="choice" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
+  <label class="choice no-cone" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
 </div>
 {% endmacro %}
 <section class="panel" id="record" aria-labelledby="record-title">
@@ -94,14 +94,16 @@
       </fieldset>
       <fieldset class="record-group">
         <legend>Result</legend>
-        {{ text("firing_time", "h:mm", record.firing_time_max, "", "11:38") }}
-        {{ text("cost", "$", record.cost_max, "decimal", "8.19") }}
+        {{ text("firing_time", "h:mm", record.firing_time_max, "", "e.g. 11:38") }}
+        {{ text("cost", "$", record.cost_max, "decimal", "e.g. 8.19") }}
         {{ whole("max_temp_f", "°F") }}
         {{ whole("board_temp_f", "°F") }}
       </fieldset>
-      <fieldset class="record-group">
+      <fieldset class="record-group record-group-wide">
         <legend>Witness cones</legend>
-        {% for name in record.witness %}{{ witness(name) }}{% endfor %}
+        <div class="witness-row">
+          {% for name in record.witness %}{{ witness(name) }}{% endfor %}
+        </div>
       </fieldset>
     </div>
     <button type="submit">Save firing record</button>

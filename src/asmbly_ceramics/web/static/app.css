@@ -538,11 +538,28 @@ details.panel[open] > summary { margin-bottom: var(--space-4); }
 .step-correct { color: var(--text); font-weight: normal; }
 .step-correct form { margin-top: var(--space-2); padding: var(--space-3); color: var(--text); background: var(--surface); border-radius: var(--radius); }
 .steps li[aria-current="step"] .step-correct summary { color: var(--on-accent); }
-/* The firing record: four groups side by side on a wide screen, one column on a phone. */
-.record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
-.record-group { margin: var(--none); padding: var(--none); border: var(--none); min-width: var(--none); }
-.record-group legend { font-family: var(--font-heading); font-weight: var(--weight-heading); margin-bottom: var(--space-3); padding: var(--none); }
-.console .record-group .field { margin-bottom: var(--space-4); }
+/* The firing record: the kiln, program and result groups as cards side by side on a wide
+   screen, the witness cones a full-width card below with the three cones in a row; one
+   column on a phone. A field's unit is attached to its box, so every box lines up. */
+.record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-4); margin: var(--space-4) var(--none); }
+.record-group { margin: var(--none); padding: var(--space-4); min-width: var(--none); background: var(--canvas); border: var(--border-width) solid var(--line-soft); border-radius: var(--radius-card); }
+.record-group-wide { grid-column: 1 / -1; }
+.record-group legend { float: left; width: var(--full); margin-bottom: var(--space-3); padding: var(--none); font-size: var(--font-size-label); font-weight: var(--weight-strong); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+.record-group legend + * { clear: both; }
+.console .record-group .field { margin-bottom: var(--space-3); }
+.console .record-group .field:last-child { margin-bottom: var(--none); }
+.record-group .field > label:first-child { margin-bottom: var(--space-1); font-size: var(--font-size-small); }
+.record-group .unit-row { gap: var(--none); background: var(--field-bg); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
+.record-group .unit-row:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.record-group .unit-row input[type] { border: var(--none); background: transparent; outline: none; }
+.record-group .unit-row .unit { align-self: stretch; display: flex; align-items: center; padding: var(--none) var(--space-3); font-size: var(--font-size-small); background: var(--canvas); }
+.record-group .unit-row .unit:last-child { border-left: var(--border-width) solid var(--line-soft); border-radius: var(--none) var(--radius) var(--radius) var(--none); }
+.record-group .unit-row .unit:first-child { border-right: var(--border-width) solid var(--line-soft); border-radius: var(--radius) var(--none) var(--none) var(--radius); }
+.record-group .field-invalid .unit-row { border: var(--border-width-accent) solid var(--error-edge); }
+.witness-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); }
+.console .witness-row .field { margin-bottom: var(--none); }
+.record-group .no-cone { display: flex; margin: var(--none); font-size: var(--font-size-small); font-weight: var(--weight-normal); gap: var(--space-2); }
+.record-group .no-cone input { width: var(--space-4); height: var(--space-4); }
 .unit-row { display: flex; align-items: center; gap: var(--space-2); }
 .unit-row input { flex: 1; min-width: var(--none); }
 .unit { flex: none; color: var(--muted); }
