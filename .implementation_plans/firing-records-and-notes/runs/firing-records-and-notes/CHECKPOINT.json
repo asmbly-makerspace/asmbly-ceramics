@@ -4,8 +4,8 @@
  "issue": null,
  "feature_branch": "feat/firing-records-and-notes",
  "worktree": null,
- "status": "in-progress",
- "stage": "pr",
+ "status": "complete",
+ "stage": "done",
  "selected_phases": [
   "1",
   "2",
@@ -284,7 +284,7 @@
  },
  "qa": {
   "base_sha": "bc9c351",
-  "squashed_sha": null,
+  "squashed_sha": "fee7608",
   "closes": [
    17,
    42
@@ -292,8 +292,8 @@
   "refs": []
  },
  "pr": {
-  "number": null,
-  "result": null,
+  "number": 44,
+  "result": "green",
   "rounds": []
  },
  "events": [
@@ -551,6 +551,22 @@
    "ts": "2026-11-17T01:05:34Z",
    "type": "qa_written",
    "steps": 41
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "pr_opened",
+   "number": 44
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "decision",
+   "topic": "PR subscription",
+   "choice": "unsubscribed this session from #44's activity",
+   "reason": "rule: no PR subscriptions in the orchestrator"
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "complete"
   }
  ]
 }
