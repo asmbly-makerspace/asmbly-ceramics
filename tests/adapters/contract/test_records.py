@@ -15,6 +15,7 @@ from asmbly_ceramics.domain.email import (
     EmailKind,
     EmailStatus,
     claim,
+    holds_claim,
     mark_sent,
     new_email,
     rejection_occasion,
@@ -233,6 +234,20 @@ def test_records_keep_a_retried_emails_time(records: Records) -> None:
     )
 
 
+def test_a_claim_read_back_holds_its_sub_second_claimed_at(records: Records) -> None:
+    ac1 = DropOffId(1)
+    records.commit([Put(new_email(ac1, EmailKind.RECEIVED, NOW))])
+    queued = records.email(ac1, EmailKind.RECEIVED)
+    assert queued is not None
+    claimed = claim(queued, NOW + timedelta(microseconds=7))
+    records.commit([Update(claimed)])
+    stored = records.email(ac1, EmailKind.RECEIVED)
+    assert stored is not None
+    assert stored.claimed_at == NOW + timedelta(microseconds=7)
+    assert holds_claim(stored, claimed)
+    assert not holds_claim(stored, replace(claimed, claimed_at=NOW))
+
+
 def test_records_history_pages_newest_first(records: Records) -> None:
     changes = [SettingChange(NOW + timedelta(minutes=n), STAFF, f"change {n}") for n in range(5)]
     records.commit([Put(change) for change in changes])
@@ -251,6 +266,7 @@ def test_history_pages_by_the_sort_key_and_keeps_one_instant_together(records: R
         sending_address=a_sending_address("kiln-room"),
         pickup_window_days="21",
         pickup_hours_text="Weekdays only.",
+        received_emails_per_day="300",
         by=STAFF,
         at=NOW,
     )

@@ -1,13 +1,13 @@
 """Steps phase 3's tests share: drop-offs made through the form, loads fired, the queue sent.
 
 Everything is made up (`tests/domain/builders.py`); each drop-off comes from its own
-made-up device so the form's rate limit never interferes.
+made-up device and recipient (`a_recipient`) so the form's limits never interfere.
 """
 
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.ports.staff import StaffMember
-from tests.domain.builders import STAFF, an_address
+from tests.domain.builders import STAFF, a_recipient, an_address
 from tests.use_cases.conftest import World
 from tests.use_cases.test_submit import a_device, a_request, a_token
 
@@ -24,7 +24,12 @@ def dropped_off(
 ) -> DropOffId:
     """A drop-off made through the form (its photos kept, its received email queued)."""
     request = a_request(
-        world, token=a_token(number), device=a_device(number), firing_type=firing_type, glaze_type=glaze_type
+        world,
+        token=a_token(number),
+        device=a_device(number),
+        email=a_recipient(number),
+        firing_type=firing_type,
+        glaze_type=glaze_type,
     )
     return world.submit(request).view.id
 

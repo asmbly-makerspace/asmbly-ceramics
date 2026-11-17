@@ -81,6 +81,50 @@ def test_hits_older_than_the_window_stop_counting(limiter: RateLimiter) -> None:
     assert limiter.hit(KEY, small, NOW + timedelta(minutes=12, seconds=1))
 
 
+def test_a_lowered_limit_refuses_at_once_and_a_raised_one_counts_only_the_hits_kept(
+    limiter: RateLimiter,
+) -> None:
+    window = timedelta(hours=24)
+    four = RateLimit(limit=4, window=window)
+    two = RateLimit(limit=2, window=window)
+    for n in range(4):
+        assert limiter.hit(KEY, four, NOW + timedelta(minutes=n))
+    # Lowered below the hits kept: refused at once, and only the latest 2 are kept.
+    assert not limiter.hit(KEY, two, NOW + timedelta(minutes=4))
+    # Raised again: 5 hits fell in the window, but only the 2 kept count, so 2 more pass.
+    assert limiter.hit(KEY, four, NOW + timedelta(minutes=5))
+    assert limiter.hit(KEY, four, NOW + timedelta(minutes=6))
+    assert not limiter.hit(KEY, four, NOW + timedelta(minutes=7))
+
+
+def test_a_hit_with_an_earlier_time_does_not_forget_later_hits(limiter: RateLimiter) -> None:
+    # A slow caller read the clock before two fast ones and hits after them: their hits,
+    # later than its `now`, still count and are still kept.
+    three = RateLimit(limit=3, window=timedelta(hours=24))
+    assert limiter.hit(KEY, three, NOW)
+    assert limiter.hit(KEY, three, NOW + timedelta(seconds=20))
+    assert limiter.hit(KEY, three, NOW + timedelta(seconds=21))
+    assert not limiter.hit(KEY, three, NOW + timedelta(seconds=5))
+    assert not limiter.hit(KEY, three, NOW + timedelta(seconds=30))
+    # The kept hits are the latest three by time: when NOW leaves the window, the others
+    # (5 s, 20 s, 21 s, 30 s) still fill it.
+    assert not limiter.hit(KEY, three, NOW + timedelta(hours=24, seconds=1))
+
+
+def test_a_later_clocked_hit_keeps_hits_an_earlier_clocked_one_still_counts(
+    limiter: RateLimiter,
+) -> None:
+    # Three hits just inside the window ending at NOW; a fast caller's hit at NOW + 2 s
+    # is outside their window and allowed, but must not drop them: a slow caller's hit at
+    # NOW, arriving after it, would make (NOW - 24 h, NOW] hold four.
+    three = RateLimit(limit=3, window=timedelta(hours=24))
+    early = NOW - timedelta(hours=24) + timedelta(seconds=1)
+    for _ in range(3):
+        assert limiter.hit(KEY, three, early)
+    assert limiter.hit(KEY, three, NOW + timedelta(seconds=2))
+    assert not limiter.hit(KEY, three, NOW)
+
+
 def test_a_naive_time_is_refused(limiter: RateLimiter) -> None:
     with pytest.raises(ValueError, match="aware"):
         limiter.hit(KEY, DEVICE_LIMIT, NOW.replace(tzinfo=None))

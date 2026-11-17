@@ -22,6 +22,8 @@ PHONE_DIGITS_MIN, PHONE_DIGITS_MAX = 10, 15
 MESSAGE_MAX = 1000
 HOURS_TEXT_MAX = 2000
 PICKUP_WINDOW_MIN, PICKUP_WINDOW_MAX = 1, 90  # days
+# The studio's daily cap on received emails (#30, decision 0008): the setting's bounds.
+RECEIVED_EMAILS_PER_DAY_MIN, RECEIVED_EMAILS_PER_DAY_MAX = 1, 2000
 ITEM_NAME_MAX = 60
 # A load's firing record (#42): checks the story states, as read from the kiln's controller.
 PERCENT_MIN, PERCENT_MAX = 0, 100  # % full, and how far each witness cone bent
@@ -47,10 +49,12 @@ class RateLimit:
 
 DEVICE_LIMIT = RateLimit(limit=10, window=timedelta(minutes=10))
 ADDRESS_LIMIT = RateLimit(limit=30, window=timedelta(minutes=10))
+RECIPIENT_LIMIT = RateLimit(limit=3, window=timedelta(days=1))  # drop-offs per recipient address (#18)
 SLOT_DEVICE_LIMIT = RateLimit(limit=20, window=timedelta(minutes=10))  # requests for upload slots
 SLOT_ADDRESS_LIMIT = RateLimit(limit=60, window=timedelta(minutes=10))
 UPLOAD_SLOT_LIFETIME = timedelta(minutes=15)
 SUBMISSION_LIFETIME = timedelta(days=1)
+RECEIVED_CAP_WINDOW = timedelta(days=1)  # the daily cap's rolling window (decision 0008)
 OVERDUE_AFTER = timedelta(days=60)
 LOAD_CAPACITY = 48
 STALE_SENDING_AFTER = timedelta(minutes=15)  # an email sending, or pending, this long is stuck

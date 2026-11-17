@@ -1,9 +1,11 @@
 """Submitting a drop-off from the public form (#2).
 
 Everything in a `SubmitRequest` is hostile until checked here: the token and the device
-cookie by shape, then the rate limit, then every field and photo at once. The raw token,
-cookie and source address are hashed (`KeyHasher`) before anything is read, counted,
-stored or logged. A repeated token answers with the drop-off it already made.
+cookie by shape, then the rate limit, then every field and photo at once, then the limit
+per recipient address (#18) and the daily cap on received emails (#30, decision 0008),
+counted only for a drop-off that would otherwise be stored. The raw token, cookie,
+source address and recipient address are hashed (`KeyHasher`) before anything is read,
+counted, stored or logged. A repeated token answers with the drop-off it already made.
 """
 
 import logging
@@ -12,11 +14,11 @@ from datetime import datetime
 
 from asmbly_ceramics.domain.dropoff import DropOffDetails, new_drop_off
 from asmbly_ceramics.domain.email import EmailKind, new_email
-from asmbly_ceramics.domain.errors import FORM_EXPIRED_KEY, InvalidDetails
+from asmbly_ceramics.domain.errors import FORM_EXPIRED_KEY, DropOffNotTaken, InvalidDetails
 from asmbly_ceramics.domain.ids import DropOffId
 from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, SUBMISSION_LIFETIME
 from asmbly_ceramics.domain.photos import PHOTO_COUNT_KEY, CheckedPhoto, PhotoRefusal, distinct_slots
-from asmbly_ceramics.domain.studio import CatalogList
+from asmbly_ceramics.domain.studio import CatalogList, Studio
 from asmbly_ceramics.ports.clock import Clock
 from asmbly_ceramics.ports.errors import Unavailable, error_code
 from asmbly_ceramics.ports.ids import IdNumbers
@@ -25,7 +27,7 @@ from asmbly_ceramics.ports.photos import PhotosAlreadyKept, PhotoStore, UploadMi
 from asmbly_ceramics.ports.rate_limit import RateLimiter
 from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Put, Records, Submission
 from asmbly_ceramics.use_cases.keys import KeyHasher, is_form_token
-from asmbly_ceramics.use_cases.limits import check_limits
+from asmbly_ceramics.use_cases.limits import check_limits, check_received_cap, check_recipient
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.received import ReceivedView, is_live, live_submission, received_view
 from asmbly_ceramics.use_cases.studio import CurrentStudio
@@ -136,6 +138,29 @@ class SubmitDropOff:
             _refused("invalid_details", fields=",".join(sorted(errors)))
             raise InvalidDetails(errors)
 
+        # 4b. The recipient's limit (#18), then the daily cap on received emails (#30),
+        # only for a drop-off that would otherwise be stored, so a refused field never
+        # counts. A refused recipient isn't counted against the cap, so one address being
+        # flooded can't use up the studio's day (decision 0008). Outside the ID loop, so a
+        # retry with the next ID counts once. A double tap whose two requests race both
+        # pass step 1 and both count here, two of the recipient's three and two of the
+        # cap's slots (decision 0008 accepts both); when the other one took the last slot
+        # and stored the drop-off, it is this one's answer. The recipient's hit stays
+        # spent when nothing is stored after it (the cap refuses or can't be counted, or a
+        # later step fails), as decision 0008 records. Both refusals give the same page.
+        # The clock is read again: reading and inspecting the photos takes seconds, and
+        # these hits belong at the time they are counted, not at step 1's.
+        counted_at = self._clock.now()
+        try:
+            self._check_recipient(details.contact.email, counted_at)
+            self._check_cap(studio, counted_at)
+        except DropOffNotTaken:
+            winner = self._winner_or_none(token_hash, now)
+            if winner is None:
+                raise
+            log_event("drop_off_repeated", drop_off_id=str(winner.drop_off_id))
+            return Submitted(received_view(winner), token_hash, repeated=True)
+
         firing_type = studio.item(CatalogList.FIRING_TYPES, details.firing_type).name
         glaze_type = (
             None
@@ -229,6 +254,30 @@ class SubmitDropOff:
             now=now,
             refused_event="drop_off_refused",
         )
+
+    def _check_recipient(self, address: str, now: datetime) -> None:
+        # The key was read for the device's hash in step 2, so no key failure starts here.
+        check_recipient(
+            self._limiter,
+            recipient_key=self._hasher.recipient(address),
+            now=now,
+            refused_event="drop_off_refused",
+        )
+
+    def _check_cap(self, studio: Studio, now: datetime) -> None:
+        # The setting is read from the studio this request already read (settings as data).
+        check_received_cap(
+            self._limiter, per_day=studio.received_emails_per_day, now=now, refused_event="drop_off_refused"
+        )
+
+    def _winner_or_none(self, token_hash: str, now: datetime) -> Submission | None:
+        """The same token's stored drop-off after a refusal; `None` when there is none or
+        it can't be read, so the refusal stands."""
+        try:
+            return live_submission(self._records, token_hash, now)
+        except Exception as error:
+            log_event("submission_unreadable", level=logging.WARNING, error_code=_code(error))
+            return None
 
     def _check_photo(self, slot: str, checked: list[CheckedPhoto]) -> str | None:
         """Reads and inspects one upload; its message key when refused."""

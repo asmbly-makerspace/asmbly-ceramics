@@ -1,10 +1,11 @@
 """`RateLimiter` on the records table: one item per keyed hash, a rolling window.
 
-The item holds the latest hits (epoch microseconds, oldest first), at most `limit.limit`
-of them: only those can decide a later hit, so the item stays small under a flood. A hit
-reads the item consistently and writes it back under a version check; a write that lost
-a race reads again, at most `TRIES` times, then fails closed. The item's `ttl` is a day
-after its window ends, so a lost item means no recent hits, which is true.
+The item holds the latest hits (epoch microseconds, oldest first, a hit with an earlier
+`now` sorted in among later ones), at most `limit.limit` of them: only those can decide
+a later hit, so the item stays small under a flood. A hit reads the item consistently
+and writes it back under a version check; a write that lost a race reads again, at most
+`TRIES` times, then fails closed. The item's `ttl` is a day after its window ends, so a
+lost item means no recent hits, which is true.
 """
 
 import logging
@@ -50,9 +51,12 @@ class DynamoDbRateLimiter:
         ttl = int((now + limit.window + _TTL_AFTER_WINDOW).timestamp())
         for _ in range(TRIES):
             version, hits = self._read(item_key)
-            earlier = [at for at in hits if start_us < at <= now_us]
-            allowed = len(earlier) < limit.limit
-            kept = [*earlier, now_us][-limit.limit :]
+            # Hits later than `now` count (the port's contract).
+            counted = [at for at in hits if start_us < at]
+            allowed = len(counted) < limit.limit
+            # The latest `limit` of all stored hits, in this hit's window or not: one
+            # outside it may be inside an earlier-clocked hit's that arrives later.
+            kept = sorted([*hits, now_us])[-limit.limit :]
             if self._write(item_key, version, kept, ttl):
                 return allowed
         log_event("aws_call_failed", level=logging.WARNING, kind="put_item", error_code=_LOST_RACE)

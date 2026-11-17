@@ -54,11 +54,12 @@ Ref: `CLAUDE.md`, Planned shape; the plan's Domain model.
       and its drop-offs never change. Every transition the story forbids is
       refused, with a test.
 - [ ] The fixed numbers the stories state (1 to 50 pieces, 1 to 6 photos, 10 MB, 10 and
-      30 per 10 minutes, 60 days overdue, 1,000 characters, 48, `America/Chicago`) are
+      30 per 10 minutes, 3 per recipient address a day, 60 days overdue, 1,000 characters, 48, `America/Chicago`) are
       named constants in the domain, defined once.
 - [ ] Everything #6 calls a setting is in `Studio`, not a constant: kilns, firing types
       (with `needs_glaze_type`), glaze types, rejection reasons (with `needs_message`),
-      the pickup window and hours, the sending address (must end in `@asmbly.org`).
+      the pickup window and hours, the sending address (must end in `@asmbly.org`), the daily
+      cap on received emails (`received_emails_per_day`).
       Used items are retired, not deleted; every change appends a `SettingChange`.
 - [ ] The close keeps the ID, dates, firing type, pieces, load and reason, and sets
       `contact` and the rejection message to `None`.

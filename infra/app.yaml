@@ -817,6 +817,20 @@ Resources:
           MetricValue: '1'
           Unit: Count
 
+  # Every email the mailer sent (decision 0008): a full load sends up to 48 ready emails at
+  # once, so 100 in an hour is out of the ordinary whatever its kind. An email that went
+  # but whose sent mark couldn't be saved logs email_unrecorded with outcome sent instead.
+  EmailsSentFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref MailerLogGroup
+      FilterPattern: '{ ($.event = "email_sent") || (($.event = "email_unrecorded") && ($.outcome = "sent")) }'
+      MetricTransformations:
+        - MetricName: EmailsSent
+          MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
+          MetricValue: '1'
+          Unit: Count
+
   FormLoggedErrorsFilter:
     Type: AWS::Logs::MetricFilter
     Properties:
@@ -862,6 +876,28 @@ Resources:
       Period: 300
       EvaluationPeriods: 1
       Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectSlug}
+        - {Key: Component, Value: App}
+        - {Key: Environment, Value: !Ref AppEnv}
+        - {Key: Owner, Value: it-volunteers}
+        - {Key: ManagedBy, Value: sam}
+
+  EmailVolumeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectSlug}-${AppEnv}-email-volume'
+      AlarmDescription: The mailer sent 100 or more emails in an hour; see email_sent in its log and drop_off_submitted in the form's.
+      Namespace: !Sub '${ProjectSlug}/${AppEnv}'
+      MetricName: EmailsSent
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 100
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlarmTopic]

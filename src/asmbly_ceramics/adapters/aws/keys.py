@@ -12,7 +12,7 @@ One table, string keys `PK` and `SK`, two global secondary indexes:
 | Firing note | `LOAD#L-4` | `NOTE#N-12` | `NOTE` (removed: `NOTE#removed`) / `<written_at>#N-12` | | |
 | Email (outbox) | `EMAIL#AC-12` | `<kind>[#<occasion>]` | | `EMAIL#<status>` / `<created>#AC-12#<kind>` | |
 | ID counters | `COUNTER#dropoff`, `COUNTER#load`, `COUNTER#note` | `META` | | | |
-| Rate-limit hits | `RATE#<keyed hash>` | `META` | | | a day after the window |
+| Rate-limit hits | `RATE#<keyed hash>`, `RATE#received-emails` | `META` | | | a day after the window |
 | Submission | `SUBMISSION#<keyed hash>` | `META` | | | `expires_at` |
 
 Every item has a top-level `type` string; a drop-off, a load, an email, the studio and
@@ -31,7 +31,8 @@ with the defaults: not a test, no firing stamps, an empty record.
 
 The studio item holds each list as a list of maps. A firing type's map has a
 `default_program` map and a kiln's a `counts` map only when set. A studio stored before
-#42 and #17 has no `cones` or `clay_bodies` and reads with the starting lists.
+#42 and #17 has no `cones` or `clay_bodies` and reads with the starting lists. A studio
+stored before #30 has no `received_emails_per_day` and reads 300.
 
 A load's partition holds its `META` item, its history (`EVENT#`) and its notes
 (`NOTE#`); a query of the partition names the prefix it wants in its key condition, so
@@ -63,6 +64,7 @@ from asmbly_ceramics.domain.photos import PhotoRef
 from asmbly_ceramics.domain.studio import (
     STARTING_CLAY_BODIES,
     STARTING_CONES,
+    STARTING_RECEIVED_EMAILS_PER_DAY,
     CatalogItem,
     ItemStatus,
     KilnCounts,
@@ -293,6 +295,7 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "reasons": [_catalog_item(i) for i in entity.reasons],
                 "cones": [_catalog_item(i) for i in entity.cones],
                 "clay_bodies": [_catalog_item(i) for i in entity.clay_bodies],
+                "received_emails_per_day": entity.received_emails_per_day,
             }
         case SettingChange():
             return {"type": HISTORY, "at": iso(entity.at), "by": entity.by, "what": entity.what}
@@ -508,6 +511,10 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 cones=_catalog(values["cones"]) if "cones" in values else STARTING_CONES,
                 clay_bodies=(
                     _catalog(values["clay_bodies"]) if "clay_bodies" in values else STARTING_CLAY_BODIES
+                ),
+                # A studio stored before #30 has no cap: the starting one.
+                received_emails_per_day=values.get(
+                    "received_emails_per_day", STARTING_RECEIVED_EMAILS_PER_DAY
                 ),
                 version=values["version"],
             )

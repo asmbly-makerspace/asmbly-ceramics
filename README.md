@@ -35,7 +35,12 @@ is in place. The prod form's address isn't published until the switch from Click
 asmbly-staff-login. The plan's remaining phase is in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md). The firing record and log (#42) and firing
 notes (#17) are built from
-[.implementation_plans/firing-records-and-notes/](.implementation_plans/firing-records-and-notes/README.md).
+[.implementation_plans/firing-records-and-notes/](.implementation_plans/firing-records-and-notes/README.md). Hardening the outgoing email (#30) is being built from
+[.implementation_plans/harden-outgoing-email/](.implementation_plans/harden-outgoing-email/README.md):
+the mailer now reads an email again when its claim's outcome is unknown and sends it if
+the claim landed, instead of leaving it for a manual retry (#22); the form refuses drop-offs past a daily cap on received emails (a setting, 300 to
+start) and a fourth drop-off to one email address within 24 hours (#18), and an alarm
+fires when the mailer sends 100 or more emails in a clock hour.
 
 | Story | What changes for people |
 | --- | --- |

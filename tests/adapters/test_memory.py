@@ -382,6 +382,7 @@ def test_history_pages_never_split_or_skip_changes_at_one_instant() -> None:
         sending_address=a_sending_address("kiln-room"),
         pickup_window_days="21",
         pickup_hours_text="Weekdays only.",
+        received_emails_per_day="300",
         by=STAFF,
         at=NOW,
     )

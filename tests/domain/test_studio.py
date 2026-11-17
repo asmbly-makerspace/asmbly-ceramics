@@ -156,12 +156,14 @@ def change(
     address: str | None = None,
     window: str = "14",
     hours: str | None = None,
+    cap: str = "300",
 ) -> tuple[Studio, list[SettingChange]]:
     return change_email_settings(
         studio,
         sending_address=address if address is not None else studio.sending_address,
         pickup_window_days=window,
         pickup_hours_text=hours if hours is not None else studio.pickup_hours_text,
+        received_emails_per_day=cap,
         by=STAFF,
         at=LATER,
     )
@@ -183,6 +185,39 @@ def test_change_email_settings_records_one_change_per_value() -> None:
     ]
     _, only_window = change(old, window="21")
     assert only_window == [SettingChange(LATER, STAFF, "Pickup window: 14 → 21 days")]
+
+
+def test_a_new_studio_caps_received_emails_at_300() -> None:
+    studio, _ = starting_studio(a_sending_address(), at=NOW)
+    assert studio.received_emails_per_day == 300
+    assert a_studio().received_emails_per_day == 300
+
+
+def test_change_email_settings_records_the_cap_change() -> None:
+    old = a_studio()
+    studio, changes = change(old, cap=" 120 ")
+    assert studio.received_emails_per_day == 120
+    assert (studio.sending_address, studio.pickup_window_days, studio.pickup_hours_text) == (
+        old.sending_address,
+        old.pickup_window_days,
+        old.pickup_hours_text,
+    )
+    assert changes == [SettingChange(LATER, STAFF, "Received emails a day, at most: 300 → 120")]
+    assert change(old, cap="0300") == (old, [])
+
+
+@pytest.mark.parametrize("cap", ["0", "2001", "-5", "1.5", "", "12abc", "١٢", "9" * 5000])
+def test_received_emails_per_day_outside_1_to_2000_refused(cap: str) -> None:
+    old = a_studio()
+    with pytest.raises(errors.InvalidSetting, match="from 1 to 2,000") as refused:
+        change(old, window="21", cap=cap)
+    assert refused.value.field == "received_emails_per_day"
+    assert (old.received_emails_per_day, old.pickup_window_days) == (300, 14)
+
+
+def test_received_emails_per_day_takes_1_and_2000() -> None:
+    assert change(a_studio(), cap="1")[0].received_emails_per_day == 1
+    assert change(a_studio(), cap="2000")[0].received_emails_per_day == 2000
 
 
 def test_the_history_holds_no_sending_address() -> None:

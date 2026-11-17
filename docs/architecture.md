@@ -28,7 +28,8 @@ and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap 
 (deploy roles, boundaries, addresses), deployed by hand with
 [its runbook](runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's SAM template
 for one environment (the records table, the private photo bucket, the form and the console behind an
-HTTP API, the mailer on the table's stream, the daily close, the alarms); a merge to `main` deploys it to
+HTTP API, the mailer on the table's stream, the daily close, the alarms, among them one on the
+mailer's send volume); a merge to `main` deploys it to
 stage and then prod (`.github/workflows/deploy.yml`, [the operations runbook](runbooks/operations.md)).
 The deployed functions start from `entry/` (`run.sh` for the form and the console through the Lambda
 Web Adapter, `mailer.py` for the stream, `close.py` for the daily schedule), read their environment once in
@@ -49,7 +50,19 @@ What the domain code settles, beyond the stories:
   used can't be deleted, nor can a cone a firing type's default program names.
 - The settings history records that the sending address changed, never the address.
 - The form's rate limit counts hits in a rolling window, refused hits included, and
-  fails closed.
+  fails closed. A hit counted with an earlier time than hits already stored (a slow
+  submit that read the clock before a fast one) counts and keeps them, never forgets
+  them, so overlapping submits can't exceed a limit.
+- The form counts each otherwise-acceptable drop-off against the studio's daily cap on
+  received emails (a setting, 300 to start) in a rolling 24 hours, and refuses past it
+  with one sentence that names no cap (`DropOffNotTaken`, decision 0008).
+- The form counts at most 3 drop-offs per recipient address in any 24 hours, under a
+  keyed hash of the address normalized (case, plus tags, Gmail's dots), and counts the
+  daily cap only when the recipient is allowed; a refusal shows the cap's sentence
+  (decision 0008).
+- The mailer re-reads an email whose claim's outcome is unknown and sends it when the
+  stored email holds that claim (`holds_claim`); a claim that lands only after the
+  re-read waits for staff, as a stuck email.
 - `PhotoStore.keep` stores all of a drop-off's photos or none. A caller whose commit
   fails after `keep` calls `delete_drop_off`.
 
@@ -122,7 +135,8 @@ What the domain code settles, beyond the stories:
   too. Their text is autoescaped wherever it is shown.
 - **Kilns** (Athena, Helios and Vulcan today), **firing types**, **glaze types**,
   **rejection reasons**, **cones** (^06, ^5 and ^6 to start), **clay bodies**, the
-  **pickup window and hours** and the **sending address** are settings, edited in the
+  **pickup window and hours**, the **sending address** and the **daily cap on received
+  emails** (#30) are settings, edited in the
   console with a history of who changed what. Anything a drop-off or load has used is
   retired, not deleted. A firing type can carry a **default program** that fills each
   new load's record, and a kiln its **firing counts** (since new elements and all time,
@@ -172,10 +186,15 @@ the alternatives and the reasons:
 | Hosting and addresses | Lambda (Python 3.14, arm64) behind one HTTP API, one function per job (form, console, mailer, close); `ceramics.asmbly.org` and `ceramics-stage.asmbly.org` |
 | Data store and IDs | One DynamoDB table per environment; `AC-n` from an atomic counter, written only if new |
 | Photos | Presigned POST straight to a private S3 bucket; re-encoded without EXIF on submit; staff see them only through the console; inline in emails |
-| The form's rate limit | Counted in the table per device cookie and per address, under a keyed hash |
+| The form's rate limit | Counted in the table per device cookie, per source address and per recipient address, under a keyed hash, with a daily cap on received emails kept as a studio setting |
 | Staff sign-in | The app exchanges the code (PKCE) and checks the ID token and the `ceramics` group on every request; values from `/config/cognito/staff/*` |
 | Email | An outbox in the table, sent by a mailer from the table's stream; failures shown, retried and alarmed |
 | Deploy | SAM; a hand-deployed bootstrap stack with tag-conditioned roles; stage then prod on every merge, each with a smoke test |
 | The scheduled close | EventBridge Scheduler, daily at 03:17 Austin time |
 
 A later choice that changes one of these needs a new decision record.
+[Decision 0008](decisions/0008-the-form-caps-received-emails-per-day-and-per-recipient.md)
+(proposed) adds to the form's rate limit a daily cap on received emails, kept as a studio
+setting, and a limit per recipient address, with an alarm on the mailer's send volume;
+both are built, planned in
+[harden-outgoing-email](../.implementation_plans/harden-outgoing-email/README.md).

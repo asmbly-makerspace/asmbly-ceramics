@@ -116,6 +116,7 @@ class ChangeEmailSettings(_StudioChange):
         sending_address: str,
         pickup_window_days: str,
         pickup_hours_text: str,
+        received_emails_per_day: str,
         version: int,
         staff: StaffMember,
     ) -> Studio:
@@ -127,6 +128,7 @@ class ChangeEmailSettings(_StudioChange):
             sending_address=sending_address,
             pickup_window_days=pickup_window_days,
             pickup_hours_text=pickup_hours_text,
+            received_emails_per_day=received_emails_per_day,
             by=staff.username,
             at=self._now(),
         )

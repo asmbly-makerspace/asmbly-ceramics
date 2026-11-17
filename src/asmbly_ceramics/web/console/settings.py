@@ -10,6 +10,7 @@ value in a URL.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 from starlette.requests import Request
@@ -34,6 +35,9 @@ from asmbly_ceramics.domain.limits import (
     ITEM_NAME_MAX,
     PICKUP_WINDOW_MAX,
     PICKUP_WINDOW_MIN,
+    RECEIVED_CAP_WINDOW,
+    RECEIVED_EMAILS_PER_DAY_MAX,
+    RECEIVED_EMAILS_PER_DAY_MIN,
     STUDIO_TZ,
 )
 from asmbly_ceramics.domain.studio import (
@@ -98,6 +102,7 @@ class EmailForm:
     sending_address: str = field(default="", repr=False)
     pickup_window_days: str = ""
     pickup_hours_text: str = field(default="", repr=False)
+    received_emails_per_day: str = ""
     error_field: str | None = None
     error: str | None = None
 
@@ -176,7 +181,12 @@ def _counts_row(item: CatalogItem, refused: CountsForm | None) -> dict[str, Any]
 
 
 def _email_form(studio: Studio) -> EmailForm:
-    return EmailForm(studio.sending_address, str(studio.pickup_window_days), studio.pickup_hours_text)
+    return EmailForm(
+        studio.sending_address,
+        str(studio.pickup_window_days),
+        studio.pickup_hours_text,
+        str(studio.received_emails_per_day),
+    )
 
 
 def change_line(change: SettingChange) -> dict[str, str]:
@@ -232,6 +242,9 @@ def _settings_page(
         "name_max": ITEM_NAME_MAX,
         "window_min": PICKUP_WINDOW_MIN,
         "window_max": PICKUP_WINDOW_MAX,
+        "cap_min": RECEIVED_EMAILS_PER_DAY_MIN,
+        "cap_max": RECEIVED_EMAILS_PER_DAY_MAX,
+        "cap_window_hours": RECEIVED_CAP_WINDOW // timedelta(hours=1),
         "labels": RECORD_LABELS,
         "whole": WHOLE_RANGES,
         "speeds": [(speed.value, speed.value.capitalize()) for speed in Speed],
@@ -269,13 +282,21 @@ async def history_page(request: Request) -> Response:
 
 def _typed(form: Mapping[str, str]) -> EmailForm:
     return EmailForm(
-        form.get("sending_address", ""), form.get("pickup_window_days", ""), form.get("pickup_hours_text", "")
+        form.get("sending_address", ""),
+        form.get("pickup_window_days", ""),
+        form.get("pickup_hours_text", ""),
+        form.get("received_emails_per_day", ""),
     )
 
 
 def _with_error(typed: EmailForm, error_field: str, error: str) -> EmailForm:
     return EmailForm(
-        typed.sending_address, typed.pickup_window_days, typed.pickup_hours_text, error_field, error
+        typed.sending_address,
+        typed.pickup_window_days,
+        typed.pickup_hours_text,
+        typed.received_emails_per_day,
+        error_field,
+        error,
     )
 
 
@@ -288,6 +309,7 @@ async def save_email_settings(request: Request) -> Response:
             sending_address=typed.sending_address,
             pickup_window_days=typed.pickup_window_days,
             pickup_hours_text=typed.pickup_hours_text,
+            received_emails_per_day=typed.received_emails_per_day,
             version=version,
             staff=staff.member,
         )

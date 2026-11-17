@@ -201,6 +201,29 @@ def new_drop_off(id: DropOffId, details: DropOffDetails, photos: Sequence[PhotoR
     )
 
 
+# Gmail's two domains, which deliver an address with or without dots in its local part.
+_GMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+
+
+def normalized_recipient(address: str) -> str:
+    """What the recipient limit counts an address as (#18, decision 0008): stripped and
+    lowercased; anything from a `+` in the local part dropped when something comes before
+    it; for gmail.com and googlemail.com, the local part's dots dropped and the domain
+    read as gmail.com. Only for counting: the drop-off keeps the address as typed.
+    `ValueError` for anything `is_valid_email` refuses (a caller's bug: the submit checks
+    the address first); its message never holds the address."""
+    address = address.strip()
+    if not is_valid_email(address):
+        raise ValueError("not a valid email address")
+    local, domain = address.lower().split("@")  # the local part is ASCII, so lower() is exact
+    untagged = local.split("+", 1)[0]
+    if untagged:
+        local = untagged
+    if domain in _GMAIL_DOMAINS:
+        local, domain = local.replace(".", ""), "gmail.com"
+    return f"{local}@{domain}"
+
+
 def can_be_rejected(drop_off: DropOff) -> bool:
     """Only a waiting drop-off can be rejected (#5): `reject`'s own state rule."""
     return drop_off.state is DropOffState.WAITING

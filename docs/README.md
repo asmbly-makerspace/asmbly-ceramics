@@ -23,6 +23,7 @@ number.
 | [0006](decisions/0006-the-console-may-delete-a-drop-offs-photos.md) | Accepted: amends 0002: the console's role may delete photos under `dropoffs/`, so staff can delete a waiting drop-off made by mistake and its photos go at once |
 | [0005](decisions/0005-the-http-apis-are-the-bootstraps.md) | Proposed: amends 0003: the bootstrap creates the stage and prod HTTP APIs and the execution role changes only their routes, stages and mappings, by ID; reads and deletes CloudFormation makes before a create or in a rollback are allowed by name; the bootstrap template is uploaded to S3 |
 | [0007](decisions/0007-firing-notes-are-kept-with-their-load-and-are-not-personal-data.md) | Proposed: a firing note's text is kept with its load and the close never touches it, because a note is not personal data; the server refuses text shaped like an email address or a phone number |
+| [0008](decisions/0008-the-form-caps-received-emails-per-day-and-per-recipient.md) | Proposed: adds to 0002: the form queues at most 300 received emails a day per environment (a studio setting) and 3 drop-offs per recipient a day (under a keyed hash of the normalized address), refuses past either with one friendly sentence, and an alarm goes off at 100 emails the mailer sends in a clock hour |
 
 ## Runbooks
 

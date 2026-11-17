@@ -32,6 +32,12 @@
       {% if email.error_field == "pickup_window_days" %}<p class="field-error" id="window-error">{{ email.error }}</p>{% endif %}
       <input type="number" id="pickup_window_days" name="pickup_window_days" value="{{ email.pickup_window_days }}" min="{{ window_min }}" max="{{ window_max }}" inputmode="numeric" class="input-narrow" aria-describedby="window-hint{% if email.error_field == 'pickup_window_days' %} window-error{% endif %}">
     </div>
+    <div class="field{% if email.error_field == 'received_emails_per_day' %} field-invalid{% endif %}">
+      <label for="received_emails_per_day">Received emails a day, at most</label>
+      <p class="hint" id="cap-hint">The most "We received your drop-off" emails the form sends in any {{ cap_window_hours }} hours. Past it, the form turns drop-offs away and asks people to see staff. Turned-away attempts count too, so they keep the form closed; raising this number reopens it. A normal week has about 80 drop-offs.</p>
+      {% if email.error_field == "received_emails_per_day" %}<p class="field-error" id="cap-error">{{ email.error }}</p>{% endif %}
+      <input type="number" id="received_emails_per_day" name="received_emails_per_day" value="{{ email.received_emails_per_day }}" min="{{ cap_min }}" max="{{ cap_max }}" inputmode="numeric" class="input-narrow" aria-describedby="cap-hint{% if email.error_field == 'received_emails_per_day' %} cap-error{% endif %}">
+    </div>
     </div>
     <div>
     <div class="field{% if email.error_field == 'pickup_hours_text' %} field-invalid{% endif %}">

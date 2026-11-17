@@ -28,6 +28,8 @@ from asmbly_ceramics.domain.limits import (
     ITEM_NAME_MAX,
     PICKUP_WINDOW_MAX,
     PICKUP_WINDOW_MIN,
+    RECEIVED_EMAILS_PER_DAY_MAX,
+    RECEIVED_EMAILS_PER_DAY_MIN,
     SENDING_DOMAIN,
 )
 
@@ -114,6 +116,7 @@ def _catalog(*names: str) -> tuple[CatalogItem, ...]:
 # them reads with these.
 STARTING_CONES = _catalog("^06", "^5", "^6")
 STARTING_CLAY_BODIES = _catalog("Buffalo Wallow", "Cinco Blanco", "Cone 5 Porcelain")
+STARTING_RECEIVED_EMAILS_PER_DAY = 300  # decision 0008
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +130,7 @@ class Studio:
     reasons: tuple[CatalogItem, ...]
     cones: tuple[CatalogItem, ...] = STARTING_CONES
     clay_bodies: tuple[CatalogItem, ...] = STARTING_CLAY_BODIES
+    received_emails_per_day: int = STARTING_RECEIVED_EMAILS_PER_DAY
     version: int = 0
 
     def items(self, which: CatalogList) -> tuple[CatalogItem, ...]:
@@ -230,10 +234,11 @@ def change_email_settings(
     sending_address: str,
     pickup_window_days: str,
     pickup_hours_text: str,
+    received_emails_per_day: str,
     by: str,
     at: datetime,
 ) -> tuple[Studio, list[SettingChange]]:
-    """Check all three values, then record one change per value that changed."""
+    """Check all four values, then record one change per value that changed."""
     _check_change(by, at)
     address = check_sending_address(sending_address)
     window = _pickup_window(pickup_window_days)
@@ -247,6 +252,7 @@ def change_email_settings(
         raise InvalidSetting(
             "pickup_hours_text", f"The pickup hours are longer than {HOURS_TEXT_MAX:,} characters."
         )
+    cap = _received_emails_per_day(received_emails_per_day)
 
     changes: list[SettingChange] = []
     if address != studio.sending_address:
@@ -256,10 +262,18 @@ def change_email_settings(
         changes.append(SettingChange(at, by, f"Pickup window: {studio.pickup_window_days} → {window} days"))
     if hours != studio.pickup_hours_text:
         changes.append(SettingChange(at, by, "Changed the pickup hours text"))
+    if cap != studio.received_emails_per_day:
+        changes.append(
+            SettingChange(at, by, f"Received emails a day, at most: {studio.received_emails_per_day} → {cap}")
+        )
     if not changes:
         return studio, []
     return replace(
-        studio, sending_address=address, pickup_window_days=window, pickup_hours_text=hours
+        studio,
+        sending_address=address,
+        pickup_window_days=window,
+        pickup_hours_text=hours,
+        received_emails_per_day=cap,
     ), changes
 
 
@@ -485,6 +499,19 @@ def _pickup_window(text: str) -> int:
             return days
     raise InvalidSetting(
         "pickup_window_days", f"Enter a number of days from {PICKUP_WINDOW_MIN} to {PICKUP_WINDOW_MAX}."
+    )
+
+
+def _received_emails_per_day(text: str) -> int:
+    text = text.strip()
+    # The length check comes first, as for the pickup window.
+    if len(text) <= len(str(RECEIVED_EMAILS_PER_DAY_MAX)) + 1 and _WHOLE_NUMBER.fullmatch(text):
+        cap = int(text)
+        if RECEIVED_EMAILS_PER_DAY_MIN <= cap <= RECEIVED_EMAILS_PER_DAY_MAX:
+            return cap
+    raise InvalidSetting(
+        "received_emails_per_day",
+        f"Enter a number from {RECEIVED_EMAILS_PER_DAY_MIN:,} to {RECEIVED_EMAILS_PER_DAY_MAX:,}.",
     )
 
 

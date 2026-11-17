@@ -75,6 +75,11 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.NoStaffEmail(), "Your sign-in has no email address, so a test email can't be sent."),
     (errors.TestEmailFailed("MessageRejected"), "The test email didn't send (MessageRejected)."),
     (errors.TooManySubmissions(), "Too many drop-offs from here in the last few minutes. Try again later."),
+    (
+        errors.DropOffNotTaken(),
+        "Sorry, we can't take this drop-off online right now. "
+        "Please ask ceramics staff at the studio for help.",
+    ),
     (errors.SubmissionNotFound(), "That page has expired."),
 ]
 
@@ -141,3 +146,10 @@ def test_invalid_record_counts_its_fields_and_is_read_only() -> None:
     assert isinstance(two.errors, MappingProxyType)
     with pytest.raises(ValueError, match="at least one"):
         errors.InvalidRecord({})
+
+
+def test_drop_off_not_taken_names_no_cap_limit_or_hash() -> None:
+    message = errors.DropOffNotTaken().message.lower()
+    for word in ("cap", "limit", "hash", "per day", "300", "too many"):
+        assert word not in message
+    assert not any(c.isdigit() for c in message)

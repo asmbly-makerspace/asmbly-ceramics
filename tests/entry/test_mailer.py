@@ -15,6 +15,7 @@ from tests.domain.builders import NOW, TEST_EMAIL, TEST_NAME, TEST_PHONE
 from tests.use_cases.conftest import World
 from tests.use_cases.conftest import world as world  # the fakes and use cases
 from tests.use_cases.flows import dropped_off, email_of
+from tests.use_cases.test_emails import assert_nothing_personal_logged, on_unknown_claims
 
 
 class FakeSender:
@@ -100,6 +101,37 @@ def test_a_pending_email_is_sent_through_the_real_use_case(
     assert mailer.handler({"Records": [record(drop_off_id.number)]}, None) == {"batchItemFailures": []}
     assert email_of(world, drop_off_id, EmailKind.RECEIVED).status is EmailStatus.SENT
     assert len(world.mailer.sent) == 1
+
+
+def test_a_claim_that_landed_behind_an_unknown_outcome_isnt_retried(
+    monkeypatch: pytest.MonkeyPatch, world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    records = on_unknown_claims(world)  # AC-1's claim lands, then its commit raises CommitOutcomeUnknown
+    monkeypatch.setattr(mailer, "_sender", world.send_email)
+    with caplog.at_level(logging.INFO):
+        result = mailer.handler({"Records": [record(1, sequence="9")]}, None)
+    assert result == {"batchItemFailures": []}
+    assert not records.armed  # the claim went through the unknown-outcome path
+    [unknown] = [r for r in caplog.records if r.getMessage() == "email_claim_unknown"]
+    assert getattr(unknown, "outcome", None) == "held"
+    assert email_of(world, DropOffId(1), EmailKind.RECEIVED).status is EmailStatus.SENT
+    assert len(world.mailer.sent) == 1
+    assert not [r for r in caplog.records if getattr(r, "event", None) == "mailer_crashed"]
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_that_didnt_land_behind_an_unknown_outcome_is_retried(
+    monkeypatch: pytest.MonkeyPatch, world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    on_unknown_claims(world).lands = False
+    monkeypatch.setattr(mailer, "_sender", world.send_email)
+    with caplog.at_level(logging.INFO):
+        result = mailer.handler({"Records": [record(1, sequence="9")]}, None)
+        assert result == {"batchItemFailures": [{"itemIdentifier": "9"}]}
+        assert world.mailer.sent == []
+        assert mailer.handler({"Records": [record(1, sequence="9")]}, None) == {"batchItemFailures": []}
+    assert len(world.mailer.sent) == 1
+    assert_nothing_personal_logged(caplog)
 
 
 def test_a_record_that_isn_t_an_email_is_logged_and_skipped(

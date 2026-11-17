@@ -1,0 +1,312 @@
+{
+  "plan_name": "harden-outgoing-email",
+  "run": "harden-outgoing-email",
+  "issue": 22,
+  "feature_branch": "feat/harden-outgoing-email",
+  "worktree": null,
+  "status": "complete",
+  "stage": "briefing",
+  "selected_phases": [
+    "1",
+    "2",
+    "3"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "rest-and-mcp (no gh graphql; no gh auth status)",
+    "sam": false,
+    "aws_read": false
+  },
+  "plan_sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3",
+  "phases": [
+    {
+      "id": "phase-1-outbox-claim-recovery",
+      "number": "1",
+      "title": "The mailer: a claim whose outcome is unknown",
+      "domain": [
+        "app"
+      ],
+      "depends_on": [],
+      "status": "done",
+      "base_sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3",
+      "squashed_sha": "bfef521da1ba1ea375118c3b66289b5e17fbc222",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [
+        22
+      ],
+      "refs": [
+        21
+      ],
+      "admin_actions": [
+        "maintainer: after merge, confirm on stage a received email arrives once, then set phase 1 to [x]"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "phase-2-daily-cap-and-send-alarm",
+      "number": "2",
+      "title": "The form: a daily cap on received emails, and an alarm on the send volume",
+      "domain": [
+        "app",
+        "web",
+        "infra",
+        "docs"
+      ],
+      "depends_on": [],
+      "status": "done",
+      "base_sha": "bfef521da1ba1ea375118c3b66289b5e17fbc222",
+      "squashed_sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [
+        30
+      ],
+      "refs": [],
+      "admin_actions": [
+        "maintainer: after merge, confirm stage check (count stage drop-offs of last 24h N, cap to N+1 refuses the next; email-volume alarm exists; cap back to 300), then set phase 2 [x]",
+        "whoever talks to staff, after merge: tell them about the new setting"
+      ],
+      "notes": "CLAUDE.md settings lists (lines ~61,102) to add the cap: left for the docs step"
+    },
+    {
+      "id": "phase-3-per-recipient-limit",
+      "number": "3",
+      "title": "The form: a limit per recipient address",
+      "domain": [
+        "app",
+        "web",
+        "docs"
+      ],
+      "depends_on": [
+        "2"
+      ],
+      "status": "done",
+      "base_sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151",
+      "squashed_sha": "141409eaa8971bb00fdca6c752cb61f2b77d4da5",
+      "review_rounds": 3,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [
+        18
+      ],
+      "refs": [],
+      "admin_actions": [
+        "maintainer: after merge, stage check with own inbox (4th drop-off refused), then set phase 3 [x]",
+        "whoever talks to staff: 3 drop-offs per address per day"
+      ],
+      "notes": "cold review capped at 3 rounds; final BLOCK was a docs line, fixed, final-review re-reads it. Risk section must name: refused hits keep an address blocked indefinitely; a refusal tells a caller that an address was used 3 times in 24h; keyed hash outlives a deleted/refused drop-off by ~2 days+TTL."
+    }
+  ],
+  "gate": {
+    "base_sha": "141409eaa8971bb00fdca6c752cb61f2b77d4da5",
+    "result": "clean",
+    "squashed_sha": null,
+    "test_count": 3834,
+    "coverage": "99.33%",
+    "steps_skipped": [
+      {
+        "step": "sam validate/build",
+        "reason": "sam not installed"
+      }
+    ]
+  },
+  "final_review": {
+    "base_sha": "4204921a828b362769edd78c6c165cfeaa9231a7",
+    "result": "fixed",
+    "squashed_sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2"
+  },
+  "docs": {
+    "base_sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2",
+    "squashed_sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f"
+  },
+  "qa": {
+    "base_sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f",
+    "squashed_sha": "8557a75076319aa8a2ee3c64151d28aaa161d71f",
+    "closes": [
+      22,
+      30,
+      18
+    ],
+    "refs": [
+      21
+    ]
+  },
+  "pr": {
+    "number": 50,
+    "result": "green",
+    "rounds": []
+  },
+  "events": [
+    {
+      "ts": "2026-11-17T05:15:49Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-17T05:15:49Z",
+      "type": "env_missing",
+      "detail": "sam and aws read access unavailable; gh has REST only"
+    },
+    {
+      "ts": "2026-11-17T05:29:16Z",
+      "type": "planned"
+    },
+    {
+      "ts": "2026-11-17T05:29:16Z",
+      "type": "decision",
+      "topic": "frontmatter",
+      "choice": "no epic or implements in the plan files"
+    },
+    {
+      "ts": "2026-11-17T05:29:25Z",
+      "type": "squash",
+      "unit": "plan",
+      "sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3"
+    },
+    {
+      "ts": "2026-11-17T05:29:29Z",
+      "type": "phase_start",
+      "phase": "phase-1-outbox-claim-recovery"
+    },
+    {
+      "ts": "2026-11-17T05:48:39Z",
+      "type": "phase_done",
+      "phase": "phase-1-outbox-claim-recovery"
+    },
+    {
+      "ts": "2026-11-17T05:48:39Z",
+      "type": "cold_review",
+      "phase": "phase-1",
+      "review_lead": "APPROVED, 0 BLOCK, 4 WARN (test gaps, fixed)",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-17T05:48:42Z",
+      "type": "squash",
+      "unit": "phase-1",
+      "sha": "bfef521da1ba1ea375118c3b66289b5e17fbc222"
+    },
+    {
+      "ts": "2026-11-17T05:48:42Z",
+      "type": "phase_start",
+      "phase": "phase-2-daily-cap-and-send-alarm"
+    },
+    {
+      "ts": "2026-11-17T06:23:33Z",
+      "type": "phase_done",
+      "phase": "phase-2-daily-cap-and-send-alarm"
+    },
+    {
+      "ts": "2026-11-17T06:23:33Z",
+      "type": "cold_review",
+      "phase": "phase-2",
+      "review_lead": "APPROVED, 0 BLOCK, 3 WARN fixed",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-17T06:23:33Z",
+      "type": "decision",
+      "topic": "refused hits count against the cap",
+      "choice": "accepted as design, recorded in decision 0008",
+      "reason": "availability trade-off consistent with device limiter; staff raise setting"
+    },
+    {
+      "ts": "2026-11-17T06:23:40Z",
+      "type": "squash",
+      "unit": "phase-2",
+      "sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151"
+    },
+    {
+      "ts": "2026-11-17T06:23:40Z",
+      "type": "phase_start",
+      "phase": "phase-3-per-recipient-limit"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "phase_done",
+      "phase": "phase-3-per-recipient-limit"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "cold_review",
+      "phase": "phase-3",
+      "review_lead": "3 rounds; last: 1 docs BLOCK fixed",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "decision",
+      "topic": "phase 3 review cap",
+      "choice": "stopped re-reviewing after 3 fix rounds; whole-branch final review covers it",
+      "reason": "remaining BLOCK was a one-line doc inconsistency"
+    },
+    {
+      "ts": "2026-11-17T07:15:13Z",
+      "type": "squash",
+      "unit": "phase-3",
+      "sha": "141409eaa8971bb00fdca6c752cb61f2b77d4da5"
+    },
+    {
+      "ts": "2026-11-17T07:18:02Z",
+      "type": "gate_result",
+      "result": "clean"
+    },
+    {
+      "ts": "2026-11-17T07:47:08Z",
+      "type": "final_review",
+      "review_lead": "BLOCK (limiter dropped later hits, bypass by overlapping submits) fixed; re-review APPROVED",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-17T07:47:08Z",
+      "type": "decision",
+      "topic": "daily_cap refusal level",
+      "choice": "WARNING, no second alarm",
+      "reason": "keep out of shared LoggedErrors; email-volume alarm is the signal"
+    },
+    {
+      "ts": "2026-11-17T07:47:08Z",
+      "type": "decision",
+      "topic": "follow-up",
+      "choice": "opened issue #49 (PutItem retry double count)",
+      "reason": "predates branch"
+    },
+    {
+      "ts": "2026-11-17T07:47:08Z",
+      "type": "squash",
+      "unit": "final-review",
+      "sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2"
+    },
+    {
+      "ts": "2026-11-17T07:49:10Z",
+      "type": "squash",
+      "unit": "docs",
+      "sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f"
+    },
+    {
+      "ts": "2026-11-17T07:51:37Z",
+      "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-17T07:51:37Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "8557a75076319aa8a2ee3c64151d28aaa161d71f"
+    },
+    {
+      "ts": "2026-11-17T07:56:35Z",
+      "type": "pr_opened",
+      "number": 50
+    },
+    {
+      "ts": "2026-11-17T07:56:35Z",
+      "type": "complete"
+    }
+  ]
+}

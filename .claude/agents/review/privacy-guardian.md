@@ -148,7 +148,10 @@ even read-only. Never edit a file, commit, push, comment on GitHub, or change AW
 - [ ] The rate limit holds: 10 per device and 30 per address in 10 minutes, counted on
       the server under a keyed hash, the address taken from the **last**
       `X-Forwarded-For` value, failing closed when the table can't be reached. Both
-      upload slots and submissions are counted.
+      upload slots and submissions are counted. A submission is also counted per
+      recipient address (3 a day, under a keyed hash of the normalized address, never the
+      address) and against the studio's daily cap on received emails (300 to start); a
+      refusal says no number and logs no address, hash or count.
 - [ ] A repeated submit (a refresh, a double tap) makes no second drop-off and no second
       email.
 - [ ] State-changing requests check `Origin` and, in the console, the CSRF token tied to

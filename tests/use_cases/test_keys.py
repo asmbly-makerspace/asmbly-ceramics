@@ -3,13 +3,16 @@
 import pytest
 
 from asmbly_ceramics.adapters.memory.secrets import MemorySecrets
+from asmbly_ceramics.domain.dropoff import normalized_recipient
 from asmbly_ceramics.ports.errors import SecretMissing, SecretsUnavailable
 from asmbly_ceramics.ports.secrets import SecretName
 from asmbly_ceramics.use_cases.keys import KeyHasher, is_form_token, is_submission_hash
+from tests.domain.builders import an_address
 
 COOKIE = "made-up-device-cookie-0123456789"
 TOKEN = "made-up-submission-token-abcdefgh"
 ADDRESS = "203.0.113.7"  # TEST-NET-3, a documentation address
+RECIPIENT = an_address("made.up.recipient")
 
 
 class CountingSecrets(MemorySecrets):
@@ -52,12 +55,16 @@ def test_each_hash_has_its_prefix_and_differs_by_purpose() -> None:
         "address#": hasher.address(COOKIE),
         "slots-address#": hasher.slots_address(COOKIE),
         "submission#": hasher.submission(COOKIE),
+        "recipient#": hasher.recipient(RECIPIENT),
     }
     for prefix, value in hashes.items():
         assert value.startswith(prefix)
         assert len(value) == len(prefix) + 64
     digests = {value.split("#", 1)[1] for value in hashes.values()}
     assert len(digests) == len(hashes)  # the prefix is in the HMAC's input, not only the output
+    normalized = normalized_recipient(RECIPIENT)
+    # Same input, other purpose: only the prefix in the HMAC's input tells them apart.
+    assert hasher.recipient(RECIPIENT).split("#", 1)[1] != hasher.address(normalized).split("#", 1)[1]
     assert hasher.device(COOKIE) == hashes["device#"]  # stable
     assert hasher.device(COOKIE + "x") != hashes["device#"]
 
@@ -88,8 +95,28 @@ def test_hashes_hold_no_raw_value() -> None:
         (ADDRESS, hasher.address(ADDRESS)),
         (ADDRESS, hasher.slots_address(ADDRESS)),
         (TOKEN, hasher.submission(TOKEN)),
+        (RECIPIENT, hasher.recipient(RECIPIENT)),
     ]:
         assert raw not in value
+    assert normalized_recipient(RECIPIENT) not in hasher.recipient(RECIPIENT)
+
+
+def test_the_recipient_hash_is_the_same_for_one_normalized_address() -> None:
+    hasher = KeyHasher(MemorySecrets())
+    one = hasher.recipient(RECIPIENT)
+    assert hasher.recipient(" " + RECIPIENT.upper()) == one
+    assert hasher.recipient(an_address("made.up.recipient+kiln")) == one
+    assert hasher.recipient(an_address("made.up.recipient", "example.net")) != one
+    assert hasher.recipient(an_address("madeup.recipient")) != one  # dots count outside Gmail
+    # under six characters at the provider's domain: not a real mailbox there
+    assert hasher.recipient(an_address("Ab.Cd", "gmail.com")) == hasher.recipient(
+        an_address("abcd", "gmail.com")
+    )
+
+
+def test_the_recipient_hash_refuses_an_invalid_address() -> None:
+    with pytest.raises(ValueError, match=r"^not a valid email address$"):
+        KeyHasher(MemorySecrets()).recipient("made-up")
 
 
 def test_a_different_key_gives_different_hashes() -> None:

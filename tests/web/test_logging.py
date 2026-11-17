@@ -8,7 +8,7 @@ from asmbly_ceramics.domain.limits import DEVICE_LIMIT
 from asmbly_ceramics.ports.errors import PhotosUnavailable, RecordsUnavailable
 from asmbly_ceramics.web.security import DEVICE_COOKIE, RECEIVED_COOKIE
 from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS
-from tests.web.conftest import ADDRESS, SAME_ORIGIN, Site
+from tests.web.conftest import ADDRESS, SAME_ORIGIN, Site, set_cap
 
 
 def record_values(record: logging.LogRecord) -> list[str]:
@@ -85,7 +85,15 @@ def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCa
     assert site.submit(site.details()).status_code == 429
     device = site.device()
 
-    secrets = {TEST_NAME, TEST_EMAIL, TEST_PHONE, TEST_PHONE_DIGITS, device, ADDRESS, *tokens}
+    # The daily cap on received emails (#30), from a new device: turned away, not taken.
+    site.client.cookies.clear()
+    set_cap(site, 1)
+    capped = site.details()
+    tokens.append(str(capped["submission"]))
+    assert site.submit(capped).status_code == 429
+    capped_device = site.device()
+
+    secrets = {TEST_NAME, TEST_EMAIL, TEST_PHONE, TEST_PHONE_DIGITS, device, capped_device, ADDRESS, *tokens}
     secrets |= {refused_email, refused_name, refused_phone}
     assert received_cookie is not None
     secrets.add(received_cookie.split(".")[0])
@@ -96,8 +104,12 @@ def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCa
         "refused",
         "submitted",
         "rate_limited",
+        "not_taken",
         "expired",
     }
+    # The cap's refusal is below ERROR, so it stays out of the logged-errors alarm.
+    [capped_line] = [r for r in caplog.records if r.__dict__.get("reason") == "daily_cap"]
+    assert capped_line.levelno == logging.WARNING
     events = {r.getMessage() for r in caplog.records}
     assert {"drop_off_unavailable", "upload_slots_unavailable", "upload_slots"} <= events
     assert any(r.__dict__.get("fields") == "email,phone" for r in page_lines)

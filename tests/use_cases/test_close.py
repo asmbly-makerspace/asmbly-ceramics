@@ -81,6 +81,7 @@ def test_a_shorter_window_set_after_the_ready_email_doesnt_close_early(world: Wo
         sending_address=studio.sending_address,
         pickup_window_days="1",
         pickup_hours_text=studio.pickup_hours_text,
+        received_emails_per_day="300",
         version=studio.version,
         staff=STAFF_MEMBER,
     )
