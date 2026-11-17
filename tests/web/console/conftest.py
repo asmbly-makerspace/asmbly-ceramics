@@ -64,6 +64,12 @@ def console_services(world: World) -> ConsoleServices:
         save_firing_record=world.save_firing_record,
         correct_step_time=world.correct_step_time,
         firing_log=world.firing_log,
+        write_note=world.write_note,
+        edit_note=world.edit_note,
+        remove_note=world.remove_note,
+        load_notes=world.load_notes,
+        search_notes=world.search_notes,
+        note_counts=world.note_counts,
         view_studio=world.view_studio,
         change_email_settings=world.change_email_settings,
         send_test_email=world.send_test_email,
@@ -121,12 +127,12 @@ class Console:
     def post(
         self,
         path: str,
-        data: Mapping[str, str] | None = None,
+        data: Mapping[str, str | list[str]] | None = None,
         *,
         csrf: bool = True,
         headers: Mapping[str, str] | None = None,
     ) -> httpx2.Response:
-        fields = dict(data or {})
+        fields: dict[str, str | list[str]] = dict(data or {})
         if csrf:
             fields.setdefault("csrf", self.csrf())
         return self.client.post(

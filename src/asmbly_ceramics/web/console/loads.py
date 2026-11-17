@@ -1,6 +1,7 @@
 """Kiln loads (#4): the list and "Start a load", one load's page, adding (by ID, by name,
 from the waiting list), removing, changing, firing, retrying a ready email, and deleting
-a load started by mistake.
+a load started by mistake. The load page also shows the load's notes (#17), whose
+handlers are in `notes.py`.
 
 The use cases decide every rule and log every change; a page turns their result or
 refusal into a response, and after a change answers 303 to the load (Post/Redirect/Get)
@@ -55,7 +56,7 @@ from asmbly_ceramics.domain.firing import (
     Speed,
     is_no_cone,
 )
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, is_item_id
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
 from asmbly_ceramics.domain.load import (
     Load,
@@ -78,6 +79,7 @@ from asmbly_ceramics.use_cases.waiting import Found
 from asmbly_ceramics.web.console.auth import require_staff, require_staff_post
 from asmbly_ceramics.web.console.common import Staff, form_version, parse_date, render, services
 from asmbly_ceramics.web.console.dropoffs import email_status
+from asmbly_ceramics.web.console.note_views import NoteForm, section_context
 from asmbly_ceramics.web.errors import PageError
 
 PICK_KILN = "Pick a kiln from the list."
@@ -116,6 +118,12 @@ DONE = {
     "retried": "The email to {id} will be sent again.",
     "record": "Firing record saved.",
     "time": "Time corrected.",
+}
+# After a note's change the page opens at its notes (`#notes`): the notice shows there.
+NOTE_DONE = {
+    "note-added": "Note added.",
+    "note-saved": "Note saved.",
+    "note-removed": "Note removed.",
 }
 
 
@@ -423,10 +431,18 @@ def _load_page(
     delete_error: str | None = None,
     record: RecordForm | None = None,
     step_form: StepForm | None = None,
+    note_form: NoteForm | None = None,
+    confirm_remove: NoteId | None = None,
+    note_notice: str | None = None,
     status: int = 200,
 ) -> Response:
-    studio = services(request).studio()
+    console = services(request)
+    studio = console.studio()
     load = view.load
+    try:
+        note_rows = console.load_notes(load.id)
+    except NotFound:
+        raise _load_not_found(load.id) from None
     emails = []
     attention = {email.drop_off_id for email in view.needing_attention}
     for drop_off in view.members:
@@ -472,8 +488,33 @@ def _load_page(
         "confirm_delete": confirm_delete and view.can_delete,
         "delete_error": delete_error,
         "query_max": QUERY_MAX,
+        "notes": section_context(studio, note_rows, note_form, confirm_remove, note_notice),
     }
     return render(request, "console/load.html", context, staff, status=status)
+
+
+def load_page_for(
+    request: Request,
+    staff: Staff,
+    id: LoadId,
+    *,
+    problem: str | None = None,
+    note_form: NoteForm | None = None,
+    confirm_remove: NoteId | None = None,
+    status: int = 200,
+) -> Response:
+    """The load as it is now, for the note pages: with the note form as typed, a remove
+    waiting for "Yes", or a refusal above."""
+    view = _view(request, id)
+    return _load_page(
+        request,
+        staff,
+        view,
+        problem=problem,
+        note_form=note_form,
+        confirm_remove=confirm_remove,
+        status=status,
+    )
 
 
 def _view(request: Request, id: LoadId, *, all_types: bool = False) -> LoadView:
@@ -500,7 +541,15 @@ async def load_page(request: Request) -> Response:
     add = _drop_off_param(request.query_params.get("add"))
     if add is not None and view.load.status is LoadStatus.LOADING:
         prefill = str(add)
-    return _load_page(request, staff, view, all_types=all_types, notice=notice, prefill=prefill)
+    return _load_page(
+        request,
+        staff,
+        view,
+        all_types=all_types,
+        notice=notice,
+        prefill=prefill,
+        note_notice=NOTE_DONE.get(done),
+    )
 
 
 def _done(id: LoadId, word: str, drop_off: DropOffId | None = None, *, all_types: bool = False) -> Response:

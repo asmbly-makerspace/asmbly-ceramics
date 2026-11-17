@@ -1,0 +1,46 @@
+{% from "console/_note_macros.html" import note_card, note_fields %}
+<section class="panel" id="notes" aria-labelledby="notes-title">
+  <h3 id="notes-title">Notes ({{ notes.cards | length }})</h3>
+  {% if notes.notice %}<div class="notice" role="status"><p>{{ notes.notice }}</p></div>{% endif %}
+  {% if notes.cards %}
+  <ul class="note-list">
+    {% for note in notes.cards %}
+    {% call note_card(note) %}
+    {% if notes.confirm_remove == note.id %}
+    <div class="panel panel-danger" id="confirm-remove" role="group" aria-labelledby="confirm-remove-title">
+      <p id="confirm-remove-title"><strong>Remove this note?</strong> It disappears from this load and from the notes search.</p>
+      <div class="actions">
+        <form method="post" action="/console/loads/{{ load.id }}/notes/{{ note.id }}/remove" class="inline-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="version" value="{{ note.version }}">
+          <input type="hidden" name="confirm" value="1">
+          <button type="submit" class="button-danger">Yes, remove</button>
+        </form>
+        <a class="cancel" href="/console/loads/{{ load.id }}#notes" autofocus>Keep it</a>
+      </div>
+    </div>
+    {% else %}
+    <div class="actions">
+      <a href="/console/loads/{{ load.id }}/notes/{{ note.id }}/edit">Edit<span class="visually-hidden"> note {{ note.id }}</span></a>
+      <form method="post" action="/console/loads/{{ load.id }}/notes/{{ note.id }}/remove" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ note.version }}">
+        <button type="submit" class="button-quiet">Remove…<span class="visually-hidden"> note {{ note.id }}</span></button>
+      </form>
+    </div>
+    {% endif %}
+    {% endcall %}
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="notice" role="status">No notes yet.</p>
+  {% endif %}
+  <details{% if notes.add_open %} open{% endif %}>
+    <summary>Add a note</summary>
+    <form method="post" action="/console/loads/{{ load.id }}/notes">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {{ note_fields(notes.add, "note") }}
+      <button type="submit">Save note</button>
+    </form>
+  </details>
+</section>

@@ -218,7 +218,7 @@
    ],
    "status": "done",
    "base_sha": "5db368b",
-   "squashed_sha": null,
+   "squashed_sha": "7ec99d3",
    "review_rounds": 2,
    "cold_review": "fixed",
    "split_from": null,
@@ -242,11 +242,11 @@
     "7",
     "8"
    ],
-   "status": "pending",
-   "base_sha": null,
+   "status": "done",
+   "base_sha": "7ec99d3",
    "squashed_sha": null,
-   "review_rounds": 0,
-   "cold_review": null,
+   "review_rounds": 3,
+   "cold_review": "fixed",
    "split_from": null,
    "parked_branch": null,
    "closes": [
@@ -254,7 +254,9 @@
     42
    ],
    "refs": [],
-   "admin_actions": [],
+   "admin_actions": [
+    "Maintainer, after the stage walk-through and prod smoke pass: tell ceramics staff about notes and the notes search, then set phase 9 [x]"
+   ],
    "notes": ""
   }
  ],
@@ -488,6 +490,29 @@
    "review_lead": "APPROVED",
    "privacy": "CLEAR",
    "warns_fixed": 6
+  },
+  {
+   "ts": "2026-11-16T23:43:58Z",
+   "type": "squash",
+   "phase": "phase-8-use-cases-notes",
+   "sha": "7ec99d3"
+  },
+  {
+   "ts": "2026-11-16T23:43:58Z",
+   "type": "phase_start",
+   "phase": "phase-9-console-notes"
+  },
+  {
+   "ts": "2026-11-17T00:33:53Z",
+   "type": "phase_done",
+   "phase": "phase-9-console-notes"
+  },
+  {
+   "ts": "2026-11-17T00:33:53Z",
+   "type": "cold_review",
+   "phase": "phase-9-console-notes",
+   "review_lead": "APPROVED after fix rounds (BLOCK fixed)",
+   "privacy": "CLEAR after fix round"
   }
  ]
 }

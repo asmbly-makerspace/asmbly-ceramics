@@ -1,6 +1,6 @@
 """The staff console (#3 to #7): sign-in, the waiting list and search, one drop-off with
 its photos, rejection with its preview and undo, the emails needing attention, kiln
-loads, the firing log and its CSV, the studio's settings and the weekly counts.
+loads, firing notes and their search, the firing log and its CSV, the studio's settings and the weekly counts.
 
 `create_app` adds `console_routes()` when it is given `ConsoleServices` (the console
 function's app); the form function's app has none, so it serves no `/console` page.
@@ -15,6 +15,7 @@ from asmbly_ceramics.web.console import (
     emails,
     firing_log,
     loads,
+    notes,
     settings,
     waiting,
 )
@@ -28,6 +29,7 @@ def console_routes() -> list[BaseRoute]:
     (`auth.require_staff`), except sign-in, its callback and the signed-out page."""
     drop_off = "/console/drop-offs/{id}"
     load = "/console/loads/{load}"
+    note = load + "/notes/{note}"
     catalog = "/console/settings/{list}"
     firing_type = "/console/settings/firing-types/{item}"
     kiln = "/console/settings/kilns/{item}"
@@ -55,6 +57,11 @@ def console_routes() -> list[BaseRoute]:
         Route(load + "/record", loads.save_record, methods=["POST"]),
         Route(load + "/steps/{step}/time", loads.correct_step_time, methods=["POST"]),
         Route(load + "/emails/{drop_off}/retry", loads.retry_email, methods=["POST"]),
+        Route(load + "/notes", notes.write_note, methods=["POST"]),
+        Route(note + "/edit", notes.edit_page, methods=["GET"]),
+        Route(note + "/edit", notes.edit_note, methods=["POST"]),
+        Route(note + "/remove", notes.remove_note, methods=["POST"]),
+        Route("/console/notes", notes.search_page, methods=["GET"]),
         Route("/console/firing-log", firing_log.firing_log_page, methods=["GET"]),
         Route("/console/firing-log.csv", firing_log.firing_log_csv, methods=["GET"]),
         Route("/console/settings", settings.settings_page, methods=["GET"]),

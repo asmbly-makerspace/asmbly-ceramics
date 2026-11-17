@@ -43,6 +43,14 @@ from asmbly_ceramics.use_cases.loads import (
     StartLoad,
     ViewLoad,
 )
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
+)
 from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.received import ReceivedSummary
 from asmbly_ceramics.use_cases.reject import PreviewRejection, RejectDropOff, UndoRejection
@@ -129,7 +137,7 @@ def build_console_services(
     clients: ConsoleClients | None = None,
     staff_tokens: StaffTokens | None = None,
 ) -> tuple[ConsoleServices, WebSettings]:
-    """The console's use cases (#3 to #7). Its role reads `session-key` only. The only
+    """The console's use cases (#3 to #7, #17 and #42). Its role reads `session-key` only. The only
     email it sends itself is the test email, to the signed-in staff member; every other
     email goes through the outbox. It refuses to start when a `STAFF_*` variable is
     empty, or the session key can't be read."""
@@ -141,7 +149,7 @@ def build_console_services(
     clock = SystemClock()
     keys = SsmSecrets(clients.ssm, settings.app_env)
     studio = CurrentStudio(records, clock, settings.initial_sending_address)
-    ids = DynamoDbIdNumbers(clients.dynamodb, settings.table_name)  # load numbers only
+    ids = DynamoDbIdNumbers(clients.dynamodb, settings.table_name)  # load and note numbers only
     services = ConsoleServices(
         staff_tokens=staff_tokens
         or CognitoStaffTokens(
@@ -173,6 +181,12 @@ def build_console_services(
         save_firing_record=SaveFiringRecord(records, clock, studio),
         correct_step_time=CorrectStepTime(records, clock),
         firing_log=FiringLog(records, clock, studio),
+        write_note=WriteNote(records, ids, clock, studio),
+        edit_note=EditNote(records, clock, studio),
+        remove_note=RemoveNote(records, clock),
+        load_notes=LoadNotes(records, studio),
+        search_notes=SearchNotes(records, clock, studio),
+        note_counts=NoteCounts(records, clock),
         view_studio=ViewStudio(records, studio),
         change_email_settings=ChangeEmailSettings(records, clock, studio),
         send_test_email=SendTestEmail(SesMailer(clients.ses), studio, JinjaComposer()),

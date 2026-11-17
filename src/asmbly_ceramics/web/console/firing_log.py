@@ -5,7 +5,8 @@ Both are reads behind the `ceramics` check (`require_staff`): they change nothin
 filter form is a GET with no CSRF token, and they log nothing. Every query parameter is
 checked here and never echoed or logged: the page drops a bad one with a message, and the
 CSV, which has no page to say so on, answers 400 with that message. Rows hold staff
-usernames, studio items and record values, never a person's details.
+usernames, studio items, record values and note counts, never a person's details or a
+note's text.
 
 Kiln, firing type and cone names are typed by staff, so every CSV cell goes through
 `csv_cell`, which stops a spreadsheet reading it as a formula (OWASP's "CSV Injection").
@@ -23,10 +24,11 @@ from starlette.responses import Response
 
 from asmbly_ceramics.domain.errors import InvalidLogRange, UnknownItem
 from asmbly_ceramics.domain.firing import RECORD_FIELDS, record_values
-from asmbly_ceramics.domain.ids import ItemId, is_item_id
+from asmbly_ceramics.domain.ids import ItemId, LoadId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
 from asmbly_ceramics.mail.compose import austin_date
 from asmbly_ceramics.use_cases.firing_log import FiringKind, FiringLogRow, FiringLogView
+from asmbly_ceramics.use_cases.notes import NoteCount
 from asmbly_ceramics.web.console.auth import require_staff
 from asmbly_ceramics.web.console.common import parse_date, render, services
 from asmbly_ceramics.web.console.services import ConsoleServices
@@ -50,6 +52,8 @@ CSV_COLUMNS = (
     "fired at",
     "fired by",
     *(field.replace("_", " ") for field in RECORD_FIELDS),
+    "notes",
+    "not allowed notes",
 )
 KINDS = {kind.value: kind for kind in FiringKind}
 KIND_LABELS = ((FiringKind.ALL, "All"), (FiringKind.TESTS, "Tests only"), (FiringKind.REGULAR, "No tests"))
@@ -116,7 +120,12 @@ def _or_dash(value: object, template: str = "{}") -> str:
     return DASH if value is None else template.format(value)
 
 
-def _page_row(row: FiringLogRow) -> dict[str, object]:
+def _counts(console: ConsoleServices, view: FiringLogView) -> Mapping[LoadId, NoteCount]:
+    """Each listed load's notes, from one read (`NoteCounts`)."""
+    return console.note_counts([row.load for row in view.rows])
+
+
+def _page_row(row: FiringLogRow, notes: NoteCount) -> dict[str, object]:
     load, record = row.load, row.load.record
     program = record.program
     cost = record_values(record)["cost"]  # dollars, as the record's form shows them
@@ -133,7 +142,8 @@ def _page_row(row: FiringLogRow) -> dict[str, object]:
         "cost": f"${cost}" if cost else DASH,
         "started_by": row.started_by,
         "fired_by": _or_dash(row.fired_by),
-        "notes": row.notes,
+        "notes": notes.total,
+        "not_allowed": notes.not_allowed,
     }
 
 
@@ -149,15 +159,16 @@ async def firing_log_page(request: Request) -> Response:
             "since": f"{view.counts.since_elements:,}",
         }
     params = query.as_params()
+    notes = _counts(console, view)
     context = {
         "tab": "firing-log",
+        "log_view": "firings",
         "view": view,
         "kilns": studio.kilns,
         "kinds": KIND_LABELS,
         "problems": query.problems,
-        "rows": [_page_row(row) for row in view.rows],
+        "rows": [_page_row(row, notes[row.load.id]) for row in view.rows],
         "show_kiln": view.kiln is None,
-        "show_notes": any(row.notes is not None for row in view.rows),  # phase 9's column
         "counts": counts,
         # What the query gave, not the range read: a date field prefilled with today as
         # the end would, sent back, drop the loads dated ahead that the default read takes.
@@ -183,9 +194,10 @@ def _iso(at: datetime | None) -> str:
     return "" if at is None else at.astimezone(STUDIO_TZ).isoformat(timespec="seconds")
 
 
-def _csv_row(row: FiringLogRow) -> list[str]:
+def _csv_row(row: FiringLogRow, notes: NoteCount) -> list[str]:
     """One fired load. The record's cells are `record_values`' texts (H:MM, dollars, a
-    witness cone's "none"), as its form shows them, but the cone by name."""
+    witness cone's "none"), as its form shows them, but the cone by name; then how many
+    notes it has, and how many of them say "not allowed"."""
     load = row.load
     values = record_values(load.record)
     cells = [
@@ -201,6 +213,8 @@ def _csv_row(row: FiringLogRow) -> list[str]:
         _iso(load.fired_at),
         row.fired_by or "",
         *((row.cone or "") if field == "cone" else values[field] for field in RECORD_FIELDS),
+        str(notes.total),
+        str(notes.not_allowed),
     ]
     return [csv_cell(cell) for cell in cells]
 
@@ -222,7 +236,8 @@ async def firing_log_csv(request: Request) -> Response:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(CSV_COLUMNS)
-    writer.writerows(_csv_row(row) for row in view.rows)
+    notes = _counts(console, view)
+    writer.writerows(_csv_row(row, notes[row.load.id]) for row in view.rows)
     # Built from the checked values only: an item ID's shape and two dates.
     name = f"firing-log-{view.kiln or 'all'}-{view.start.isoformat()}-{view.end.isoformat()}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"}

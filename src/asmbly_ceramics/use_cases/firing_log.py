@@ -2,7 +2,8 @@
 
 It reads fired loads by their date from the index (`Records.loads_dated_between`), a
 range of at most `LOG_RANGE_MAX` (`domain.ranges.log_range`), so its cost doesn't grow
-with the years kept. The page shows the rows and the CSV downloads them (phase 7). Rows
+with the years kept. The page shows the rows and the CSV downloads them, each with the
+load's note counts from `use_cases.notes.NoteCounts`. Rows
 hold staff usernames, studio items and record values, never a person's details. A read: it logs nothing.
 """
 
@@ -37,7 +38,6 @@ class FiringLogRow:
     started_by: str
     firing_started_by: str | None  # None on a load made before #42
     fired_by: str | None
-    notes: int | None  # phase 9 fills it; None until then (the page leaves the column out)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,5 +103,4 @@ def _row(studio: Studio, load: Load) -> FiringLogRow:
         started_by=load.started_by,
         firing_started_by=load.firing_started_by,
         fired_by=load.fired_by,
-        notes=None,
     )

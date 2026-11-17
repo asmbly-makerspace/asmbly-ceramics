@@ -11,7 +11,6 @@ state or a cookie.
 
 import hmac
 import logging
-from collections.abc import Mapping
 from urllib.parse import quote
 
 from starlette.requests import Request
@@ -20,7 +19,16 @@ from starlette.responses import RedirectResponse, Response
 from asmbly_ceramics.ports.errors import SignInUnavailable
 from asmbly_ceramics.ports.staff import NotAllowed, NotSignedIn, StaffMember
 from asmbly_ceramics.use_cases.log import log_event
-from asmbly_ceramics.web.console.common import Answer, Staff, read_form, services, session_key, templates
+from asmbly_ceramics.web.console.common import (
+    FORM_FIELDS_MAX,
+    Answer,
+    PostedForm,
+    Staff,
+    read_form,
+    services,
+    session_key,
+    templates,
+)
 from asmbly_ceramics.web.console.csrf import CSRF_FIELD, check_csrf, check_origin, csrf_token
 from asmbly_ceramics.web.console.session import (
     CONSOLE_HOME,
@@ -122,12 +130,14 @@ def require_staff(request: Request) -> Staff:
     return Staff(member=member, token=token, csrf=csrf_token(token, session_key(request)))
 
 
-async def require_staff_post(request: Request) -> tuple[Staff, Mapping[str, str]]:
+async def require_staff_post(
+    request: Request, *, max_fields: int = FORM_FIELDS_MAX
+) -> tuple[Staff, PostedForm]:
     """`require_staff`, then this site's origin, then this session's CSRF token: the
-    posted form, or a 403 page and nothing changed."""
+    posted form (at most `max_fields` fields), or a 403 page and nothing changed."""
     staff = require_staff(request)
     check_origin(request, services(request).site_url)
-    form = await read_form(request)
+    form = await read_form(request, max_fields)
     check_csrf(form.get(CSRF_FIELD, ""), staff.token, session_key(request))
     return staff, form
 

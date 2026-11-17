@@ -470,6 +470,16 @@ a { color: var(--accent-strong); }
 .history { list-style: none; margin: var(--none); padding: var(--none); }
 .history li { padding: var(--space-2) var(--none); border-bottom: var(--border-width) solid var(--line-soft); }
 .history li:last-child { border-bottom: var(--none); }
+/* Firing notes (#17): a card per note, its text keeping the lines staff typed; the ruling
+   is a glyph and words, and "not allowed" is tinted too. */
+.note-list { list-style: none; margin: var(--none); padding: var(--none); }
+.note-card { padding: var(--space-4) var(--none); border-bottom: var(--border-width) solid var(--line-soft); }
+.note-card:last-child { border-bottom: var(--none); }
+.note-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--none) var(--none) var(--space-2); }
+.note-text { white-space: pre-line; overflow-wrap: anywhere; }
+.note-meta { color: var(--muted); font-size: var(--font-size-small); margin: var(--none); }
+.tag-not-allowed { color: var(--text); background: var(--error-bg); border: var(--border-width) solid var(--error-edge); }
+.choice-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--none) var(--space-4); }
 
 /* The counts' small tallies. */
 .tally { list-style: none; margin: var(--none); padding: var(--none); }

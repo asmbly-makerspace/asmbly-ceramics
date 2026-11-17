@@ -1,6 +1,5 @@
 """Firing notes (#17), against the fakes: writing, editing and removing a note, a load's
-notes, the search and the firing log's counts. The note use cases are built here, on the
-`world` fixture's fakes, so `conftest.py` stays as it is (phase 9 wires them)."""
+notes, the search and the firing log's counts, as the `world` fixture builds them."""
 
 import logging
 from dataclasses import replace
@@ -18,14 +17,8 @@ from asmbly_ceramics.ports.errors import IdsUnavailable, RecordsUnavailable
 from asmbly_ceramics.ports.records import Conflict, Put
 from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.notes import (
-    EditNote,
-    LoadNotes,
     NoteCount,
-    NoteCounts,
     NoteInput,
-    RemoveNote,
-    SearchNotes,
-    WriteNote,
 )
 from tests.domain.builders import NOW, STAFF, TEST_NOTE_TEXT, a_load, an_address
 from tests.use_cases.conftest import World
@@ -41,15 +34,15 @@ N_1, N_2, N_3 = NoteId(1), NoteId(2), NoteId(3)
 
 
 class Notes:
-    """The note use cases on the world's fakes."""
+    """The note use cases, as the `world` fixture builds them (the console's are the same)."""
 
     def __init__(self, world: World) -> None:
-        self.write = WriteNote(world.records, world.ids, world.clock, world.studio)
-        self.edit = EditNote(world.records, world.clock, world.studio)
-        self.remove = RemoveNote(world.records, world.clock)
-        self.for_load = LoadNotes(world.records, world.studio)
-        self.search = SearchNotes(world.records, world.clock, world.studio)
-        self.counts = NoteCounts(world.records, world.clock)
+        self.write = world.write_note
+        self.edit = world.edit_note
+        self.remove = world.remove_note
+        self.for_load = world.load_notes
+        self.search = world.search_notes
+        self.counts = world.note_counts
 
 
 @pytest.fixture

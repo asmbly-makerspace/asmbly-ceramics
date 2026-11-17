@@ -42,8 +42,8 @@ account ID or a photo committed to the repository.
 
 Asmbly Makerspace's ceramics studio: a phone-friendly **drop-off form** anyone can use
 without signing in, which gives each drop-off an ID (`AC-1`, `AC-2`, …) on screen, and a
-**staff console** where ceramics staff build kiln loads, fire them, reject drop-offs
-and manage the studio's settings. People get an email with their drop-off's photos when
+**staff console** where ceramics staff build kiln loads, fire them, keep each load's
+firing record and notes, reject drop-offs and manage the studio's settings. People get an email with their drop-off's photos when
 it is received, fired, or rejected. It replaces the studio's ClickUp drop-off form.
 About 80 drop-offs and 6 firings a week. Epic #1 has the stories (#2 to #9, #17 and #42) and what was
 decided; [decision 0001](docs/decisions/0001-the-ceramics-studio-has-its-own-repository.md)
@@ -61,6 +61,10 @@ has the reasons.
   the sending address are data** that staff manage in the console (#6), not code. So are
   the cones, the clay bodies, each firing type's default program and each kiln's firing
   counts (#42).
+- **Firing notes** (#17) are text staff write on a load, kept with it and never deleted
+  by the close. They hold no personal details: the server refuses one holding something
+  shaped like an email address or a phone number. A note's text is never logged and
+  never put in an address; log a note by its ID (`N-12`).
 - **Out of scope** (epic #1): payments or firing fees, importing anything from ClickUp,
   membership checks, pickup tracking or shelf locations, the dip glaze mix log.
 
@@ -159,8 +163,8 @@ detail, account ID or photo is committed. If you couldn't run a check, say which
 
 - Log, print, return in an error, or put in an issue, a commit, a pull request, a test
   fixture or a run summary: a person's name, email address or phone number, a
-  rejection message's text, a photo or its contents, a token, or a request body that
-  holds any of them. Log drop-offs by ID (`AC-12`), loads by their ID, and staff by
+  rejection message's text, a firing note's text, a photo or its contents, a token, or
+  a request body that holds any of them. Log drop-offs by ID (`AC-12`), loads by their ID, and staff by
   username. AWS's error text can quote what was sent: log its error code, not its
   message.
 - Keep personal details longer than the stories say: #7 deletes the name, email, phone,

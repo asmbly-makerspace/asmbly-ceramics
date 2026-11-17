@@ -6,7 +6,7 @@ import csv
 import html
 import io
 import re
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 import httpx2
@@ -15,7 +15,9 @@ import pytest
 from asmbly_ceramics.domain.firing import RECORD_FIELDS
 from asmbly_ceramics.domain.ids import LoadId
 from asmbly_ceramics.domain.limits import LOG_RANGE_MAX_YEARS
+from asmbly_ceramics.domain.notes import Ruling
 from asmbly_ceramics.domain.studio import CatalogList
+from asmbly_ceramics.use_cases.notes import NoteInput
 from asmbly_ceramics.web.console.firing_log import CSV_COLUMNS, DASH, csv_cell
 from tests.domain.builders import STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS
 from tests.use_cases.flows import HELIOS, STAFF_MEMBER, version
@@ -294,6 +296,8 @@ def test_csv_headers_and_rows(staff: Console) -> None:
         "100",
         "none",
         "",
+        "0",
+        "0",
     ]
 
 
@@ -315,8 +319,10 @@ def test_csv_has_a_header_for_each_record_field_and_each_row_fits_it() -> None:
         "cone top",
         "cone center",
         "cone bottom",
+        "notes",
+        "not allowed notes",
     )
-    assert len(CSV_COLUMNS) == 11 + len(RECORD_FIELDS)
+    assert len(CSV_COLUMNS) == 11 + len(RECORD_FIELDS) + 2
 
 
 def test_csv_rows_have_one_cell_per_header(staff: Console) -> None:
@@ -480,3 +486,52 @@ def test_csv_signed_out_redirects(console: Console) -> None:
     assert answer.status_code in (302, 303)
     assert "text/csv" not in answer.headers.get("content-type", "")
     assert STAFF not in answer.text
+
+
+# --- the notes column (#42's "number of notes", from #17) ----------------------------------
+
+
+def note_on(console: Console, load_id: LoadId, ruling: Ruling | None) -> None:
+    note = NoteInput("Made-up note for the count.", (), (), ruling)
+    console.world.write_note(load_id, note, STAFF_MEMBER)
+
+
+def test_notes_column(staff: Console) -> None:
+    noted = fired_on(staff.world, TODAY)
+    quiet = fired_on(staff.world, TODAY)
+    note_on(staff, noted, Ruling.NOT_ALLOWED)
+    note_on(staff, noted, Ruling.ALLOWED)
+    note_on(staff, noted, None)
+
+    answer = staff.get(LOG)
+
+    assert '<th scope="col">Notes</th>' in answer.text
+    last = r"<td>([0-9]+)(?: <span class=\"tag tag-not-allowed\">✕ ([0-9]+).*?</span></span>)?</td>\s*</tr>"
+    cells = re.findall(last, answer.text)
+    assert listed(answer) == [quiet, noted]
+    assert cells == [("0", ""), ("3", "1")]
+    assert "✕ 1 not allowed" in text(answer)
+
+
+def test_notes_column_counts_a_note_added_long_after_the_firing(staff: Console) -> None:
+    load_id = fired_on(staff.world, TODAY)
+    staff.world.clock.advance(timedelta(days=200))
+    note_on(staff, load_id, Ruling.NOT_ALLOWED)
+
+    (row,) = rows(staff.get(f"{CSV}?from=2026-11-01&to=2026-11-30"))
+
+    assert (row["notes"], row["not allowed notes"]) == ("1", "1")
+
+
+def test_csv_notes_columns(staff: Console) -> None:
+    noted = fired_on(staff.world, TODAY)
+    note_on(staff, noted, Ruling.NOT_ALLOWED)
+    note_on(staff, noted, Ruling.ALLOWED_WITH_CONDITIONS)
+    removed = staff.world.write_note(noted, NoteInput("Made-up note, removed.", (), (), None), STAFF_MEMBER)
+    staff.world.remove_note(noted, removed.id, removed.version, STAFF_MEMBER)
+
+    (row,) = rows(staff.get(CSV))
+
+    assert CSV_COLUMNS[-2:] == ("notes", "not allowed notes")
+    assert (row["notes"], row["not allowed notes"]) == ("2", "1")
+    assert "Made-up note" not in staff.get(CSV).text  # counts only, never a note's text

@@ -83,11 +83,10 @@ def test_one_kiln(world: World, log: FiringLog) -> None:
     assert ids(view.rows) == [helios]
     [row] = view.rows
     assert (row.kiln, row.firing_type, row.cone) == ("Helios", "Glaze", "^6")
-    assert (row.started_by, row.firing_started_by, row.fired_by, row.notes) == (
+    assert (row.started_by, row.firing_started_by, row.fired_by) == (
         STAFF_MEMBER.username,
         STAFF_MEMBER.username,
         STAFF_MEMBER.username,
-        None,
     )
     assert view.kiln == HELIOS
     assert view.counts is not None

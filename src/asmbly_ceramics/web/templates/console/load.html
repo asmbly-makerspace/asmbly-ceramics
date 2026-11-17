@@ -139,7 +139,7 @@
       {% if add.error %}<p class="field-error" id="drop_off-error">{{ add.error }}</p>{% endif %}
       {% if add.detail %}<p class="hint" id="drop_off-detail">{{ add.detail }}</p>{% endif %}
       <div class="search-row">
-        <input type="text" id="drop_off" name="drop_off" value="{{ '' if add.mismatch else add.text }}" maxlength="{{ query_max }}" autocomplete="off" inputmode="text"{% if not record.problem %} autofocus{% endif %}{% if add.error %} aria-describedby="drop_off-error{% if add.detail %} drop_off-detail{% endif %}"{% endif %}>
+        <input type="text" id="drop_off" name="drop_off" value="{{ '' if add.mismatch else add.text }}" maxlength="{{ query_max }}" autocomplete="off" inputmode="text"{% if not record.problem and not notes.add.form.problem and not notes.confirm_remove %} autofocus{% endif %}{% if add.error %} aria-describedby="drop_off-error{% if add.detail %} drop_off-detail{% endif %}"{% endif %}>
         <button type="submit">Add</button>
       </div>
     </div>
@@ -269,6 +269,8 @@
 {% endif %}
 
 {% include "console/_record.html" %}
+
+{% include "console/_notes.html" %}
 
 {% if fired %}
 <section id="emails">

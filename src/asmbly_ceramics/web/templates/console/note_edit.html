@@ -1,0 +1,28 @@
+{% extends "console/layout.html" %}
+{% from "console/_note_macros.html" import note_card, note_fields %}
+{% block title %}Edit note {{ note.id }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Edit note <span class="mono">{{ note.id }}</span></h2>
+  <p class="hint">On <a href="/console/loads/{{ load_id }}#notes" class="mono">{{ load_id }}</a> · {{ title }} · {{ note.written }}{% if note.edited %} · {{ note.edited }}{% endif %}</p>
+</div>
+{% if changed %}
+<section class="panel" id="note-now" aria-labelledby="note-now-title">
+  <h3 id="note-now-title">The note as it is saved now</h3>
+  <ul class="note-list">
+    {{ note_card(note) }}
+  </ul>
+</section>
+{% endif %}
+<section class="panel">
+  <form method="post" action="/console/loads/{{ load_id }}/notes/{{ note.id }}/edit">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ version }}">
+    {{ note_fields(fields, "edit") }}
+    <div class="actions">
+      <button type="submit">Save note</button>
+      <a class="cancel" href="/console/loads/{{ load_id }}#notes">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -3,6 +3,7 @@
 {% block content %}
 <div class="page-head">
   <h2>Firing log</h2>
+  {% include "console/_log_views.html" %}
   <nav class="actions" aria-label="Download">
     <a href="{{ csv_url }}">Download CSV</a>
   </nav>
@@ -68,8 +69,7 @@
       <th scope="col">Max temp</th>
       <th scope="col">Cost</th>
       <th scope="col">Started / fired by</th>
-      {# Phase 9 fills `row.notes`; the column shows once any row has a count. #}
-      {% if show_notes %}<th scope="col">Notes</th>{% endif %}
+      <th scope="col">Notes</th>
     </tr>
   </thead>
   <tbody>
@@ -86,7 +86,7 @@
       <td>{{ row.max_temp }}</td>
       <td>{{ row.cost }}</td>
       <td>{{ row.started_by }} / {{ row.fired_by }}</td>
-      {% if show_notes %}<td>{{ row.notes if row.notes is not none else "" }}</td>{% endif %}
+      <td>{{ row.notes }}{% if row.not_allowed %} <span class="tag tag-not-allowed">✕ {{ row.not_allowed }}<span class="visually-hidden"> not allowed</span></span>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

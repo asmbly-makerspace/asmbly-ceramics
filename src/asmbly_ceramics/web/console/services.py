@@ -1,4 +1,4 @@
-"""What the console's pages call: the use cases of #3 to #7, the staff sign-in and the
+"""What the console's pages call: the use cases of #3 to #7, #17 and #42, the staff sign-in and the
 session key."""
 
 from dataclasses import dataclass
@@ -22,6 +22,14 @@ from asmbly_ceramics.use_cases.loads import (
     StartFiring,
     StartLoad,
     ViewLoad,
+)
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
 )
 from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.reject import PreviewRejection, RejectDropOff, UndoRejection
@@ -75,6 +83,13 @@ class ConsoleServices:
     save_firing_record: SaveFiringRecord
     correct_step_time: CorrectStepTime
     firing_log: FiringLog
+    # Firing notes (#17): on the load page, the notes search, and the firing log's counts
+    write_note: WriteNote
+    edit_note: EditNote
+    remove_note: RemoveNote
+    load_notes: LoadNotes
+    search_notes: SearchNotes
+    note_counts: NoteCounts
     # Settings (#6)
     view_studio: ViewStudio
     change_email_settings: ChangeEmailSettings

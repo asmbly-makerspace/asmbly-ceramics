@@ -10,7 +10,7 @@ estimated_size: L
 
 # Phase 9: Console: notes on a load and the notes search
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 ## Required reading
 
@@ -54,7 +54,23 @@ criteria. With this phase #17 and #42 are done.
 - `src/asmbly_ceramics/web/console/firing_log.py`, `templates/console/firing_log.html`:
   the notes column; links between the Firings and Notes views.
 - `tests/test_composition.py`, `tests/web/console/test_firing_log.py`,
-  `tests/web/console/test_privacy.py`.
+  `tests/web/console/test_privacy.py`, `tests/web/console/test_auth.py` (the new routes
+  in `GETS` and `POSTS`).
+- `src/asmbly_ceramics/web/console/common.py` and `auth.py` (added at prep): `read_form`
+  keeps the first value of each field and stops at `FORM_FIELDS_MAX` (24) fields, so a
+  checkbox list of up to `NOTE_TAGS_MAX` (20) glaze types and 20 clay bodies can't be
+  read. `read_form` returns a `PostedForm` (still a `Mapping[str, str]` of first values)
+  that also keeps every value of a field (`getlist`), and takes a field cap;
+  `require_staff_post(request, max_fields=...)` passes it on. The add and edit routes use
+  `NOTE_FORM_FIELDS_MAX = 2 * NOTE_TAGS_MAX + 8`; the remove route and every other route
+  keep 24.
+- `src/asmbly_ceramics/use_cases/firing_log.py`, `tests/use_cases/test_firing_log.py`
+  (decided at prep): `FiringLogRow.notes` (an `int`, always None) can't carry the "not
+  allowed" count, so it is removed; the page handler and the CSV call
+  `NoteCounts([row.load for row in view.rows])` and show each load's `NoteCount`.
+  `FiringLog`'s tests stay as they are but for that field.
+- `README.md` and `CLAUDE.md`: their facts about the console (notes and the notes
+  search), added or corrected, no rule cut.
 - `docs/architecture.md`: notes.
 - The plan's README: phase tracker.
 
@@ -71,8 +87,9 @@ criteria. With this phase #17 and #42 are done.
 | `GET /console/notes` | `ceramics` | `SearchNotes` |
 
 `{note}` is parsed as a `NoteId`, else 404. Each POST answers 303 to
-`/console/loads/{load}?saved=note#notes` (or `removed=note`), or the page again with the
-messages (422) and the values typed kept.
+`/console/loads/{load}?done=note-added#notes` (`note-saved`, `note-removed`: the load
+page's fixed `done` words, as built), or the page again with the messages (422) and the
+values typed kept.
 
 ### web: the note form
 
@@ -92,7 +109,8 @@ messages (422) and the values typed kept.
   it and save again."
 - Remove: "Remove…" shows a confirm panel ("Remove this note? It disappears from this
   load and from the notes search.") with "Yes, remove" and "Keep it", as the delete
-  flows do.
+  flows do: a POST to `.../remove` without `confirm=1` renders the load page with that
+  panel at the note and changes nothing; with `confirm=1` and `version` it removes.
 
 ### web: the load page's notes
 
@@ -107,7 +125,11 @@ has no notes). Shown on every live load.
 
 `GET /console/notes` with `kiln`, `glaze`, `clay`, `ruling` (`any`, `none`, or a
 `Ruling`), `from`, `to`, each checked as the firing log's are (an unknown value shows a
-message and is ignored). A `GET` form; results as the same cards with "L-98 · Helios ·
+message and is ignored, and is never echoed). The handler checks each item filter
+against the studio before calling `SearchNotes`, so the message names the filter
+dropped ("Pick a kiln from the list.", "Pick a glaze type from the list.", "Pick a clay
+body from the list."); an `InvalidLogRange` falls back to the default range with its
+message, as the firing log does. A `GET` form; results as the same cards with "L-98 · Helios ·
 Glaze" linking to the load's `#notes`. Empty: "No notes match." The "Firing log" tab
 shows "Firings" and "Notes" as two links (the design's toggle), the current one marked.
 
@@ -186,8 +208,36 @@ tells ceramics staff about notes and sets this phase `[x]`.
 
 ## Hand-off
 
-- [ ] Note routes and the `/console/notes` search; phase 8's use cases wired.
-- [ ] The firing log's notes column and CSV columns.
-- [ ] #17's and #42's criteria are all met: its pull request says `Closes #17` and
+- [x] Note routes and the `/console/notes` search; phase 8's use cases wired.
+      `web/console/notes.py`: `POST /console/loads/{load}/notes`,
+      `GET`/`POST /console/loads/{load}/notes/{note}/edit`,
+      `POST /console/loads/{load}/notes/{note}/remove` (without `confirm=1` it shows the
+      confirm panel at the note and changes nothing), `GET /console/notes`. Each is in
+      `tests/web/console/test_auth.py`'s `GETS`/`POSTS`. After a change a POST answers
+      303 to `/console/loads/{load}?done=note-added#notes` (`note-saved`,
+      `note-removed`), never anything typed. The note card, the form's state and its
+      choices are in a new `web/console/note_views.py` (shared by `loads.py` and
+      `notes.py`, so neither imports the other both ways); the form's fields and the card
+      are the macros in a new `templates/console/_note_macros.html`, and the Firings /
+      Notes toggle is `templates/console/_log_views.html`. `loads.load_page_for` renders
+      the load page with the note form as typed, a remove waiting for "Yes", or a
+      problem above. `ConsoleServices` and the `world` fixture carry `write_note`,
+      `edit_note`, `remove_note`, `load_notes`, `search_notes` and `note_counts`;
+      `tests/use_cases/test_notes.py` uses them from `world`.
+- [x] `read_form` returns a `PostedForm` (first values as a mapping, `getlist` for every
+      value) and takes a field cap; `require_staff_post(request, max_fields=...)`. The
+      add and edit routes use `NOTE_FORM_FIELDS_MAX` (48); the remove route, which sends
+      no tags, and every other route keep 24.
+- [x] The firing log's notes column and CSV columns (`notes`, `not allowed notes`): the
+      page handler and the CSV call `NoteCounts([row.load for row in view.rows])` once
+      (the simplest for `FiringLog`'s tests, which don't change but for the removed
+      `FiringLogRow.notes`). The column shows the count, with a "✕ n" tag when any note
+      is "not allowed".
+- [x] The search checks `kiln`, `glaze`, `clay` by shape and against the studio (a
+      message names each one dropped), `ruling` against `any`, `none` and the rulings,
+      and `from`/`to` as the firing log does; a range `SearchNotes` refuses falls back to
+      the default with its message. Nothing typed is echoed.
+- [x] #17's and #42's criteria are all met: its pull request says `Closes #17` and
       `Closes #42`.
-- [ ] The plan is complete: move it to `DONE/` in a `chore:` pull request.
+- [ ] The plan is complete once phases 1, 2 and 4 to 9 pass their stage checks: move it
+      to `DONE/` in a `chore:` pull request.

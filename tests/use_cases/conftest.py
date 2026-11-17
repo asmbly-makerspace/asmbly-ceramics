@@ -1,6 +1,6 @@
 """The `world` fixture: every in-memory fake, and the use cases built on them.
 
-Phases 2b, 2d and 3 add their use cases here; `tests/use_cases/flows.py` drives them.
+Each plan phase adds its use cases here; `tests/use_cases/flows.py` drives them.
 Test data is made up and built in code (`tests/domain/builders.py`), so no line reads as
 a real address.
 """
@@ -37,6 +37,14 @@ from asmbly_ceramics.use_cases.loads import (
     StartFiring,
     StartLoad,
     ViewLoad,
+)
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
 )
 from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.received import ReceivedSummary
@@ -102,6 +110,12 @@ class World:
     save_firing_record: SaveFiringRecord
     correct_step_time: CorrectStepTime
     firing_log: FiringLog
+    write_note: WriteNote
+    edit_note: EditNote
+    remove_note: RemoveNote
+    load_notes: LoadNotes
+    search_notes: SearchNotes
+    note_counts: NoteCounts
     send_email: SendPendingEmail
     retry_email: RetryEmail
     emails_needing_attention: EmailsNeedingAttention
@@ -176,6 +190,12 @@ def world() -> World:
         save_firing_record=SaveFiringRecord(records, clock, studio),
         correct_step_time=CorrectStepTime(records, clock),
         firing_log=FiringLog(records, clock, studio),
+        write_note=WriteNote(records, ids, clock, studio),
+        edit_note=EditNote(records, clock, studio),
+        remove_note=RemoveNote(records, clock),
+        load_notes=LoadNotes(records, studio),
+        search_notes=SearchNotes(records, clock, studio),
+        note_counts=NoteCounts(records, clock),
         send_email=SendPendingEmail(records, photos, mailer, clock, studio, composer),
         retry_email=RetryEmail(records, clock),
         emails_needing_attention=EmailsNeedingAttention(records, clock),

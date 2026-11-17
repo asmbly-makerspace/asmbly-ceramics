@@ -13,7 +13,7 @@ phone number: `domain.notes.check_note_text`), and the close (#7) never touches 
 
 from collections import Counter
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta
 from types import MappingProxyType
 
@@ -46,7 +46,7 @@ _UNNUMBERED = NoteId(1)  # stands in while the note is checked, so a refused one
 
 @dataclass(frozen=True, slots=True)
 class NoteInput:
-    text: str
+    text: str = field(repr=False)  # typed by staff: never logged
     glaze_types: tuple[ItemId, ...]
     clay_bodies: tuple[ItemId, ...]
     ruling: Ruling | None

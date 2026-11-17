@@ -10,8 +10,8 @@ decided and why is in
 Built, and tested without AWS: the domain model (`src/asmbly_ceramics/domain/`), the
 ports (`ports/`), in-memory fakes of them (`adapters/memory/`), the use cases
 (`use_cases/`: submit a drop-off, the waiting list, search, one drop-off, rejection,
-loads (with each load's firing record and history), the firing log, settings, the daily
-close, counts, emails needing attention), the email composer
+loads (with each load's firing record and history), firing notes and their search, the
+firing log, settings, the daily close, counts, emails needing attention), the email composer
 and its templates (`mail/`), the AWS adapters (`adapters/aws/`: DynamoDB records,
 counters and rate limiter, the S3 photo store, the SES mailer, Cognito staff tokens,
 Parameter Store secrets), the system clock (`adapters/clock.py`), the photo
@@ -20,7 +20,8 @@ public drop-off form and the staff console (`web/`, `web/console/`: Starlette pa
 script, the Content-Security-Policy and other headers, same-origin checks and signed
 cookies; the console adds sign-in through the staff sign-in, a CSRF check and the pages
 for the waiting list, search, one drop-off and its photos, rejection, loads (with each
-load's status steps, firing record and history), the firing log and its CSV download,
+load's status steps, firing record, notes and history), the notes search, the firing log
+and its CSV download,
 settings and their history, counts and the emails needing attention; `web/local.py` runs the
 form on the fakes on a laptop). The brand colours the pages
 and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap stack
@@ -57,7 +58,7 @@ What the domain code settles, beyond the stories:
 | Part | Who uses it | Stories |
 | --- | --- | --- |
 | **Drop-off form**: public, no sign-in, phone-friendly, reached by the studio's QR code; shows the new ID (`AC-1`, `AC-2`, …) at once | Anyone dropping off | #2 |
-| **Staff console**: the waiting list, search, loads (with each load's firing record), rejections, the firing log, settings and their history, weekly counts | Ceramics staff (the `ceramics` staff group) | #3, #4, #5, #6, #7, #42 |
+| **Staff console**: the waiting list, search, loads (with each load's firing record and notes), rejections, the firing log, the notes search, settings and their history, weekly counts | Ceramics staff (the `ceramics` staff group) | #3, #4, #5, #6, #7, #17, #42 |
 | **Emails**: received, ready for pickup (after firing), needs attention (rejected); each with the drop-off's photos in the email, from the sending address set in the console | The person who dropped off | #2, #4, #5, #6 |
 | **Photo storage**: 1 to 6 photos per drop-off, private in S3, seen only through the console | Ceramics staff | #2, #3 |
 | **Closing**: once the pickup window has passed, a drop-off closes and its personal details and photos are deleted | Nobody sees it run | #7 |
@@ -101,8 +102,23 @@ What the domain code settles, beyond the stories:
   never touches them.
 - The **firing log** lists fired loads by kiln, a date range of at most 5 years read
   from an index, and kind (all, tests only, no tests), with the record's main fields as
-  columns, and downloads the same rows as a CSV whose cells can't start a spreadsheet
-  formula. Neither holds anything but staff usernames, studio items and record values.
+  columns and each load's number of notes (and how many say "not allowed"), and downloads
+  the same rows as a CSV whose cells can't start a spreadsheet formula. Neither holds
+  anything but staff usernames, studio items, record values and note counts.
+- A load has **firing notes** (#17), any number, written, edited or removed at any stage
+  (after firing too) on the load page: plain text of 1 to 2,000 characters, tagged with glaze
+  types and clay bodies from the studio's lists, and optionally a **ruling** (allowed,
+  allowed with conditions, not allowed). Each keeps who wrote it and when, and who last
+  edited or removed it and when; a removed note is kept but listed nowhere again, and
+  deleting a load removes its notes. A note holds no personal details: the form says
+  so, and the server refuses text holding something shaped like an email address or a
+  phone number (a ramp written as three numbers of 3, 3 and 4 digits looks like one, so
+  the form says to write it with units or commas). The **notes search** filters notes
+  by kiln, glaze type, clay body, ruling and the date written (at most 5 years, read
+  from an index), each linking to its load. Notes are kept with their load, never
+  deleted by the close (#7), never logged (logs carry note IDs such as `N-12`), and
+  never on the public form or in an email; the kiln schedule (#9) must keep them off it
+  too. Their text is autoescaped wherever it is shown.
 - **Kilns** (Athena, Helios and Vulcan today), **firing types**, **glaze types**,
   **rejection reasons**, **cones** (^06, ^5 and ^6 to start), **clay bodies**, the
   **pickup window and hours** and the **sending address** are settings, edited in the
