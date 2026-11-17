@@ -218,8 +218,10 @@ class SetKilnCounts(_StudioChange):
 class RecordNewElements(_StudioChange):
     def __call__(self, kiln: ItemId, version: int, staff: StaffMember) -> Studio:
         """New elements in the kiln (#42): its next firing is number 1 since elements, and
-        its all-time count carries on from its latest fired load's, or its counts.
-        `UnknownItem`, `Conflict`.
+        its all-time count carries on from its latest fired load's, or its counts, plus
+        every load fired after that one: any firing counts, numbered or not, test or not,
+        empty or not (`suggest_numbers`). With no counts and no fired load holding an
+        all-time number, it starts at 0. `UnknownItem`, `Conflict`.
 
         Reads the fired loads dated in `numbers_window` (from `NUMBERS_DATE_MARGIN` before
         the counts' Austin day, but not more than `NUMBERS_LOOKBACK` ago, to

@@ -155,11 +155,17 @@ def read_program(values: Mapping[str, str], cones: Collection[ItemId]) -> Progra
 def suggest_numbers(counts: KilnCounts | None, fired: Sequence[Load]) -> tuple[int | None, int | None]:
     """(firing_number, all_time_number) for the kiln's next firing.
 
-    `fired` is the kiln's fired loads (the use case filters them). Each number is the
-    latest of those, by fired_at, fired after `counts.as_of` and holding that number,
-    plus 1; else the count plus 1; else None (no counts and no numbered firing: the page
-    leaves the field blank). Never more than FIRING_NUMBER_MAX."""
+    `fired` is the kiln's fired loads (the use case filters them). Every one fired after
+    `counts.as_of` counts as one firing, numbered or not, test or not, empty or not.
+    Each number is the latest of those, by fired_at, holding that number, plus the loads
+    fired after it, plus 1; else the count plus every load fired after `as_of`, plus 1;
+    else None (no counts and no numbered firing: the page leaves the field blank). Never
+    more than FIRING_NUMBER_MAX."""
 ```
+
+(The rule as first planned skipped a fired load holding no number, so an empty test
+nobody numbered didn't count. After the merge the maintainer decided that any firing
+counts toward the numbers, empty, test or not; `suggest_numbers` follows that.)
 
 `suggest_numbers` takes loads but stays in `firing.py`; if that makes an import cycle
 with `load.py`, put it in `load.py` and say so in the hand-off.
@@ -213,8 +219,9 @@ phase.
   `test_record_new_elements_resets_since`.
 - `tests/domain/test_firing.py`: `test_suggest_from_counts`;
   `test_suggest_from_latest_numbered_firing_after_counts`;
-  `test_suggest_ignores_firings_before_counts`; `test_suggest_skips_unnumbered_firings`;
-  `test_suggest_none_without_counts_or_firings`; `test_suggest_after_new_elements_is_1`.
+  `test_suggest_ignores_firings_before_counts`; `test_suggest_counts_unnumbered_firings`
+  (it was `test_suggest_skips_unnumbered_firings` before every firing counted);
+  `test_suggest_none_without_counts_or_numbered_firings`; `test_suggest_after_new_elements_is_1`.
 - `tests/domain/test_load.py`: `test_start_load_fills_default_program`;
   `test_change_firing_type_swaps_untouched_default`;
   `test_change_firing_type_keeps_changed_program`.
@@ -281,7 +288,10 @@ None (staff set the counts and programs in phase 7).
       program through it and still reports every refused field at once.
 - [x] `suggest_numbers(counts, fired)` is in **`domain/load.py`**, not `firing.py`:
       `firing.py` can't import `Load` (`load.py` imports it). It skips loads that aren't
-      fired and is capped at `FIRING_NUMBER_MAX`.
+      fired and is capped at `FIRING_NUMBER_MAX`. Since the follow-up on the
+      maintainer's call, every fired load after the counts counts as a firing, numbered
+      or not (an empty test, a test with drop-offs, one marked fired with no record), and
+      `RecordNewElements`' all-time count counts them too.
 - [x] `start_load` fills the record with the firing type's default program;
       `change_load` swaps it for the new firing type's when the program is still the old
       default (or empty; a deleted old firing type counts as having none) and keeps a

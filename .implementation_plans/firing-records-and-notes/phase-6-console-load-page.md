@@ -248,6 +248,8 @@ its fired time corrected, its history read); a later pull request sets `[x]`.
   <kiln>'s firing count. Change it if it's wrong."; saving the form unchanged stores them.
   Saving any field stores the prefilled suggestion too, which freezes it: two loads on one
   kiln saved before either is fired get the same number. Left as is (a product call).
+  Every firing counts toward the suggestion, an unnumbered or empty test one too (the
+  maintainer's call after the merge; phase 2's rule).
 - For phase 7: `loads.py`'s record and step helpers (`_record_context`, `_step_rows`) are
   private to the load page; the firing log needs only `LoadView`-free formatting.
 - `sam validate` and `sam build` weren't run (no `sam` here; no template change).

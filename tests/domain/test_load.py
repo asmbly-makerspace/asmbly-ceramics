@@ -780,9 +780,10 @@ def test_suggest_from_latest_numbered_firing_after_counts() -> None:
         numbered(1, NOW + timedelta(days=1), 98, 252),
         numbered(3, NOW + timedelta(days=3), None, 254),  # the latest names no firing number
     ]
-    assert suggest_numbers(COUNTS, fired) == (100, 255)
+    # The latest names no firing number but is still a firing: 99, then it, then the next.
+    assert suggest_numbers(COUNTS, fired) == (101, 255)
     # With no counts, any numbered firing counts.
-    assert suggest_numbers(None, fired) == (100, 255)
+    assert suggest_numbers(None, fired) == (101, 255)
 
 
 def test_suggest_ignores_firings_before_counts() -> None:
@@ -790,18 +791,66 @@ def test_suggest_ignores_firings_before_counts() -> None:
     assert suggest_numbers(COUNTS, fired) == (98, 252)
 
 
-def test_suggest_skips_unnumbered_firings() -> None:
+def test_suggest_counts_unnumbered_firings() -> None:
+    """Any firing counts toward the numbers, numbered or not (#42)."""
     fired = [numbered(1, NOW + timedelta(days=1), 98, 252), numbered(2, NOW + timedelta(days=2), None, None)]
-    assert suggest_numbers(COUNTS, fired) == (99, 253)
-    # A load that isn't fired (the caller should never pass one) is skipped too.
+    assert suggest_numbers(COUNTS, fired) == (100, 254)
+    # A load that isn't fired (the caller should never pass one) is not a firing.
     firing = replace(numbered(3, NOW + timedelta(days=3), 400, 400), status=LoadStatus.FIRING)
     assert suggest_numbers(COUNTS, [firing]) == (98, 252)
+    assert suggest_numbers(COUNTS, [*fired, firing]) == (100, 254)
 
 
-def test_suggest_none_without_counts_or_firings() -> None:
+def test_suggest_counts_unnumbered_firings_on_from_the_counts() -> None:
+    fired = [
+        numbered(1, NOW + timedelta(days=1), None, None),
+        numbered(2, NOW + timedelta(days=2), None, None),
+    ]
+    assert suggest_numbers(COUNTS, fired) == (100, 254)
+    # Fired at the counts' `as_of`: the counts already hold it.
+    assert suggest_numbers(COUNTS, [numbered(3, NOW, None, None)]) == (98, 252)
+
+
+def test_suggest_counts_an_empty_test_firing() -> None:
+    empty_test = replace(numbered(1, NOW + timedelta(days=1), None, None), test=True, members=())
+    assert (empty_test.test, empty_test.members) == (True, ())
+    assert suggest_numbers(COUNTS, [empty_test]) == (99, 253)
+
+
+def test_suggest_counts_a_test_firing_with_drop_offs() -> None:
+    with_drop_offs = replace(
+        a_load(1, LoadStatus.FIRED, members=[1, 2], at=NOW + timedelta(days=1)), test=True
+    )
+    assert with_drop_offs.test
+    assert with_drop_offs.members
+    assert suggest_numbers(COUNTS, [with_drop_offs]) == (99, 253)
+    numbered_test = replace(numbered(2, NOW + timedelta(days=2), 120, 300), test=True)
+    assert suggest_numbers(COUNTS, [with_drop_offs, numbered_test]) == (121, 301)
+
+
+def test_suggest_counts_on_from_the_latest_numbered_firing_by_fired_at() -> None:
+    # Passed in any order: only the firings after the latest numbered one, by `fired_at`, add up.
+    fired = [
+        numbered(4, NOW + timedelta(days=4), None, None),
+        numbered(1, NOW + timedelta(days=1), None, None),  # before the numbered one: in its number
+        numbered(3, NOW + timedelta(days=3), 110, 310),
+        numbered(5, NOW + timedelta(days=5), None, 400),
+        numbered(2, NOW + timedelta(days=2), 105, None),
+    ]
+    assert suggest_numbers(COUNTS, fired) == (113, 401)
+    # A load dated early but fired last still counts as the latest firing.
+    late = replace(numbered(6, NOW + timedelta(days=1), 200, 500), fired_at=NOW + timedelta(days=9))
+    assert suggest_numbers(COUNTS, [*fired, late]) == (201, 501)
+
+
+def test_suggest_none_without_counts_or_numbered_firings() -> None:
+    """With no counts nothing says where the count starts: unnumbered firings alone leave
+    the fields blank."""
     assert suggest_numbers(None, []) == (None, None)
     assert suggest_numbers(None, [numbered(1, NOW, None, None)]) == (None, None)
     assert suggest_numbers(None, [numbered(1, NOW, 5, None)]) == (6, None)
+    after = [numbered(1, NOW, 5, None), numbered(2, NOW + timedelta(days=1), None, None)]
+    assert suggest_numbers(None, after) == (7, None)
 
 
 def test_suggest_after_new_elements_is_1() -> None:
@@ -815,6 +864,17 @@ def test_suggest_after_new_elements_is_1() -> None:
 def test_suggest_never_above_the_limit() -> None:
     top = KilnCounts(FIRING_NUMBER_MAX, FIRING_NUMBER_MAX, NOW)
     assert suggest_numbers(top, []) == (FIRING_NUMBER_MAX, FIRING_NUMBER_MAX)
+    # Unnumbered firings on top of a count near the limit stop at it.
+    near = KilnCounts(FIRING_NUMBER_MAX - 2, FIRING_NUMBER_MAX - 1, NOW)
+    fired = [numbered(n, NOW + timedelta(days=n), None, None) for n in (1, 2, 3)]
+    assert suggest_numbers(near, fired) == (FIRING_NUMBER_MAX, FIRING_NUMBER_MAX)
+    assert suggest_numbers(near, fired[:1]) == (FIRING_NUMBER_MAX, FIRING_NUMBER_MAX)
+    assert suggest_numbers(
+        COUNTS, [numbered(1, NOW + timedelta(days=1), FIRING_NUMBER_MAX, None), *fired[1:]]
+    ) == (
+        FIRING_NUMBER_MAX,
+        255,
+    )
 
 
 def test_numbers_window_from_the_counts_day_less_the_margin_within_the_lookback() -> None:

@@ -171,29 +171,47 @@ def _default_program(studio: Studio, firing_type: ItemId) -> Program:
 def suggest_numbers(counts: KilnCounts | None, fired: Sequence[Load]) -> tuple[int | None, int | None]:
     """(firing number, all-time number) to suggest for a kiln's next firing (#42).
 
-    `fired` is the kiln's fired loads (the caller picks them). Each number is the latest
-    of those, by `fired_at`, that was fired after `counts.as_of` and holds that number,
-    plus 1; else that count plus 1; else None (no counts and no numbered firing: the page
-    leaves the field blank). Never more than `FIRING_NUMBER_MAX`. It lives here, not in
-    `domain.firing`, which `Load` imports.
+    `fired` is the kiln's fired loads (the caller picks them). Every one of them fired
+    after `counts.as_of` counts as one firing, whether it holds a number or not, is a
+    test, or is empty: any firing counts toward the numbers. So each number is the latest
+    of those loads, by `fired_at`, that holds that number, plus the loads fired after it,
+    plus 1; else, with no load holding it, that count plus the loads fired after
+    `as_of`, plus 1. With no counts and no load holding the number it is None, even when
+    unnumbered loads were fired: nothing says where the kiln's count starts, so the page
+    leaves the field blank rather than guess. Each number is worked out the same way, so
+    the two stay apart by the same firings. Never more than `FIRING_NUMBER_MAX`. It lives
+    here, not in `domain.firing`, which `Load` imports.
     """
-    after = sorted(
-        (
-            (load.fired_at, load)
-            for load in fired
-            if load.status is LoadStatus.FIRED
-            and load.fired_at is not None
-            and (counts is None or load.fired_at > counts.as_of)
-        ),
-        key=lambda pair: pair[0],
+    after = [
+        load
+        for _, load in sorted(
+            (
+                (load.fired_at, load)
+                for load in fired
+                if load.status is LoadStatus.FIRED
+                and load.fired_at is not None
+                and (counts is None or load.fired_at > counts.as_of)
+            ),
+            key=lambda pair: pair[0],
+        )
+    ]
+    since = _counted_on(
+        [load.record.firing_number for load in after], None if counts is None else counts.since_elements
     )
-    latest = [load.record for _, load in reversed(after)]
-    since = next((r.firing_number for r in latest if r.firing_number is not None), None)
-    total = next((r.all_time_number for r in latest if r.all_time_number is not None), None)
-    if counts is not None:
-        since = counts.since_elements if since is None else since
-        total = counts.all_time if total is None else total
+    total = _counted_on(
+        [load.record.all_time_number for load in after], None if counts is None else counts.all_time
+    )
     return _next_number(since), _next_number(total)
+
+
+def _counted_on(numbers: Sequence[int | None], count: int | None) -> int | None:
+    """The firings so far: the latest number held in `numbers` (one per fired load, oldest
+    first) plus the loads after it, else `count` plus every load, else None."""
+    for index in range(len(numbers) - 1, -1, -1):
+        held = numbers[index]
+        if held is not None:
+            return held + (len(numbers) - 1 - index)
+    return None if count is None else count + len(numbers)
 
 
 def numbers_window(counts: KilnCounts | None, at: dt.datetime) -> tuple[dt.date, dt.date]:
@@ -204,8 +222,11 @@ def numbers_window(counts: KilnCounts | None, at: dt.datetime) -> tuple[dt.date,
     the counts' Austin day when that is later (a load's date can come well before its
     firing), and ends `NUMBERS_READ_AHEAD` after `at`'s day (a load dated after it may
     already be fired). So the read is bounded by those limits, not by the years kept:
-    a load dated outside it isn't read, and a kiln with no numbered firing in the
-    lookback gets its counts plus 1 suggested (staff can correct either)."""
+    a load dated outside it isn't read. Every fired load read after the counts counts as
+    one firing, numbered or not, so if the counts are older than `NUMBERS_LOOKBACK` and
+    no load in the window holds a number, the suggestion is the counts plus only the
+    firings in the window, plus 1: it undercounts, and staff correct it (or reset the
+    counts)."""
     _check_aware(at)
     day = at.astimezone(STUDIO_TZ).date()
     start = day - NUMBERS_LOOKBACK
@@ -214,8 +235,8 @@ def numbers_window(counts: KilnCounts | None, at: dt.datetime) -> tuple[dt.date,
     return start, day + NUMBERS_READ_AHEAD
 
 
-def _next_number(latest: int | None) -> int | None:
-    return None if latest is None else min(latest + 1, FIRING_NUMBER_MAX)
+def _next_number(so_far: int | None) -> int | None:
+    return None if so_far is None else min(so_far + 1, FIRING_NUMBER_MAX)
 
 
 def add_to_load(load: Load, drop_off: DropOff, *, confirmed: bool) -> tuple[Load, DropOff]:

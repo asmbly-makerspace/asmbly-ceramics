@@ -424,6 +424,25 @@ def test_record_new_elements_counts_fired_loads(world: World, caplog: pytest.Log
     assert (event["list"], event["item"], event["user"]) == ("kilns", "helios", STAFF)
 
 
+def test_record_new_elements_counts_unnumbered_firings(world: World) -> None:
+    """Any firing counts toward the all-time count (#42), numbered or not."""
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    fire_numbered(world, HELIOS, None, None)  # an empty test load nobody numbered
+    world.clock.advance(timedelta(hours=1))
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+
+    world.clock.advance(timedelta(hours=1))
+    fire_numbered(world, HELIOS, 1, 253)
+    world.clock.advance(timedelta(hours=1))
+    fire_numbered(world, HELIOS, None, None)
+    fire_numbered(world, HELIOS, 3, None)  # holds a firing number only
+    world.clock.advance(timedelta(hours=1))
+    saved = world.record_new_elements(HELIOS, saved.version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 255, world.clock.now())
+
+
 def fired_dated(number: int, on: date, fired_at: datetime, total: int) -> Load:
     """A fired Helios load dated `on` (noon in Austin), fired at `fired_at`, numbered `total`."""
     load = a_load(number, LoadStatus.FIRED, kiln="helios", at=datetime.combine(on, time(12), STUDIO_TZ))
@@ -488,6 +507,14 @@ def test_record_new_elements_without_counts_looks_back_400_days(world: World) ->
 def test_record_new_elements_without_counts_or_firings_starts_at_0(world: World) -> None:
     saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
     assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 0, NOW)
+
+
+def test_record_new_elements_without_counts_or_numbered_firings_starts_at_0(world: World) -> None:
+    """With no counts, unnumbered firings alone say nothing about where the count starts."""
+    fire_numbered(world, HELIOS, None, None)
+    world.clock.advance(timedelta(hours=1))
+    saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 0, world.clock.now())
 
 
 def test_record_new_elements_unknown_kiln_and_conflict(world: World) -> None:
