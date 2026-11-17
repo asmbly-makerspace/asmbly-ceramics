@@ -5,7 +5,7 @@
   "feature_branch": "claude/wizardly-bell-u8y238",
   "worktree": null,
   "status": "in-progress",
-  "stage": "docs",
+  "stage": "qa",
   "selected_phases": [
     "1",
     "2"
@@ -78,10 +78,10 @@
   "final_review": {
     "base_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
     "result": "fixed",
-    "squashed_sha": null
+    "squashed_sha": "1081ade2b8742b36988bd6408ec7461e191b0c41"
   },
   "docs": {
-    "base_sha": null,
+    "base_sha": "1081ade2b8742b36988bd6408ec7461e191b0c41",
     "squashed_sha": null
   },
   "qa": {
@@ -196,6 +196,13 @@
       "verdict": "APPROVED + privacy CLEAR",
       "block": 0,
       "warn": 3
+    },
+    {
+      "ts": "2026-11-17T22:05:00Z",
+      "type": "decision",
+      "topic": "docs",
+      "choice": "CONTRIBUTING.md gets a Node 20+ note; nothing else",
+      "reason": "README, decision 0009 and its index row were updated by the phases"
     }
   ]
 }
