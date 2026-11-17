@@ -263,6 +263,69 @@ def test_adding_from_all_firing_types_comes_back_to_all_firing_types(staff: Cons
     assert '<input type="hidden" name="all"' not in staff.get("/console/loads/L-1").text
 
 
+def test_add_selected_adds_every_ticked_drop_off(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    staff.drop_off(3)
+    start(staff)
+    page = staff.get("/console/loads/L-1").text
+    assert 'action="/console/loads/L-1/add-many"' in page
+    assert 'name="drop_off" value="AC-2" form="add-many"' in page
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-3"]})
+
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/loads/L-1?done=added-many&count=2"
+    assert load_of(staff).members == (DropOffId(1), DropOffId(3))
+    assert "2 drop-offs added." in text(staff.get(answer.headers["location"]))
+
+
+def test_add_selected_with_nothing_ticked_says_so(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {})
+
+    assert answer.status_code == 400
+    assert "Tick at least one drop-off in the waiting list." in text(answer)
+
+
+def test_add_selected_refuses_the_lot_when_one_is_another_firing_type(staff: Console) -> None:
+    staff.drop_off(1, firing_type="bisque")
+    staff.drop_off(2, firing_type="glaze", glaze_type="house-dip-glaze")
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-2"], "all": "1"})
+
+    assert answer.status_code == 409
+    assert "Nothing was added." in text(answer)
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_refuses_a_made_up_id(staff: Console) -> None:
+    start(staff)
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "nonsense"})
+
+    assert answer.status_code == 400
+
+
+def test_mark_fired_button_warns_that_emails_go_out(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    add(staff, "AC-1")
+    add(staff, "AC-2")
+    v = str(load_of(staff).version)
+    staff.post("/console/loads/L-1/start-firing", {"version": v})
+
+    page = text(staff.get("/console/loads/L-1"))
+    assert "this emails 2 people “Ready for pickup”" in page
+    v = str(load_of(staff).version)
+    asked = text(staff.post("/console/loads/L-1/fire", {"version": v}))
+    assert "Yes, mark fired and send 2 emails" in asked
+
+
 def test_a_load_started_at_the_same_moment_as_another_is_refused_not_a_500(staff: Console) -> None:
     staff.world.studio()  # seeded, so the next commit is the load's
     staff.world.records.fail_next_commit_with = Conflict([])

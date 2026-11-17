@@ -12,7 +12,7 @@ writes none. A line names loads, studio items, steps, times and record values, n
 person's details: the history is kept with the load after the close (#7).
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from types import MappingProxyType
@@ -263,6 +263,36 @@ class AddToLoad:
         self._records.commit([Update(new_load), Update(added)])
         log_event("added_to_load", load_id=str(load.id), drop_off_id=str(drop_off.id), user=staff.username)
         return _stored(new_load)
+
+
+class AddManyToLoad:
+    def __init__(self, records: Records) -> None:
+        self._records = records
+
+    def __call__(self, load_id: LoadId, drop_off_ids: Sequence[DropOffId], *, staff: StaffMember) -> Load:
+        """Moves several waiting drop-offs into the load, in the order given, in one commit:
+        if any is refused, none is added. A drop-off of another firing type than the
+        load's is refused (`FiringTypeMismatch`): add it on its own, where the page asks.
+        Repeats are added once; none given is a no-op. `NotFound`, `LoadNotLoading`,
+        `AlreadyInLoad`, `NotWaiting`, `LoadFull`, `FiringTypeMismatch`, `Conflict`."""
+        load = _load(self._records, load_id)
+        ids = list(dict.fromkeys(drop_off_ids))
+        if not ids:
+            return load
+        changes: list[Change] = []
+        added: list[DropOff] = []
+        current = load
+        for id in ids:
+            current, drop_off = add_to_load(current, _drop_off(self._records, id), confirmed=False)
+            added.append(drop_off)
+        changes.append(Update(current))
+        changes.extend(Update(drop_off) for drop_off in added)
+        self._records.commit(changes)
+        for drop_off in added:
+            log_event(
+                "added_to_load", load_id=str(load.id), drop_off_id=str(drop_off.id), user=staff.username
+            )
+        return _stored(current)
 
 
 class RemoveFromLoad:

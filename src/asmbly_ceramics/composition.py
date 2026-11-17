@@ -31,6 +31,7 @@ from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail,
 from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
+    AddManyToLoad,
     AddToLoad,
     ChangeLoad,
     CorrectStepTime,
@@ -174,6 +175,7 @@ def build_console_services(
         view_load=ViewLoad(records, clock, studio),
         change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
+        add_many_to_load=AddManyToLoad(records),
         remove_from_load=RemoveFromLoad(records),
         start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),

@@ -49,6 +49,7 @@ POSTS = [
     "/console/drop-offs/AC-1/emails/received/retry",
     "/console/loads",
     "/console/loads/L-1/add",
+    "/console/loads/L-1/add-many",
     "/console/loads/L-1/remove",
     "/console/loads/L-1/edit",
     "/console/loads/L-1/start-firing",

@@ -49,6 +49,7 @@ def console_routes() -> list[BaseRoute]:
         Route("/console/loads", loads.start_load, methods=["POST"]),
         Route(load, loads.load_page, methods=["GET"]),
         Route(load + "/add", loads.add_to_load, methods=["POST"]),
+        Route(load + "/add-many", loads.add_many_to_load, methods=["POST"]),
         Route(load + "/remove", loads.remove_from_load, methods=["POST"]),
         Route(load + "/edit", loads.change_load, methods=["POST"]),
         Route(load + "/start-firing", loads.start_firing, methods=["POST"]),
