@@ -9,7 +9,9 @@
   var form = document.getElementById("drop-off-form");
   if (!form) { return; }
   var field = document.getElementById("photos-field");
-  // The limits and sentences come from the server (domain/limits.py and web/fields.py).
+  // The limits and the server's sentences come from the server (domain/limits.py and
+  // web/fields.py); the short labels for the list ("Photo 2", "Remove photo 2") are the
+  // script's own.
   var PHOTOS_MIN = parseInt(field.getAttribute("data-photos-min"), 10);
   var PHOTOS_MAX = parseInt(field.getAttribute("data-photos-max"), 10);
   var PHOTO_MAX_BYTES = parseInt(field.getAttribute("data-photo-max-bytes"), 10);
@@ -71,8 +73,11 @@
     return list.querySelectorAll(".photo-kept").length;
   }
 
+  // The server's refusal messages are in `errors` too; the ones the script puts there are
+  // marked, so a Remove rewrites only those.
   function showErrors(messages) {
     errors.textContent = "";
+    if (messages.length) { errors.setAttribute("data-script", "true"); } else { errors.removeAttribute("data-script"); }
     messages.forEach(function (message) {
       var p = document.createElement("p");
       p.className = "field-error";
@@ -123,11 +128,25 @@
     return out;
   }
 
+  function refreshErrors() {
+    if (errors.hasAttribute("data-script")) { showErrors(sizeMessages()); }
+  }
+
   // The label of each photo is its place in the list, so a screen reader hears which Remove
   // is which. A camera shot has no useful file name (a phone names every one the same).
   function renumber() {
+    var keptTotal = keptCount();
+    var kept = 0;
     list.querySelectorAll(".photo-item").forEach(function (item, i) {
-      item.querySelector(".remove").setAttribute("aria-label", "Remove photo " + (i + 1));
+      var remove = item.querySelector(".remove");
+      if (item.classList.contains("photo-kept")) {
+        // The server's messages number the photos as the person sent them, which a refused
+        // photo changes, so a kept photo is never called by a position that may not match.
+        kept += 1;
+        remove.setAttribute("aria-label", "Remove kept photo " + kept + " of " + keptTotal);
+        return;
+      }
+      remove.setAttribute("aria-label", "Remove photo " + (i + 1));
       if (item.hasAttribute("data-camera")) {
         item.querySelector(".photo-label").textContent = "Photo " + (i + 1);
       }
@@ -142,7 +161,7 @@
       if (busy) { return; }
       button.parentNode.remove();
       status.textContent = "";
-      showErrors(sizeMessages());
+      refreshErrors();
       renumber();
     });
   });
@@ -152,6 +171,7 @@
   // same file can be picked again.
   function addFiles(input, fromCamera) {
     if (busy) { input.value = ""; return; }
+    status.textContent = "";
     var files = Array.prototype.slice.call(input.files);
     var messages = [];
     var added = 0;
@@ -179,7 +199,7 @@
         URL.revokeObjectURL(entry.url);
         item.remove();
         status.textContent = "";
-        showErrors(sizeMessages());
+        refreshErrors();
         renumber();
       }));
       list.appendChild(item);
@@ -188,7 +208,9 @@
     showErrors(messages);
     input.value = "";
     renumber();
-    if (added && !messages.length) {
+    if (messages.length) {
+      status.textContent = messages[0]; // where the person is looking, beside the buttons
+    } else if (added) {
       status.textContent = "Photo " + (keptCount() + chosen.length) + " of " + PHOTOS_MAX + " added";
     }
   }

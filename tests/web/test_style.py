@@ -214,3 +214,9 @@ def test_a_disabled_quiet_button_is_readable() -> None:
     body = next(body for sel, body in rules.items() if sel.strip() == ".button-quiet:disabled")
     assert "background: var(--surface)" in body
     assert "color: var(--muted)" in body
+
+
+def test_the_hidden_take_a_photo_button_stays_hidden() -> None:
+    """`button, .button` sets `display: inline-flex`; the button stays hidden until the
+    script shows it only because the global `[hidden]` rule comes after it."""
+    assert REST.index("button, .button {") < REST.index("\n[hidden] { display: none; }")
