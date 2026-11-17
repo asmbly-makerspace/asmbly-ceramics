@@ -1,6 +1,6 @@
 """The `world` fixture: every in-memory fake, and the use cases built on them.
 
-Phases 2b, 2d and 3 add their use cases here; `tests/use_cases/flows.py` drives them.
+Each plan phase adds its use cases here; `tests/use_cases/flows.py` drives them.
 Test data is made up and built in code (`tests/domain/builders.py`), so no line reads as
 a real address.
 """
@@ -23,17 +23,28 @@ from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
 from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    CorrectStepTime,
     DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
+    SaveFiringRecord,
     StartFiring,
     StartLoad,
     ViewLoad,
+)
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
 )
 from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.received import ReceivedSummary
@@ -42,9 +53,12 @@ from asmbly_ceramics.use_cases.settings import (
     AddCatalogItem,
     ChangeEmailSettings,
     DeleteCatalogItem,
+    RecordNewElements,
     RestoreCatalogItem,
     RetireCatalogItem,
     SendTestEmail,
+    SetDefaultProgram,
+    SetKilnCounts,
     ViewStudio,
 )
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
@@ -93,6 +107,15 @@ class World:
     delete_load: DeleteLoad
     view_load: ViewLoad
     list_loads: ListLoads
+    save_firing_record: SaveFiringRecord
+    correct_step_time: CorrectStepTime
+    firing_log: FiringLog
+    write_note: WriteNote
+    edit_note: EditNote
+    remove_note: RemoveNote
+    load_notes: LoadNotes
+    search_notes: SearchNotes
+    note_counts: NoteCounts
     send_email: SendPendingEmail
     retry_email: RetryEmail
     emails_needing_attention: EmailsNeedingAttention
@@ -103,6 +126,9 @@ class World:
     retire_item: RetireCatalogItem
     restore_item: RestoreCatalogItem
     delete_item: DeleteCatalogItem
+    set_default_program: SetDefaultProgram
+    set_kiln_counts: SetKilnCounts
+    record_new_elements: RecordNewElements
     close: CloseFinished
     counts: WeeklyCounts
 
@@ -153,14 +179,23 @@ def world() -> World:
         reject=RejectDropOff(records, clock, studio),
         undo=UndoRejection(records, clock),
         start_load=StartLoad(records, ids, clock, studio),
-        change_load=ChangeLoad(records, studio),
+        change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
         remove_from_load=RemoveFromLoad(records),
-        start_firing=StartFiring(records),
+        start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),
         delete_load=DeleteLoad(records, clock),
         view_load=ViewLoad(records, clock, studio),
         list_loads=ListLoads(records, clock),
+        save_firing_record=SaveFiringRecord(records, clock, studio),
+        correct_step_time=CorrectStepTime(records, clock),
+        firing_log=FiringLog(records, clock, studio),
+        write_note=WriteNote(records, ids, clock, studio),
+        edit_note=EditNote(records, clock, studio),
+        remove_note=RemoveNote(records, clock),
+        load_notes=LoadNotes(records, studio),
+        search_notes=SearchNotes(records, clock, studio),
+        note_counts=NoteCounts(records, clock),
         send_email=SendPendingEmail(records, photos, mailer, clock, studio, composer),
         retry_email=RetryEmail(records, clock),
         emails_needing_attention=EmailsNeedingAttention(records, clock),
@@ -171,6 +206,9 @@ def world() -> World:
         retire_item=RetireCatalogItem(records, clock, studio),
         restore_item=RestoreCatalogItem(records, clock, studio),
         delete_item=DeleteCatalogItem(records, clock, studio),
+        set_default_program=SetDefaultProgram(records, clock, studio),
+        set_kiln_counts=SetKilnCounts(records, clock, studio),
+        record_new_elements=RecordNewElements(records, clock, studio),
         close=CloseFinished(records, photos, clock, studio),
         counts=WeeklyCounts(records, clock, studio),
     )

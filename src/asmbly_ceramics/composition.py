@@ -28,17 +28,28 @@ from asmbly_ceramics.use_cases.close import CloseFinished
 from asmbly_ceramics.use_cases.counts import WeeklyCounts
 from asmbly_ceramics.use_cases.delete_drop_off import DeleteDropOff
 from asmbly_ceramics.use_cases.emails import EmailsNeedingAttention, RetryEmail, SendPendingEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
 from asmbly_ceramics.use_cases.keys import KeyHasher
 from asmbly_ceramics.use_cases.loads import (
     AddToLoad,
     ChangeLoad,
+    CorrectStepTime,
     DeleteLoad,
     ListLoads,
     MarkFired,
     RemoveFromLoad,
+    SaveFiringRecord,
     StartFiring,
     StartLoad,
     ViewLoad,
+)
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
 )
 from asmbly_ceramics.use_cases.photos import ViewPhoto
 from asmbly_ceramics.use_cases.received import ReceivedSummary
@@ -47,9 +58,12 @@ from asmbly_ceramics.use_cases.settings import (
     AddCatalogItem,
     ChangeEmailSettings,
     DeleteCatalogItem,
+    RecordNewElements,
     RestoreCatalogItem,
     RetireCatalogItem,
     SendTestEmail,
+    SetDefaultProgram,
+    SetKilnCounts,
     ViewStudio,
 )
 from asmbly_ceramics.use_cases.studio import CurrentStudio, ViewStudioChoices
@@ -123,7 +137,7 @@ def build_console_services(
     clients: ConsoleClients | None = None,
     staff_tokens: StaffTokens | None = None,
 ) -> tuple[ConsoleServices, WebSettings]:
-    """The console's use cases (#3 to #7). Its role reads `session-key` only. The only
+    """The console's use cases (#3 to #7, #17 and #42). Its role reads `session-key` only. The only
     email it sends itself is the test email, to the signed-in staff member; every other
     email goes through the outbox. It refuses to start when a `STAFF_*` variable is
     empty, or the session key can't be read."""
@@ -135,7 +149,7 @@ def build_console_services(
     clock = SystemClock()
     keys = SsmSecrets(clients.ssm, settings.app_env)
     studio = CurrentStudio(records, clock, settings.initial_sending_address)
-    ids = DynamoDbIdNumbers(clients.dynamodb, settings.table_name)  # load numbers only
+    ids = DynamoDbIdNumbers(clients.dynamodb, settings.table_name)  # load and note numbers only
     services = ConsoleServices(
         staff_tokens=staff_tokens
         or CognitoStaffTokens(
@@ -158,12 +172,21 @@ def build_console_services(
         list_loads=ListLoads(records, clock),
         start_load=StartLoad(records, ids, clock, studio),
         view_load=ViewLoad(records, clock, studio),
-        change_load=ChangeLoad(records, studio),
+        change_load=ChangeLoad(records, clock, studio),
         add_to_load=AddToLoad(records),
         remove_from_load=RemoveFromLoad(records),
-        start_firing=StartFiring(records),
+        start_firing=StartFiring(records, clock),
         mark_fired=MarkFired(records, clock),
         delete_load=DeleteLoad(records, clock),
+        save_firing_record=SaveFiringRecord(records, clock, studio),
+        correct_step_time=CorrectStepTime(records, clock),
+        firing_log=FiringLog(records, clock, studio),
+        write_note=WriteNote(records, ids, clock, studio),
+        edit_note=EditNote(records, clock, studio),
+        remove_note=RemoveNote(records, clock),
+        load_notes=LoadNotes(records, studio),
+        search_notes=SearchNotes(records, clock, studio),
+        note_counts=NoteCounts(records, clock),
         view_studio=ViewStudio(records, studio),
         change_email_settings=ChangeEmailSettings(records, clock, studio),
         send_test_email=SendTestEmail(SesMailer(clients.ses), studio, JinjaComposer()),
@@ -171,6 +194,9 @@ def build_console_services(
         retire_item=RetireCatalogItem(records, clock, studio),
         restore_item=RestoreCatalogItem(records, clock, studio),
         delete_item=DeleteCatalogItem(records, clock, studio),
+        set_default_program=SetDefaultProgram(records, clock, studio),
+        set_kiln_counts=SetKilnCounts(records, clock, studio),
+        record_new_elements=RecordNewElements(records, clock, studio),
         weekly_counts=WeeklyCounts(records, clock, studio),
     )
     web_settings = WebSettings(

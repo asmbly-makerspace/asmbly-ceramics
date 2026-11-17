@@ -23,6 +23,16 @@ from asmbly_ceramics.adapters.aws.photos import S3PhotoStore
 from asmbly_ceramics.composition import build_form_services, build_mailer
 from asmbly_ceramics.settings import Settings
 from asmbly_ceramics.use_cases.emails import SendPendingEmail
+from asmbly_ceramics.use_cases.firing_log import FiringLog
+from asmbly_ceramics.use_cases.loads import CorrectStepTime, SaveFiringRecord
+from asmbly_ceramics.use_cases.notes import (
+    EditNote,
+    LoadNotes,
+    NoteCounts,
+    RemoveNote,
+    SearchNotes,
+    WriteNote,
+)
 from asmbly_ceramics.web.app import WebServices
 from tests.test_settings import ENVIRONMENT
 
@@ -188,6 +198,20 @@ def test_console_services_build_on_stubbed_clients_reading_only_the_session_key(
     ssm.assert_no_pending_responses()
     assert isinstance(services, ConsoleServices)
     assert isinstance(services.staff_tokens, CognitoStaffTokens)
+    assert isinstance(services.save_firing_record, SaveFiringRecord)
+    assert isinstance(services.correct_step_time, CorrectStepTime)
+    assert isinstance(services.firing_log, FiringLog)
+    note_use_cases = (WriteNote, EditNote, RemoveNote, LoadNotes, SearchNotes, NoteCounts)
+    note_services = (
+        services.write_note,
+        services.edit_note,
+        services.remove_note,
+        services.load_notes,
+        services.search_notes,
+        services.note_counts,
+    )
+    for use_case, built in zip(note_use_cases, note_services, strict=True):
+        assert isinstance(built, use_case)
     assert services.site_url == SETTINGS.site_url
     assert services.callback_url == SETTINGS.site_url + "/console/auth/callback"
     assert services.signed_out_url == SETTINGS.site_url + "/console/signed-out"

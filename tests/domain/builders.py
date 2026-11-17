@@ -19,11 +19,14 @@ from asmbly_ceramics.domain.dropoff import (
     new_drop_off,
 )
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim, new_email, rejection_occasion
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, FiringRecord, Program
+from asmbly_ceramics.domain.history import LoadEvent, event
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.limits import SENDING_DOMAIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote, Ruling, write_note
 from asmbly_ceramics.domain.photos import PhotoRef
-from asmbly_ceramics.domain.studio import Studio, starting_studio
+from asmbly_ceramics.domain.studio import CatalogList, Studio, starting_studio
 
 STAFF = "kiln-tech"
 NOW = datetime(2026, 11, 13, 18, 30, tzinfo=UTC)
@@ -38,8 +41,17 @@ def a_sending_address(local: str = "ceramics") -> str:
 
 
 def a_studio() -> Studio:
+    """The starting studio: its lists (cones and clay bodies included) and the starting
+    firing types' default programs."""
     studio, _ = starting_studio(a_sending_address(), NOW)
     return studio
+
+
+def a_default_program(firing_type: str = "bisque") -> Program:
+    """The starting firing type's default program, which a new load's record starts with."""
+    program = a_studio().item(CatalogList.FIRING_TYPES, ItemId(firing_type)).default_program
+    assert program is not None
+    return program
 
 
 # A made-up person. The phone number is put together from digit groups so that no line
@@ -129,8 +141,15 @@ def a_load(
     kiln: str = "athena",
     firing_type: str = "bisque",
     at: datetime = NOW,
+    test: bool = False,
+    record: FiringRecord = EMPTY_RECORD,
+    before_42: bool = False,
 ) -> Load:
-    """A load in `status` holding the drop-offs numbered `members`."""
+    """A load in `status` holding the drop-offs numbered `members`, each step it reached
+    stamped by `STAFF` at `at`; `before_42`, a load made before #42 recorded who started
+    its firing and marked it fired, and when its firing started."""
+    reached_firing = status in (LoadStatus.FIRING, LoadStatus.FIRED) and not before_42
+    fired = status is LoadStatus.FIRED
     return Load(
         id=LoadId(number),
         kiln=ItemId(kiln),
@@ -143,6 +162,11 @@ def a_load(
         fired_at=at if status is LoadStatus.FIRED else None,
         deleted_by=STAFF if status is LoadStatus.DELETED else None,
         deleted_at=at if status is LoadStatus.DELETED else None,
+        test=test,
+        firing_started_by=STAFF if reached_firing else None,
+        firing_started_at=at if reached_firing else None,
+        fired_by=STAFF if fired and not before_42 else None,
+        record=record,
     )
 
 
@@ -159,3 +183,39 @@ def a_sent_rejected_email(drop_off: DropOff, sent_at: datetime) -> Email:
     occasion = rejection_occasion(drop_off.rejection.at)
     claimed = claim(new_email(drop_off.id, EmailKind.REJECTED, drop_off.rejection.at, occasion), NOW)
     return replace(claimed, status=EmailStatus.SENT, sent_at=sent_at)
+
+
+def an_event(
+    load: int = 1, what: str = "Started firing", *, at: datetime = NOW, by: str = STAFF
+) -> LoadEvent:
+    """A line of load `L-<load>`'s history."""
+    return event(LoadId(load), by, at, what)
+
+
+TEST_NOTE_TEXT = "Tested on Cinco Blanco at ^6 with a 7 minute hold: no crawling, fine to use."
+
+
+def a_note(
+    number: int = 1,
+    load: Load | None = None,
+    *,
+    text: str = TEST_NOTE_TEXT,
+    glaze_types: Sequence[str] = ("house-dip-glaze",),
+    clay_bodies: Sequence[str] = ("cinco-blanco",),
+    ruling: Ruling | None = Ruling.ALLOWED,
+    at: datetime = NOW,
+    by: str = STAFF,
+    studio: Studio | None = None,
+) -> FiringNote:
+    """Note `N-<number>` on `load` (a fired load L-1 by default), written by `STAFF` at `at`."""
+    return write_note(
+        NoteId(number),
+        load or a_load(status=LoadStatus.FIRED),
+        text,
+        [ItemId(tag) for tag in glaze_types],
+        [ItemId(tag) for tag in clay_bodies],
+        ruling,
+        by,
+        at,
+        studio or a_studio(),
+    )

@@ -1,13 +1,18 @@
+import re
 from datetime import datetime, timedelta
 
 import pytest
 
 from asmbly_ceramics.domain import errors
+from asmbly_ceramics.domain.firing import Program, Speed
 from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.domain.limits import EMAIL_MAX, HOURS_TEXT_MAX, ITEM_NAME_MAX
 from asmbly_ceramics.domain.studio import (
+    STARTING_CLAY_BODIES,
+    STARTING_CONES,
     CatalogList,
     ItemStatus,
+    KilnCounts,
     SettingChange,
     Studio,
     add_item,
@@ -15,9 +20,18 @@ from asmbly_ceramics.domain.studio import (
     change_email_settings,
     check_sending_address,
     delete_item,
+    describe_program,
     is_valid_email,
+    kind_name,
+    kinds_name,
+    nameable_cone_ids,
+    nameable_cones,
+    names_cone,
+    record_new_elements,
     restore_item,
     retire_item,
+    set_default_program,
+    set_kiln_counts,
     starting_studio,
 )
 from tests.domain.builders import NOW, STAFF, a_sending_address, a_studio, an_address
@@ -358,7 +372,8 @@ def test_an_unknown_item_is_refused(which: CatalogList) -> None:
 def test_used_item_can_be_retired_not_deleted() -> None:
     studio, _ = retire_item(a_studio(), CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
     assert studio.item(CatalogList.KILNS, ItemId("helios")).status is ItemStatus.RETIRED
-    with pytest.raises(errors.ItemInUse, match="Helios is used by a drop-off or a load: retire it instead"):
+    in_use = "Helios is in use by a drop-off, a load, a default program or a note, so it stays retired"
+    with pytest.raises(errors.ItemInUse, match=in_use):
         delete_item(studio, CatalogList.KILNS, ItemId("helios"), used=True, by=STAFF, at=LATER)
 
 
@@ -409,13 +424,226 @@ def test_the_last_active_item_of_each_list_cannot_be_retired_or_deleted(which: C
     for item in others:
         studio, _ = retire_item(studio, which, item.id, STAFF, LATER)
     assert active_names(studio, which) == [last.name]
-    with pytest.raises(errors.InvalidSetting, match=f"{last.name} is the last active") as refused:
+    with pytest.raises(errors.InvalidSetting, match=f"{re.escape(last.name)} is the last active") as refused:
         retire_item(studio, which, last.id, STAFF, LATER)
     assert refused.value.field == "status"
-    with pytest.raises(errors.InvalidSetting, match=f"Retire {last.name} before deleting it"):
+    with pytest.raises(errors.InvalidSetting, match=f"Retire {re.escape(last.name)} before deleting it"):
         delete_item(studio, which, last.id, used=False, by=STAFF, at=LATER)
 
 
 def test_changes_leave_the_version_alone() -> None:
     studio, _ = add_item(a_studio(), CatalogList.KILNS, "Hestia", STAFF, LATER)
     assert studio.version == 0
+
+
+# Cones, clay bodies, default programs and kiln counts (#42, #17)
+
+CONE_06, CONE_6 = ItemId("item-06"), ItemId("item-6")
+HELIOS = ItemId("helios")
+GLAZE = ItemId("glaze")
+GLAZE_PROGRAM = {"preheat_hours": "0", "cone": "item-6", "speed": "medium", "hold_minutes": "7"}
+
+
+def test_starting_studio_has_cones_and_clay_bodies() -> None:
+    studio = a_studio()
+    assert names(studio, CatalogList.CONES) == ["^06", "^5", "^6"]
+    assert names(studio, CatalogList.CLAY_BODIES) == ["Buffalo Wallow", "Cinco Blanco", "Cone 5 Porcelain"]
+    assert all(item.counts is None for item in studio.kilns)
+
+
+def test_starting_firing_types_have_default_programs() -> None:
+    studio = a_studio()
+    assert studio.item(CatalogList.FIRING_TYPES, ItemId("bisque")).default_program == Program(
+        preheat_hours=8, cone=CONE_06, speed=Speed.SLOW, hold_minutes=0
+    )
+    assert studio.item(CatalogList.FIRING_TYPES, GLAZE).default_program == Program(
+        preheat_hours=0, cone=CONE_6, speed=Speed.MEDIUM, hold_minutes=7
+    )
+
+
+def test_a_studio_built_without_the_new_lists_has_the_starting_ones() -> None:
+    studio = a_studio()
+    older = Studio(
+        studio.sending_address,
+        studio.pickup_window_days,
+        studio.pickup_hours_text,
+        studio.kilns,
+        studio.firing_types,
+        studio.glaze_types,
+        studio.reasons,
+    )
+    assert older.cones == STARTING_CONES
+    assert older.clay_bodies == STARTING_CLAY_BODIES
+
+
+def test_cone_ids_from_caret_names() -> None:
+    # `^` isn't a slug character: a cone's ID is its number with `item-` in front.
+    assert [item.id for item in a_studio().cones] == ["item-06", "item-5", "item-6"]
+    studio, _ = add_item(a_studio(), CatalogList.CONES, "^04", STAFF, LATER)
+    assert studio.item(CatalogList.CONES, ItemId("item-04")).name == "^04"
+
+
+@pytest.mark.parametrize(
+    ("which", "kind"), [(CatalogList.CONES, "cone"), (CatalogList.CLAY_BODIES, "clay body")]
+)
+def test_add_retire_delete_cone_and_clay_body(which: CatalogList, kind: str) -> None:
+    studio, added = add_item(a_studio(), which, "Speckled", STAFF, LATER)
+    assert added.what == f"Added {kind} Speckled"
+    item = ItemId("speckled")
+    with pytest.raises(errors.DuplicateItem):
+        add_item(studio, which, "speckled", STAFF, LATER)
+    studio, retired = retire_item(studio, which, item, STAFF, LATER)
+    assert retired.what == f"Retired {kind} Speckled"
+    with pytest.raises(errors.ItemInUse):
+        delete_item(studio, which, item, used=True, by=STAFF, at=LATER)
+    studio, restored = restore_item(studio, which, item, STAFF, LATER)
+    assert restored.what == f"Restored {kind} Speckled"
+    studio, _ = retire_item(studio, which, item, STAFF, LATER)
+    studio, deleted = delete_item(studio, which, item, used=False, by=STAFF, at=LATER)
+    assert deleted.what == f"Deleted {kind} Speckled"
+    assert "Speckled" not in names(studio, which)
+
+
+def test_set_default_program_and_history() -> None:
+    form = {"preheat_hours": "1", "cone": "item-5", "speed": "FAST", "hold_minutes": "10"}
+    studio, change = set_default_program(a_studio(), GLAZE, form, STAFF, LATER)
+    assert studio.item(CatalogList.FIRING_TYPES, GLAZE).default_program == Program(
+        preheat_hours=1, cone=ItemId("item-5"), speed=Speed.FAST, hold_minutes=10
+    )
+    assert change == SettingChange(
+        LATER, STAFF, "Default program for Glaze: ^5, fast, preheat 1 h, hold 10 min"
+    )
+    # The same program again changes nothing.
+    assert set_default_program(studio, GLAZE, form, STAFF, LATER) == (studio, None)
+    # A part left blank is left out of the history line.
+    _, change = set_default_program(studio, GLAZE, {"cone": "item-6"}, STAFF, LATER)
+    assert change is not None
+    assert change.what == "Default program for Glaze: ^6"
+
+
+def test_set_default_program_blank_clears() -> None:
+    blank = dict.fromkeys(GLAZE_PROGRAM, " ")
+    studio, change = set_default_program(a_studio(), GLAZE, blank, STAFF, LATER)
+    assert studio.item(CatalogList.FIRING_TYPES, GLAZE).default_program is None
+    assert change == SettingChange(LATER, STAFF, "Cleared the default program for Glaze")
+    assert set_default_program(studio, GLAZE, {}, STAFF, LATER) == (studio, None)
+
+
+def test_set_default_program_unknown_cone() -> None:
+    with pytest.raises(errors.InvalidRecord) as refused:
+        set_default_program(
+            a_studio(), GLAZE, GLAZE_PROGRAM | {"cone": "item-99", "hold_minutes": "x"}, STAFF, LATER
+        )
+    assert list(refused.value.errors) == ["cone", "hold_minutes"]
+    with pytest.raises(errors.UnknownItem, match="firing type"):
+        set_default_program(a_studio(), ItemId("raku"), GLAZE_PROGRAM, STAFF, LATER)
+
+
+def test_set_default_program_takes_active_cones_or_the_one_it_names() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.CONES, CONE_6, STAFF, LATER)
+    # Glaze's program already names ^6: its hold can still change.
+    studio, change = set_default_program(studio, GLAZE, GLAZE_PROGRAM | {"hold_minutes": "9"}, STAFF, LATER)
+    assert change is not None
+    # Bisque's doesn't: a retired cone is refused for it.
+    with pytest.raises(errors.InvalidRecord) as refused:
+        set_default_program(studio, ItemId("bisque"), GLAZE_PROGRAM, STAFF, LATER)
+    assert list(refused.value.errors) == ["cone"]
+
+
+def test_nameable_cones_are_the_active_ones_and_the_one_already_named() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.CONES, CONE_6, STAFF, LATER)
+    active = [cone.id for cone in studio.cones if not cone.retired]
+
+    assert [cone.id for cone in nameable_cones(studio, None)] == active
+    named = [cone.id for cone in nameable_cones(studio, CONE_6)]
+    assert set(named) == {*active, CONE_6}
+    assert named == [cone.id for cone in studio.cones if cone.id in named]  # the studio's order
+    assert nameable_cone_ids(studio, CONE_6) == frozenset(named)
+    # A cone gone from the list still counts for the program that names it.
+    gone = ItemId("item-99")
+    assert [cone.id for cone in nameable_cones(studio, gone)] == active
+    assert nameable_cone_ids(studio, gone) == frozenset({*active, gone})
+
+
+def test_set_default_program_on_a_retired_firing_type() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.FIRING_TYPES, GLAZE, STAFF, LATER)
+    studio, change = set_default_program(studio, GLAZE, GLAZE_PROGRAM | {"hold_minutes": "8"}, STAFF, LATER)
+    assert change is not None
+    program = studio.item(CatalogList.FIRING_TYPES, GLAZE).default_program
+    assert program is not None
+    assert program.hold_minutes == 8
+
+
+def test_names_cone() -> None:
+    studio = a_studio()
+    assert names_cone(studio, CONE_6)
+    assert not names_cone(studio, ItemId("item-5"))
+    studio, _ = set_default_program(studio, GLAZE, {}, STAFF, LATER)
+    assert not names_cone(studio, CONE_6)
+
+
+def test_a_cone_a_default_program_names_is_not_deleted_even_when_unused() -> None:
+    studio, _ = retire_item(a_studio(), CatalogList.CONES, CONE_6, STAFF, LATER)
+    with pytest.raises(errors.ItemInUse, match=r"\^6 is in use"):
+        delete_item(studio, CatalogList.CONES, CONE_6, used=False, by=STAFF, at=LATER)
+    studio, _ = set_default_program(studio, GLAZE, {}, STAFF, LATER)
+    studio, change = delete_item(studio, CatalogList.CONES, CONE_6, used=False, by=STAFF, at=LATER)
+    assert CONE_6 not in {cone.id for cone in studio.cones}
+    assert change.what == "Deleted cone ^6"
+
+
+def test_set_kiln_counts_and_history() -> None:
+    studio, change = set_kiln_counts(a_studio(), HELIOS, " 97 ", "1251", STAFF, LATER)
+    assert studio.item(CatalogList.KILNS, HELIOS).counts == KilnCounts(97, 1251, LATER)
+    assert change == SettingChange(LATER, STAFF, "Helios counts: 97 since elements, 1,251 all time")
+    studio, _ = set_kiln_counts(studio, HELIOS, "0", "0", STAFF, LATER)
+    assert studio.item(CatalogList.KILNS, HELIOS).counts == KilnCounts(0, 0, LATER)
+
+
+@pytest.mark.parametrize("bad", ["", "-1", "1.5", "x", "100001", "1" * 5000, "٣"])
+def test_set_kiln_counts_checks_numbers(bad: str) -> None:
+    with pytest.raises(errors.InvalidSetting, match="Enter a whole number from 0 to 100,000") as refused:
+        set_kiln_counts(a_studio(), HELIOS, bad, "10", STAFF, LATER)
+    assert refused.value.field == "since_elements"
+    with pytest.raises(errors.InvalidSetting) as refused:
+        set_kiln_counts(a_studio(), HELIOS, "1", bad, STAFF, LATER)
+    assert refused.value.field == "all_time"
+
+
+def test_set_kiln_counts_since_not_above_all_time() -> None:
+    with pytest.raises(errors.InvalidSetting, match="can't be more than") as refused:
+        set_kiln_counts(a_studio(), HELIOS, "11", "10", STAFF, LATER)
+    assert refused.value.field == "since_elements"
+    with pytest.raises(errors.UnknownItem, match="kiln"):
+        set_kiln_counts(a_studio(), ItemId("hestia"), "1", "2", STAFF, LATER)
+
+
+def test_record_new_elements_resets_since() -> None:
+    studio, _ = set_kiln_counts(a_studio(), HELIOS, "97", "251", STAFF, NOW)
+    studio, change = record_new_elements(studio, HELIOS, 260, STAFF, LATER)
+    assert studio.item(CatalogList.KILNS, HELIOS).counts == KilnCounts(0, 260, LATER)
+    assert change == SettingChange(LATER, STAFF, "New elements in Helios")
+    # A retired kiln can still have new elements recorded.
+    studio, _ = retire_item(studio, CatalogList.KILNS, HELIOS, STAFF, LATER)
+    studio, _ = record_new_elements(studio, HELIOS, 0, STAFF, LATER)
+    with pytest.raises(ValueError, match="all-time count"):
+        record_new_elements(studio, HELIOS, -1, STAFF, LATER)
+    with pytest.raises(ValueError, match="aware"):
+        record_new_elements(studio, HELIOS, 1, STAFF, datetime(2026, 11, 13))  # noqa: DTZ001
+
+
+def test_describe_program_names_a_cone_it_does_not_know_by_its_id() -> None:
+    program = Program(cone=ItemId("item-99"), hold_minutes=5)
+    assert describe_program(a_studio(), program) == "item-99, hold 5 min"
+
+
+@pytest.mark.parametrize(
+    ("which", "one", "many"),
+    [
+        (CatalogList.GLAZE_TYPES, "glaze type", "glaze types"),
+        (CatalogList.CLAY_BODIES, "clay body", "clay bodies"),
+        (CatalogList.KILNS, "kiln", "kilns"),
+    ],
+)
+def test_kind_names(which: CatalogList, one: str, many: str) -> None:
+    assert (kind_name(which), kinds_name(which)) == (one, many)

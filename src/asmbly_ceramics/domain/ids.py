@@ -1,4 +1,4 @@
-"""Drop-off, load and studio item IDs.
+"""Drop-off, load, firing note and studio item IDs.
 
 Issuing the numbers is the `IdNumbers` port's contract (phase 1d); this module only
 formats and parses them.
@@ -41,6 +41,11 @@ def is_load_id(text: object) -> bool:
     return isinstance(text, str) and re.fullmatch(rf"L-{_NUMBER}", text, flags=re.ASCII) is not None
 
 
+def is_note_id(text: object) -> bool:
+    """`text` is a firing note's ID exactly as `str(NoteId)` writes it (`N-12`)."""
+    return isinstance(text, str) and re.fullmatch(rf"N-{_NUMBER}", text, flags=re.ASCII) is not None
+
+
 def is_item_id(text: object) -> bool:
     """`text` has an `ItemId`'s shape: 1 to 40 of `[a-z0-9-]` with at least one letter."""
     return isinstance(text, str) and _ITEM_ID.fullmatch(text) is not None
@@ -76,6 +81,24 @@ class LoadId:
     def parse(cls, text: str) -> Self:
         """`L-4` only: no other case, no leading zero, at most 12 digits, nothing around it."""
         return cls(_parse_number("L", text))
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class NoteId:
+    """A firing note's ID (#17), numbered on its own: `N-12`."""
+
+    number: int
+
+    def __post_init__(self) -> None:
+        _check_number(self.number)
+
+    def __str__(self) -> str:
+        return f"N-{self.number}"
+
+    @classmethod
+    def parse(cls, text: str) -> Self:
+        """`N-12` only: no other case, no leading zero, at most 12 digits, nothing around it."""
+        return cls(_parse_number("N", text))
 
 
 ItemId = NewType("ItemId", str)

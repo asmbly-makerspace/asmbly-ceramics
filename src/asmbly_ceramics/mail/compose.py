@@ -37,11 +37,18 @@ def austin_day(day: date) -> str:
     return f"{_DAYS[day.weekday()]} {_MONTHS[day.month - 1]} {day.day}"
 
 
-def austin_time(at: datetime) -> str:
-    """`Fri Nov 13, 10:42 AM`, in Austin time."""
+def austin_date(day: date) -> str:
+    """`Fri Nov 13, 2026`: `austin_day` with its year, for a page that lists past years."""
+    return f"{austin_day(day)}, {day.year}"
+
+
+def austin_time(at: datetime, *, year: bool = False) -> str:
+    """`Fri Nov 13, 10:42 AM`, in Austin time; with `year`, `Fri Nov 13, 2026, 10:42 AM`
+    (as `austin_date`), for a page that lists past years."""
     local = at.astimezone(STUDIO_TZ)
     hour = local.hour % 12 or 12
-    return f"{austin_day(local.date())}, {hour}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
+    day = austin_date(local.date()) if year else austin_day(local.date())
+    return f"{day}, {hour}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
 
 
 def pickup_by(sent_at: datetime, window_days: int) -> date:

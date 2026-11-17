@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from asmbly_ceramics.domain.ids import DropOffId, LoadId, new_item_id
+from asmbly_ceramics.domain.ids import DropOffId, LoadId, NoteId, new_item_id
 from asmbly_ceramics.use_cases.log import LOG_FIELDS, log_event
 
 
@@ -65,6 +65,7 @@ def test_a_value_that_isnt_an_id_or_a_word_is_logged_as_invalid(caplog: pytest.L
 VALID = {
     "drop_off_id": "AC-12",
     "load_id": "L-4",
+    "note_id": "N-12",
     "user": "kiln.tech-2",
     "kind": "received",
     "outcome": "ok",
@@ -130,6 +131,12 @@ def test_a_phone_an_address_or_a_token_is_logged_as_invalid_in_every_field(
         ("drop_off_id", "L-4"),
         ("load_id", 4),
         ("load_id", "AC-12"),
+        ("note_id", 12),
+        ("note_id", "n-12"),
+        ("note_id", "N-012"),
+        ("note_id", "L-4"),
+        ("note_id", "N-12 wiped"),
+        ("load_id", "N-12"),
         ("count", "abc"),
         ("count", "3"),
         ("kind", "Received"),
@@ -192,3 +199,11 @@ def test_ids_and_slugs_are_checked_by_the_domain_that_makes_them(caplog: pytest.
     assert record["drop_off_id"] == "AC-" + str(10**11)
     assert record["load_id"] == "L-4"
     assert record["item"] == record["reason"] == numbered
+
+
+def test_a_note_id_logs_only_as_n_12(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    log_event("note_written", note_id=str(NoteId(12)), load_id="L-4")
+    assert vars(caplog.records[-1])["note_id"] == "N-12"
+    log_event("note_written", note_id="Tested on Cinco Blanco: fine")
+    assert vars(caplog.records[-1])["note_id"] == "invalid"

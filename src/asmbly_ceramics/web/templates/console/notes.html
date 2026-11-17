@@ -1,0 +1,75 @@
+{% extends "console/layout.html" %}
+{% from "console/_note_macros.html" import note_card %}
+{% block title %}Notes{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Notes</h2>
+  {% include "console/_log_views.html" %}
+</div>
+{% if problems %}
+<div class="notice notice-error" role="alert">
+  {% for problem in problems %}<p>{{ problem }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <h3>Filter</h3>
+  <form method="get" action="/console/notes">
+    <div class="form-row">
+    <div class="field">
+      <label for="kiln">Kiln</label>
+      <select id="kiln" name="kiln">
+        <option value="">All kilns</option>
+        {% for item in kilns %}
+        <option value="{{ item.id }}"{% if query.kiln == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="glaze">Glaze type</label>
+      <select id="glaze" name="glaze">
+        <option value="">Any glaze type</option>
+        {% for item in glaze_types %}
+        <option value="{{ item.id }}"{% if query.glaze == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="clay">Clay body</label>
+      <select id="clay" name="clay">
+        <option value="">Any clay body</option>
+        {% for item in clay_bodies %}
+        <option value="{{ item.id }}"{% if query.clay == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="ruling">Ruling</label>
+      <select id="ruling" name="ruling">
+        {% for value, label in rulings %}
+        <option value="{{ value }}"{% if query.ruling == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="from">Written from</label>
+      <input type="date" id="from" name="from" value="{{ from_value }}">
+    </div>
+    <div class="field">
+      <label for="to">Written to</label>
+      <input type="date" id="to" name="to" value="{{ to_value }}">
+    </div>
+    </div>
+    <button type="submit">Show</button>
+  </form>
+</section>
+
+<p class="hint">{{ range }}.</p>
+{% if cards %}
+<ul class="note-list">
+  {% for note in cards %}{{ note_card(note, show_load=true) }}{% endfor %}
+</ul>
+{% else %}
+<p class="notice" role="status">No notes match.</p>
+{% endif %}
+{% endblock %}

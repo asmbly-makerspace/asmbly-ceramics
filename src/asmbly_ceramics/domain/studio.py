@@ -6,6 +6,7 @@ the staff username and the time. The caller stores both in one commit.
 
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -18,9 +19,11 @@ from asmbly_ceramics.domain.errors import (
     SendingAddressOutsideAsmbly,
     UnknownItem,
 )
+from asmbly_ceramics.domain.firing import Program, Speed, read_program
 from asmbly_ceramics.domain.ids import ItemId, new_item_id
 from asmbly_ceramics.domain.limits import (
     EMAIL_MAX,
+    FIRING_NUMBER_MAX,
     HOURS_TEXT_MAX,
     ITEM_NAME_MAX,
     PICKUP_WINDOW_MAX,
@@ -45,6 +48,8 @@ class CatalogList(StrEnum):
     FIRING_TYPES = "firing_types"
     GLAZE_TYPES = "glaze_types"
     REASONS = "reasons"
+    CONES = "cones"
+    CLAY_BODIES = "clay_bodies"
 
 
 _KIND = {
@@ -52,12 +57,35 @@ _KIND = {
     CatalogList.FIRING_TYPES: "firing type",
     CatalogList.GLAZE_TYPES: "glaze type",
     CatalogList.REASONS: "reason",
+    CatalogList.CONES: "cone",
+    CatalogList.CLAY_BODIES: "clay body",
 }
+_KINDS = {CatalogList.CLAY_BODIES: "clay bodies"}
+
+
+def kind_name(which: CatalogList) -> str:
+    """What one item of the list is called in a message: "glaze type", "clay body"."""
+    return _KIND[which]
+
+
+def kinds_name(which: CatalogList) -> str:
+    """The plural: "glaze types", "clay bodies"."""
+    return _KINDS.get(which, f"{_KIND[which]}s")
 
 
 class ItemStatus(StrEnum):
     ACTIVE = "active"
     RETIRED = "retired"
+
+
+@dataclass(frozen=True, slots=True)
+class KilnCounts:
+    """A kiln's firing counts as staff typed them (#42), as of a time: the firings since its
+    last new elements and all time. `suggest_numbers` counts on from them."""
+
+    since_elements: int
+    all_time: int
+    as_of: datetime  # aware
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,10 +95,25 @@ class CatalogItem:
     status: ItemStatus = ItemStatus.ACTIVE
     needs_glaze_type: bool = False  # firing types only
     needs_message: bool = False  # reasons only
+    default_program: Program | None = None  # firing types only: fills a new load's record
+    counts: KilnCounts | None = None  # kilns only
 
     @property
     def retired(self) -> bool:
         return self.status is ItemStatus.RETIRED
+
+
+def _catalog(*names: str) -> tuple[CatalogItem, ...]:
+    items: list[CatalogItem] = []
+    for name in names:
+        items.append(CatalogItem(new_item_id(name, [item.id for item in items]), name))
+    return tuple(items)
+
+
+# The lists #42 and #17 add, as the studio's workbook has them. A studio stored before
+# them reads with these.
+STARTING_CONES = _catalog("^06", "^5", "^6")
+STARTING_CLAY_BODIES = _catalog("Buffalo Wallow", "Cinco Blanco", "Cone 5 Porcelain")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +125,8 @@ class Studio:
     firing_types: tuple[CatalogItem, ...]
     glaze_types: tuple[CatalogItem, ...]
     reasons: tuple[CatalogItem, ...]
+    cones: tuple[CatalogItem, ...] = STARTING_CONES
+    clay_bodies: tuple[CatalogItem, ...] = STARTING_CLAY_BODIES
     version: int = 0
 
     def items(self, which: CatalogList) -> tuple[CatalogItem, ...]:
@@ -94,6 +139,10 @@ class Studio:
                 return self.glaze_types
             case CatalogList.REASONS:
                 return self.reasons
+            case CatalogList.CONES:
+                return self.cones
+            case CatalogList.CLAY_BODIES:
+                return self.clay_bodies
 
     def item(self, which: CatalogList, id: ItemId) -> CatalogItem:
         for item in self.items(which):
@@ -158,8 +207,13 @@ def starting_studio(sending_address: str, at: datetime) -> tuple[Studio, Setting
         pickup_hours_text=_STARTING_PICKUP_HOURS,
         kilns=_catalog("Athena", "Helios", "Vulcan"),
         firing_types=(
-            CatalogItem(ItemId("bisque"), "Bisque"),
-            CatalogItem(ItemId("glaze"), "Glaze", needs_glaze_type=True),
+            CatalogItem(ItemId("bisque"), "Bisque", default_program=_program_for("^06", 8, Speed.SLOW, 0)),
+            CatalogItem(
+                ItemId("glaze"),
+                "Glaze",
+                needs_glaze_type=True,
+                default_program=_program_for("^6", 0, Speed.MEDIUM, 7),
+            ),
         ),
         glaze_types=_catalog("House dip glaze", "Commercial glaze"),
         reasons=(
@@ -267,23 +321,124 @@ def restore_item(
 def delete_item(
     studio: Studio, which: CatalogList, id: ItemId, *, used: bool, by: str, at: datetime
 ) -> tuple[Studio, SettingChange]:
-    """Delete a retired item no drop-off or load names (#6).
+    """Delete a retired item no drop-off, load or default program names (#6).
 
-    Only a retired item can be deleted. Retiring is what stops new use: a submit or a new
-    load checks the studio's item is active, so once the retire is committed nothing new
-    can name the item, and `used` (from `Records.is_item_used`, read after the retire)
-    can't be made stale by a commit that names it. An active item would race: the delete
-    could read `used` as false while a drop-off or load naming it is committed. An item
-    anything names is kept retired.
+    Only a retired item can be deleted. A cone a firing type's default program names
+    (`names_cone`) is in use whatever `used` says: the studio itself is checked here.
+
+    Retiring is what stops new use: a submit or a new load checks the studio's item is
+    active, so once the retire is committed nothing new can name the item, and `used`
+    (from `Records.is_item_used`, read after the retire) can't be made stale by a commit
+    that names it. An active item would race: the delete could read `used` as false
+    while a drop-off or load naming it is committed. An item anything names is kept
+    retired.
     """
     _check_change(by, at)
     item = studio.item(which, id)
     if not item.retired:
         raise InvalidSetting("status", f"Retire {item.name} before deleting it.")
-    if used:
+    if used or (which is CatalogList.CONES and names_cone(studio, id)):
         raise ItemInUse(item.name)
     items = tuple(other for other in studio.items(which) if other.id != id)
     return _with_items(studio, which, items), SettingChange(at, by, f"Deleted {_KIND[which]} {item.name}")
+
+
+def set_default_program(
+    studio: Studio, firing_type: ItemId, values: Mapping[str, str], by: str, at: datetime
+) -> tuple[Studio, SettingChange | None]:
+    """The firing type's default program from the page's preheat_hours, cone, speed and
+    hold_minutes (`firing.read_program`), which fills each new load's record (#42).
+
+    The cone is one of the studio's active cones, or the cone the program already names
+    (so a program whose cone was retired can still have its hold changed). All four blank
+    clears it. `UnknownItem`; `InvalidRecord` for a refused field. A retired firing type
+    can still be changed. No change (None) when the program is the same.
+    """
+    _check_change(by, at)
+    item = studio.item(CatalogList.FIRING_TYPES, firing_type)
+    named = None if item.default_program is None else item.default_program.cone
+    program: Program | None = read_program(values, nameable_cone_ids(studio, named))
+    if program == Program():
+        program = None
+    if program == item.default_program:
+        return studio, None
+    studio = _replace_item(studio, CatalogList.FIRING_TYPES, replace(item, default_program=program))
+    if program is None:
+        return studio, SettingChange(at, by, f"Cleared the default program for {item.name}")
+    shown = describe_program(studio, program)
+    return studio, SettingChange(at, by, f"Default program for {item.name}: {shown}")
+
+
+def nameable_cones(studio: Studio, named: ItemId | None) -> tuple[CatalogItem, ...]:
+    """The cones a program (a firing type's default or a load's record) may name, in the
+    studio's order: the active ones, and `named`, the one it already names, retired or
+    not, so a program whose cone was retired can still have its other fields changed.
+    The one rule `set_default_program`, the firing record and their forms all follow."""
+    return tuple(cone for cone in studio.cones if not cone.retired or cone.id == named)
+
+
+def nameable_cone_ids(studio: Studio, named: ItemId | None) -> frozenset[ItemId]:
+    """The IDs of `nameable_cones`, as `firing.read_program` takes them, with `named` even
+    when the studio no longer lists it (a cone deleted after a load's record named it)."""
+    ids = {cone.id for cone in nameable_cones(studio, named)}
+    if named is not None:
+        ids.add(named)
+    return frozenset(ids)
+
+
+def describe_program(studio: Studio, program: Program) -> str:
+    """ "^6, medium, preheat 0 h, hold 7 min": the parts that are set, in that order."""
+    parts: list[str] = []
+    if program.cone is not None:
+        parts.append(_cone_name(studio, program.cone))
+    if program.speed is not None:
+        parts.append(program.speed.value)
+    if program.preheat_hours is not None:
+        parts.append(f"preheat {program.preheat_hours} h")
+    if program.hold_minutes is not None:
+        parts.append(f"hold {program.hold_minutes} min")
+    return ", ".join(parts)
+
+
+def set_kiln_counts(
+    studio: Studio, kiln: ItemId, since_elements: str, all_time: str, by: str, at: datetime
+) -> tuple[Studio, SettingChange]:
+    """The kiln's firing counts as staff typed them, as of `at` (#42): whole numbers from
+    0 to `FIRING_NUMBER_MAX`, the count since elements no more than the all-time count,
+    else `InvalidSetting(field, message)`. `UnknownItem`. A retired kiln can still be
+    changed."""
+    _check_change(by, at)
+    item = studio.item(CatalogList.KILNS, kiln)
+    since = _count("since_elements", since_elements)
+    total = _count("all_time", all_time)
+    if since > total:
+        raise InvalidSetting(
+            "since_elements", "The firings since new elements can't be more than the firings all time."
+        )
+    studio = _replace_item(studio, CatalogList.KILNS, replace(item, counts=KilnCounts(since, total, at)))
+    return studio, SettingChange(at, by, f"{item.name} counts: {since:,} since elements, {total:,} all time")
+
+
+def record_new_elements(
+    studio: Studio, kiln: ItemId, all_time_so_far: int, by: str, at: datetime
+) -> tuple[Studio, SettingChange]:
+    """New elements in the kiln (#42): its counts become 0 since elements and
+    `all_time_so_far` all time, as of `at`, so the next firing's number is 1.
+    `UnknownItem`. A retired kiln can still be changed."""
+    _check_change(by, at)
+    if not 0 <= all_time_so_far <= FIRING_NUMBER_MAX:
+        raise ValueError("the all-time count is a whole number from 0 to FIRING_NUMBER_MAX")
+    item = studio.item(CatalogList.KILNS, kiln)
+    counts = KilnCounts(since_elements=0, all_time=all_time_so_far, as_of=at)
+    studio = _replace_item(studio, CatalogList.KILNS, replace(item, counts=counts))
+    return studio, SettingChange(at, by, f"New elements in {item.name}")
+
+
+def names_cone(studio: Studio, cone: ItemId) -> bool:
+    """A firing type's default program names `cone`, so it counts as used (`is_item_used`)."""
+    return any(
+        item.default_program is not None and item.default_program.cone == cone for item in studio.firing_types
+    )
 
 
 def can_delete_item(item: CatalogItem, *, used: bool) -> bool:
@@ -291,11 +446,27 @@ def can_delete_item(item: CatalogItem, *, used: bool) -> bool:
     return item.retired and not used
 
 
-def _catalog(*names: str) -> tuple[CatalogItem, ...]:
-    items: list[CatalogItem] = []
-    for name in names:
-        items.append(CatalogItem(new_item_id(name, [item.id for item in items]), name))
-    return tuple(items)
+def _program_for(cone: str, preheat_hours: int, speed: Speed, hold_minutes: int) -> Program:
+    """A starting default program, its cone named as in `STARTING_CONES`."""
+    (cone_id,) = (item.id for item in STARTING_CONES if item.name == cone)
+    return Program(preheat_hours=preheat_hours, cone=cone_id, speed=speed, hold_minutes=hold_minutes)
+
+
+def _cone_name(studio: Studio, cone: ItemId) -> str:
+    for item in studio.cones:
+        if item.id == cone:
+            return item.name
+    return str(cone)  # a deleted cone: never, while a program names it (`is_item_used`)
+
+
+def _count(field: str, text: str) -> int:
+    text = text.strip()
+    # The length check comes first: int() refuses a string of over 4,300 digits with a ValueError.
+    if len(text) <= len(str(FIRING_NUMBER_MAX)) and _WHOLE_NUMBER.fullmatch(text):
+        number = int(text)
+        if number <= FIRING_NUMBER_MAX:
+            return number
+    raise InvalidSetting(field, f"Enter a whole number from 0 to {FIRING_NUMBER_MAX:,}.")
 
 
 def _check_change(by: str, at: datetime) -> None:
@@ -343,3 +514,7 @@ def _with_items(studio: Studio, which: CatalogList, items: tuple[CatalogItem, ..
             return replace(studio, glaze_types=items)
         case CatalogList.REASONS:
             return replace(studio, reasons=items)
+        case CatalogList.CONES:
+            return replace(studio, cones=items)
+        case CatalogList.CLAY_BODIES:
+            return replace(studio, clay_bodies=items)

@@ -1,0 +1,98 @@
+{% extends "console/layout.html" %}
+{% block title %}Firing log{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Firing log</h2>
+  {% include "console/_log_views.html" %}
+  <nav class="actions" aria-label="Download">
+    <a href="{{ csv_url }}">Download CSV</a>
+  </nav>
+</div>
+{% if problems %}
+<div class="notice notice-error" role="alert">
+  {% for problem in problems %}<p>{{ problem }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<section class="panel">
+  <h3>Filter</h3>
+  <form method="get" action="/console/firing-log">
+    <div class="form-row">
+    <div class="field">
+      <label for="kiln">Kiln</label>
+      <select id="kiln" name="kiln">
+        <option value="">All kilns</option>
+        {% for item in kilns %}
+        <option value="{{ item.id }}"{% if view.kiln == item.id %} selected{% endif %}>{{ item.name }}{% if item.retired %} (retired){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="from">Load dated from</label>
+      <input type="date" id="from" name="from" value="{{ from_value }}">
+    </div>
+    <div class="field">
+      <label for="to">Load dated to</label>
+      <input type="date" id="to" name="to" value="{{ to_value }}">
+    </div>
+    <div class="field">
+      <label for="kind">Firings</label>
+      <select id="kind" name="kind">
+        {% for kind, label in kinds %}
+        <option value="{{ kind.value }}"{% if view.kind == kind %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    </div>
+    <button type="submit">Show</button>
+  </form>
+</section>
+
+<p class="hint">{{ range }}.</p>
+{% if counts %}
+<p class="hint">Firing # counts from {{ counts.from }} ({{ counts.since }} since elements then).</p>
+{% endif %}
+
+{% if rows %}
+<div class="table-box">
+<table class="list">
+  <thead>
+    <tr>
+      <th scope="col">Load</th>
+      {% if show_kiln %}<th scope="col">Kiln</th>{% endif %}
+      <th scope="col">Fired</th>
+      <th scope="col">Firing #</th>
+      <th scope="col">Full</th>
+      <th scope="col">Cone</th>
+      <th scope="col">Speed</th>
+      <th scope="col">Hold</th>
+      <th scope="col">Max temp</th>
+      <th scope="col">Cost</th>
+      <th scope="col">Started / fired by</th>
+      <th scope="col">Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td><a href="/console/loads/{{ row.load.id }}" class="mono">{{ row.load.id }}</a>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
+      {% if show_kiln %}<td>{{ row.kiln }}</td>{% endif %}
+      <td>{{ row.fired }}</td>
+      <td>{{ row.firing_number }}</td>
+      <td>{{ row.full }}</td>
+      <td>{{ row.cone }}</td>
+      <td>{{ row.speed }}</td>
+      <td>{{ row.hold }}</td>
+      <td>{{ row.max_temp }}</td>
+      <td>{{ row.cost }}</td>
+      <td>{{ row.started_by }} / {{ row.fired_by }}</td>
+      <td>{{ row.notes }}{% if row.not_allowed %} <span class="tag tag-not-allowed">✕ {{ row.not_allowed }}<span class="visually-hidden"> not allowed</span></span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="notice" role="status">No firings match.</p>
+{% endif %}
+{% endblock %}

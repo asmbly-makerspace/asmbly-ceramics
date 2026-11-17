@@ -4,6 +4,7 @@ table answers better). The contract suite (`tests/adapters/contract/`) covers be
 import logging
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -14,11 +15,21 @@ from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.adapters.aws.records import DynamoDbRecords
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus, new_email
-from asmbly_ceramics.domain.ids import DropOffId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
+from asmbly_ceramics.domain.load import LoadStatus
+from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Put, Update
 from tests.adapters.conftest import TABLE, a_client, assert_nothing_holds
-from tests.domain.builders import NOW, TEST_EMAIL, TEST_NAME, a_drop_off, a_load
+from tests.domain.builders import (
+    NOW,
+    TEST_EMAIL,
+    TEST_NAME,
+    TEST_NOTE_TEXT,
+    a_drop_off,
+    a_load,
+    a_note,
+)
 
 AWS_TEXT = "The conditional request failed for an item holding " + TEST_EMAIL
 
@@ -374,3 +385,145 @@ def test_an_item_that_doesnt_parse_is_records_unavailable_not_a_crash(
     with pytest.raises(RecordsUnavailable, match="UnexpectedItem") as raised:
         records.drop_off(DropOffId(1))
     assert raised.value.__suppress_context__
+
+
+# A load's history, notes and date ranges (#42, #17) ---------------------------------------
+
+
+def test_load_events_and_notes_query_only_their_prefix_in_the_load_partition(
+    stubbed: tuple[DynamoDbRecords, Stubber],
+) -> None:
+    records, stubber = stubbed
+    for prefix in ("EVENT#", "NOTE#"):
+        stubber.add_response(
+            "query",
+            {"Items": []},
+            {
+                "TableName": TABLE,
+                "KeyConditionExpression": "PK = :pk AND begins_with(SK, :prefix)",
+                "ExpressionAttributeValues": {":pk": {"S": "LOAD#L-4"}, ":prefix": {"S": prefix}},
+                "ConsistentRead": True,
+            },
+        )
+    assert records.load_events(LoadId(4)) == []
+    assert records.notes_for(LoadId(4)) == []
+
+
+def test_note_reads_its_key_consistently(stubbed: tuple[DynamoDbRecords, Stubber]) -> None:
+    records, stubber = stubbed
+    note = a_note(12, a_load(4))
+    stubber.add_response(
+        "get_item",
+        {"Item": item_of(note)},
+        {"TableName": TABLE, "Key": keys.note_key(LoadId(4), NoteId(12)), "ConsistentRead": True},
+    )
+    assert records.note(LoadId(4), NoteId(12)) == replace(note, version=1)
+
+
+def test_loads_dated_between_reads_only_the_range_and_follows_pages(
+    stubbed: tuple[DynamoDbRecords, Stubber],
+) -> None:
+    records, stubber = stubbed
+    first, second = a_load(2, LoadStatus.FIRED), a_load(1, LoadStatus.FIRED)
+    request = {
+        "TableName": TABLE,
+        "IndexName": "GSI1",
+        "KeyConditionExpression": "GSI1PK = :pk AND GSI1SK BETWEEN :low AND :high",
+        "ExpressionAttributeValues": {
+            ":pk": {"S": "LOAD#fired"},
+            ":low": {"S": "2026-11-01#"},
+            ":high": {"S": "2026-11-30#~"},
+        },
+    }
+    page_key = keys.load_key(first.id)
+    stubber.add_response("query", {"Items": [item_of(first)], "LastEvaluatedKey": page_key}, request)
+    stubber.add_response("query", {"Items": [item_of(second)]}, {**request, "ExclusiveStartKey": page_key})
+    found = records.loads_dated_between({LoadStatus.FIRED}, date(2026, 11, 1), date(2026, 12, 1))
+    assert [load.id for load in found] == [LoadId(1), LoadId(2)]
+
+
+def test_an_empty_date_range_sends_nothing(stubbed: tuple[DynamoDbRecords, Stubber]) -> None:
+    records, _ = stubbed  # DynamoDB refuses a BETWEEN whose low end is above its high end
+    assert records.loads_dated_between({LoadStatus.FIRED}, date(2026, 11, 2), date(2026, 11, 1)) == []
+    assert records.loads_dated_between({LoadStatus.FIRED}, date(2026, 11, 2), date(2026, 11, 2)) == []
+
+
+def test_notes_written_between_reads_only_the_note_partition_s_range(
+    stubbed: tuple[DynamoDbRecords, Stubber],
+) -> None:
+    records, stubber = stubbed
+    stubber.add_response(
+        "query",
+        {"Items": []},
+        {
+            "TableName": TABLE,
+            "IndexName": "GSI1",
+            "KeyConditionExpression": "GSI1PK = :pk AND GSI1SK BETWEEN :low AND :high",
+            "ExpressionAttributeValues": {
+                ":pk": {"S": "NOTE"},
+                ":low": {"S": "2026-11-13T18:30:00.000000Z"},
+                ":high": {"S": "2026-11-14T18:30:00.000000Z"},
+            },
+        },
+    )
+    assert records.notes_written_between(NOW, NOW + timedelta(days=1)) == []
+
+
+@pytest.mark.parametrize(
+    ("which", "attribute"),
+    [(CatalogList.CLAY_BODIES, "clay_bodies"), (CatalogList.GLAZE_TYPES, "glaze_types")],
+)
+def test_a_tag_s_use_is_counted_over_notes_that_aren_t_removed(
+    stubbed: tuple[DynamoDbRecords, Stubber], which: CatalogList, attribute: str
+) -> None:
+    records, stubber = stubbed
+    stubber.add_response(
+        "query",
+        {"Count": 1, "ScannedCount": 3},
+        {
+            "TableName": TABLE,
+            "IndexName": "GSI1",
+            "KeyConditionExpression": "GSI1PK = :pk",
+            "FilterExpression": "contains(#a, :v)",
+            "ExpressionAttributeNames": {"#a": attribute},
+            "ExpressionAttributeValues": {":pk": {"S": "NOTE"}, ":v": {"S": "cinco-blanco"}},
+            "Select": "COUNT",
+        },
+    )
+    assert records.is_item_used(which, ItemId("cinco-blanco"))
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda r: r.load_events(LoadId(4)),
+        lambda r: r.notes_for(LoadId(4)),
+        lambda r: r.notes_written_between(NOW, NOW + timedelta(days=1)),
+        lambda r: r.loads_dated_between({LoadStatus.FIRED}, date(2026, 11, 1), date(2026, 11, 2)),
+        lambda r: r.is_item_used(CatalogList.CLAY_BODIES, ItemId("cinco-blanco")),
+    ],
+)
+def test_a_new_read_s_failure_is_records_unavailable_with_the_code_only(
+    stubbed: tuple[DynamoDbRecords, Stubber], call: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    records, stubber = stubbed
+    stubber.add_client_error("query", service_error_code="ThrottlingException", service_message=AWS_TEXT)
+    with pytest.raises(RecordsUnavailable) as raised:
+        call(records)
+    assert raised.value.code == "ThrottlingException"
+    assert AWS_TEXT not in str(raised.value)
+    assert_nothing_holds(caplog.records, AWS_TEXT, TEST_EMAIL)
+
+
+def test_a_note_s_text_is_never_logged_when_its_item_doesn_t_parse(
+    stubbed: tuple[DynamoDbRecords, Stubber], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    records, stubber = stubbed
+    broken = item_of(a_note(12, a_load(4)))
+    broken["ruling"] = {"S": "maybe"}
+    stubber.add_response("query", {"Items": [broken]})
+    with pytest.raises(RecordsUnavailable, match="UnexpectedItem"):
+        records.notes_for(LoadId(4))
+    assert_nothing_holds(caplog.records, TEST_NOTE_TEXT)

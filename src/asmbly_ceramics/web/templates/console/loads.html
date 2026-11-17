@@ -36,8 +36,12 @@
       <label for="date">Date</label>
       <input type="date" id="date" name="date" value="{{ form.date }}" required>
     </div>
-    <button type="submit">Start a load</button>
     </div>
+    <div class="field">
+      <label class="choice" for="test"><input type="checkbox" id="test" name="test" value="1"{% if form.test %} checked{% endif %} aria-describedby="test-hint"> <span>This is a test firing</span></label>
+      <p class="hint" id="test-hint">A test can be fired with no drop-offs. You can't change this once it starts firing.</p>
+    </div>
+    <button type="submit">Start a load</button>
   </form>
 </section>
 
@@ -49,7 +53,7 @@
   <tbody>
   {% for row in open_loads %}
     <tr>
-      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span></td>
+      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
       <td>{{ row.load.status.value | capitalize }}</td>
       <td>{{ row.count }}</td>
       <td>
@@ -79,7 +83,7 @@
   <tbody>
   {% for row in fired_loads %}
     <tr>
-      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span></td>
+      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
       <td>Fired</td>
       <td>{{ row.count }}</td>
     </tr>

@@ -20,6 +20,7 @@ from asmbly_ceramics.domain.email import (
     rejection_occasion,
     retry,
 )
+from asmbly_ceramics.domain.firing import FiringRecord, Program
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
 from asmbly_ceramics.domain.limits import LOAD_CAPACITY, SUBMISSION_LIFETIME
 from asmbly_ceramics.domain.load import Load, LoadStatus, fire
@@ -131,7 +132,7 @@ def test_a_fire_of_48_drop_offs_fits_one_transaction(records: Records) -> None:
     stored_load = records.load(LoadId(1))
     assert stored_load is not None
     stored = [records.drop_off(DropOffId(n)) for n in members]
-    result = fire(stored_load, [d for d in stored if d is not None], NOW)
+    result = fire(stored_load, [d for d in stored if d is not None], STAFF, NOW)
     changes: list[Change] = [
         Update(result.load),
         *(Update(d) for d in result.drop_offs),
@@ -302,6 +303,38 @@ def test_records_is_item_used_for_each_list(records: Records) -> None:
     assert records.is_item_used(CatalogList.REASONS, ItemId("cracked"))  # a closed drop-off's
     assert records.is_item_used(CatalogList.REASONS, ItemId("too-wet"))
     assert not records.is_item_used(CatalogList.REASONS, ItemId("other"))
+
+
+def with_program_cone(load: Load, cone: str) -> Load:
+    return replace(load, record=FiringRecord(program=Program(cone=ItemId(cone))))
+
+
+def test_cone_used_by_load_program(records: Records) -> None:
+    records.commit(
+        [
+            Put(with_program_cone(a_load(1, LoadStatus.LOADING), "item-5")),
+            Put(with_program_cone(a_load(2, LoadStatus.FIRED), "item-04")),
+            Put(with_program_cone(a_load(3, LoadStatus.DELETED), "item-10")),
+        ]
+    )
+    assert records.is_item_used(CatalogList.CONES, ItemId("item-5"))  # a loading load's
+    assert records.is_item_used(CatalogList.CONES, ItemId("item-04"))  # a fired load's
+    assert not records.is_item_used(CatalogList.CONES, ItemId("item-10"))  # only a deleted load's
+    assert not records.is_item_used(CatalogList.CONES, ItemId("item-9"))  # no studio stored: no program
+
+
+def test_cone_used_by_default_program(records: Records) -> None:
+    studio, change = starting_studio(a_sending_address(), NOW)
+    records.commit([Put(studio), Put(change)])
+    assert records.is_item_used(CatalogList.CONES, ItemId("item-6"))  # Glaze's default program
+    assert records.is_item_used(CatalogList.CONES, ItemId("item-06"))  # Bisque's
+    assert not records.is_item_used(CatalogList.CONES, ItemId("item-5"))
+
+
+def test_clay_body_not_used(records: Records) -> None:
+    studio, change = starting_studio(a_sending_address(), NOW)
+    records.commit([Put(studio), Put(change), Put(a_load(1, LoadStatus.FIRED))])
+    assert not records.is_item_used(CatalogList.CLAY_BODIES, ItemId("buffalo-wallow"))
 
 
 def test_records_keep_the_studio_and_submissions(records: Records) -> None:

@@ -5,9 +5,11 @@ from asmbly_ceramics.domain.ids import (
     DropOffId,
     ItemId,
     LoadId,
+    NoteId,
     is_drop_off_id,
     is_item_id,
     is_load_id,
+    is_note_id,
     new_item_id,
 )
 
@@ -58,12 +60,30 @@ def test_load_id_parse_refuses_anything_else(text: str) -> None:
         LoadId.parse(text)
 
 
+def test_note_id_round_trip() -> None:
+    assert str(NoteId(12)) == "N-12"
+    assert NoteId.parse("N-12") == NoteId(12)
+    assert NoteId.parse(str(NoteId(999_999_999_999))) == NoteId(999_999_999_999)
+    assert NoteId(2) < NoteId(10)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["N-0", "N-", "n-12", "N-012", "L-12", "AC-12", " N-12", "N-12\n", "N-1" + "0" * 12, "N-" + "9" * 4000],
+)
+def test_note_id_refuses_other_shapes(text: str) -> None:
+    with pytest.raises(ValueError, match="not a N- ID"):
+        NoteId.parse(text)
+
+
 @pytest.mark.parametrize("number", [0, -1, True])
 def test_an_id_number_starts_at_one(number: int) -> None:
     with pytest.raises(ValueError, match="from 1"):
         DropOffId(number)
     with pytest.raises(ValueError, match="from 1"):
         LoadId(number)
+    with pytest.raises(ValueError, match="from 1"):
+        NoteId(number)
 
 
 def test_new_item_id_makes_a_unique_slug() -> None:
@@ -118,3 +138,9 @@ def test_is_drop_off_id_and_is_load_id_agree_with_parse() -> None:
         assert not is_drop_off_id(text)
     for text in ["l-4", "L-04", "AC-12", "L-" + "1" * 13, 4]:
         assert not is_load_id(text)
+
+
+def test_is_note_id_agrees_with_parse() -> None:
+    assert is_note_id(str(NoteId(12)))
+    for text in ["n-12", "N-012", "N-0", "L-12", " N-12", "N-" + "1" * 13, 12]:
+        assert not is_note_id(text)

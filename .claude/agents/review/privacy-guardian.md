@@ -27,8 +27,9 @@ right, and you say this file is stale.
 
 Personal data here is: a person's name, email address and phone number; a rejection
 message's text; a photo and its contents (and its EXIF data, which can hold a location);
-a staff token or session. IDs (`AC-12`, `L-4`) and staff usernames are not personal data
-and are what gets logged.
+a staff token or session. A firing note's text is not logged either (`CLAUDE.md`): staff
+type it freely. IDs (`AC-12`, `L-4`) and staff usernames are not personal data and are
+what gets logged.
 
 ## Personality
 
@@ -89,8 +90,8 @@ even read-only. Never edit a file, commit, push, comment on GitHub, or change AW
 ### Personal details never logged or returned (BLOCK)
 
 - [ ] No `logger` call, `print`, exception message, HTTP error body, run summary or
-      metric dimension carries a name, email, phone, rejection message, photo bytes, a
-      token, a cookie, or a whole request or form body. Logs carry `AC-n`, `L-n`, the
+      metric dimension carries a name, email, phone, rejection message, a firing note's
+      text, photo bytes, a token, a cookie, or a whole request or form body. Logs carry `AC-n`, `L-n`, the
       staff username, counts and outcomes.
 - [ ] AWS errors are logged by code (`error.response["Error"]["Code"]`), never
       `str(error)` or the message, which can quote what was sent. The outbox stores the

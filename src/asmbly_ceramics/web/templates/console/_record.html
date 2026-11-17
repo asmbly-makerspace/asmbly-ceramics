@@ -1,0 +1,109 @@
+{% macro whole(name, unit) %}
+{% set low, high = record.whole[name] %}
+<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+  <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
+  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  {% if name in record.suggested %}<p class="hint" id="rec-{{ name }}-hint">Suggested from {{ view.kiln }}'s firing count. Change it if it's wrong.</p>{% endif %}
+  <div class="unit-row">
+    <input type="number" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}" inputmode="numeric" min="{{ low }}" max="{{ high }}" step="1"{% if name in record.errors or name in record.suggested %} aria-describedby="{% if name in record.errors %}rec-{{ name }}-error{% endif %}{% if name in record.errors and name in record.suggested %} {% endif %}{% if name in record.suggested %}rec-{{ name }}-hint{% endif %}"{% endif %}>
+    {% if unit %}<span class="unit">{{ unit }}</span>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+{% macro text(name, unit, length, mode, placeholder) %}
+<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+  <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
+  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  <div class="unit-row">
+    {% if unit == "$" %}<span class="unit">$</span>{% endif %}
+    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}"{% if mode %} inputmode="{{ mode }}"{% endif %} maxlength="{{ length }}" placeholder="{{ placeholder }}" autocomplete="off"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
+    {% if unit != "$" %}<span class="unit">{{ unit }}</span>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+{% macro select(name, options) %}
+<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+  <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
+  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  <select id="rec-{{ name }}" name="{{ name }}"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
+    <option value="">—</option>
+    {% for value, shown in options %}
+    <option value="{{ value }}"{% if record.fields[name] == value %} selected{% endif %}>{{ shown }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+{% macro witness(name) %}
+{% set ticked = name in record.no_cone %}
+<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+  <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
+  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  <div class="unit-row">
+    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ '' if ticked else record.fields[name] }}" inputmode="numeric" maxlength="{{ record.cone_reading_max }}" autocomplete="off"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
+    <span class="unit">% bent</span>
+  </div>
+  <label class="choice" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
+</div>
+{% endmacro %}
+<section class="panel" id="record" aria-labelledby="record-title">
+  <h3 id="record-title">Firing record</h3>
+  {% if record.problem %}
+  <div class="error-summary" role="alert" tabindex="-1" id="record-summary" autofocus>
+    <h2>{{ record.problem }}</h2>
+    {% if record.errors %}
+    <ul>
+      {% for name, message in record.errors.items() %}
+      <li><a href="#rec-{{ name }}">{{ record.labels[name] }}: {{ message }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if record.stored is not none %}
+  <div class="record-now" id="record-now">
+    <h4>The record as it is saved now</h4>
+    {% if record.stored %}
+    <dl class="summary">
+      {% for label, value in record.stored %}
+      <dt>{{ label }}</dt><dd>{{ value }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p>Nothing is recorded.</p>
+    {% endif %}
+    <p class="hint">The form below still holds what you typed. Saving it replaces the whole record above.</p>
+  </div>
+  {% endif %}
+  <p class="hint">Every field is optional. Saving changes only the record. Drop-offs and emails aren't touched.</p>
+  <form method="post" action="/console/loads/{{ load.id }}/record">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ load.version }}">
+    <div class="record-groups">
+      <fieldset class="record-group">
+        <legend>Kiln</legend>
+        {{ whole("percent_full", "%") }}
+        {{ whole("firing_number", "") }}
+        {{ whole("all_time_number", "") }}
+      </fieldset>
+      <fieldset class="record-group">
+        <legend>Program</legend>
+        {{ select("cone", record.cone_options) }}
+        {{ select("speed", record.speed_options) }}
+        {{ whole("preheat_hours", "hours") }}
+        {{ whole("hold_minutes", "min") }}
+      </fieldset>
+      <fieldset class="record-group">
+        <legend>Result</legend>
+        {{ text("firing_time", "h:mm", record.firing_time_max, "", "11:38") }}
+        {{ text("cost", "$", record.cost_max, "decimal", "8.19") }}
+        {{ whole("max_temp_f", "°F") }}
+        {{ whole("board_temp_f", "°F") }}
+      </fieldset>
+      <fieldset class="record-group">
+        <legend>Witness cones</legend>
+        {% for name in record.witness %}{{ witness(name) }}{% endfor %}
+      </fieldset>
+    </div>
+    <button type="submit">Save firing record</button>
+  </form>
+</section>

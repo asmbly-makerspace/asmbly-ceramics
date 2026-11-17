@@ -16,7 +16,7 @@ from asmbly_ceramics.use_cases import settings as use_case
 from asmbly_ceramics.web.console import settings as page
 from asmbly_ceramics.web.console.session import SESSION_COOKIE
 from tests.domain.builders import STAFF, a_sending_address, an_address
-from tests.use_cases.flows import ATHENA, STAFF_EMAIL, fired, send_all
+from tests.use_cases.flows import ATHENA, STAFF_EMAIL, STAFF_MEMBER, fired, send_all
 from tests.web.console.conftest import Console, events
 
 SETTINGS = "/console/settings"
@@ -268,7 +268,10 @@ def test_a_used_item_can_be_retired_not_deleted(staff: Console) -> None:
 
     answer = list_post(staff, "kilns", "delete", item="athena")
     assert answer.status_code == 400
-    assert "Athena is used by a drop-off or a load: retire it instead." in answer.text
+    assert (
+        "Athena is in use by a drop-off, a load, a default program or a note, so it stays retired."
+        in answer.text
+    )
     assert staff.world.studio().item(CatalogList.KILNS, ATHENA).status is ItemStatus.RETIRED
 
 
@@ -395,3 +398,308 @@ def test_the_history_page_skips_the_used_scan_and_pages_by_the_use_case_s_size(s
     assert staff.get(f"{SETTINGS}/history").status_code == 200
     assert "is_item_used" not in staff.world.records.reads
     assert "history" in staff.world.records.reads
+
+
+# --- cones and clay bodies (#42, #17) ---------------------------------------------------------
+
+
+def test_cones_and_clay_bodies_listed(staff: Console) -> None:
+    shown = text(staff.get(SETTINGS))
+    cones = shown.split("Cones")[1].split("Clay bodies")[0]
+    for name in ("^06", "^5", "^6"):
+        assert name in cones
+    clays = shown.split("Clay bodies")[1].split("Change history")[0]
+    for name in ("Buffalo Wallow", "Cinco Blanco", "Cone 5 Porcelain"):
+        assert name in clays
+    # ^6 is named by Glaze's default program: used, so it can only be retired.
+    assert "Used" in cones.split("^6")[-1]
+
+
+def test_add_cone(staff: Console, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    answer = list_post(staff, "cones", "add", name="^04")
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/settings?done=added#cones"
+    assert staff.world.studio().item(CatalogList.CONES, ItemId("item-04")).name == "^04"
+    assert "Added cone ^04" in text(staff.get(SETTINGS))
+    [event] = [vars(r) for r in caplog.records if r.getMessage() == "settings_changed"]
+    assert (event["list"], event["item"], event["user"]) == ("cones", "item-04", STAFF)
+
+
+def test_add_retire_restore_delete_clay_body(staff: Console) -> None:
+    assert list_post(staff, "clay-bodies", "add", name="Speckled Buff").status_code == 303
+    clay = ItemId("speckled-buff")
+    assert list_post(staff, "clay-bodies", "retire", item=clay).status_code == 303
+    assert staff.world.studio().item(CatalogList.CLAY_BODIES, clay).status is ItemStatus.RETIRED
+    assert list_post(staff, "clay-bodies", "restore", item=clay).status_code == 303
+    list_post(staff, "clay-bodies", "retire", item=clay)
+    answer = list_post(staff, "clay-bodies", "delete", item=clay)
+    assert answer.headers["location"] == "/console/settings?done=deleted#clay-bodies"
+    assert "Deleted clay body Speckled Buff" in text(staff.get(SETTINGS))
+    assert list_post(staff, "clay-bodies", "add", name="").status_code == 400
+
+
+def test_a_cone_named_by_a_default_program_cannot_be_deleted(staff: Console) -> None:
+    assert list_post(staff, "cones", "retire", item="item-6").status_code == 303
+    answer = list_post(staff, "cones", "delete", item="item-6")
+    assert answer.status_code == 400
+    assert "^6 is in use by" in text(answer)
+    assert staff.world.studio().item(CatalogList.CONES, ItemId("item-6")).retired
+
+
+def test_a_cone_used_by_a_load_cannot_be_deleted(staff: Console) -> None:
+    fired(staff.world, staff.drop_off(1))  # a bisque load: its program names ^06
+    staff.world.set_default_program(ItemId("bisque"), {}, staff.world.studio().version, STAFF_MEMBER)
+    list_post(staff, "cones", "retire", item="item-06")
+    answer = list_post(staff, "cones", "delete", item="item-06")
+    assert answer.status_code == 400
+    assert "^06 is in use by" in text(answer)
+
+
+def test_the_cone_and_clay_lists_need_the_ceramics_group(console: Console) -> None:
+    console.sign_in(groups=())
+    answer = list_post(console, "cones", "add", name="^04")
+    assert answer.status_code == 403
+    assert all(item.name != "^04" for item in console.world.studio().cones)
+
+
+# --- default programs, kiln counts and new elements (#42) ----------------------------------
+
+PROGRAM = f"{SETTINGS}/firing-types/glaze/program"
+COUNTS = f"{SETTINGS}/kilns/helios/counts"
+ELEMENTS = f"{SETTINGS}/kilns/helios/new-elements"
+HELIOS = ItemId("helios")
+
+
+def program_post(console: Console, path: str = PROGRAM, **fields: str) -> httpx2.Response:
+    blank = dict.fromkeys(("cone", "speed", "preheat_hours", "hold_minutes"), "")
+    return console.post(path, {"version": version(console)} | blank | fields)
+
+
+def counts_post(console: Console, path: str = COUNTS, **fields: str) -> httpx2.Response:
+    return console.post(path, {"version": version(console)} | fields)
+
+
+def test_settings_page_shows_programs_and_counts(staff: Console) -> None:
+    shown = text(staff.get(SETTINGS))
+    assert "Default program: ^6, medium, preheat 0 h, hold 7 min" in shown
+    assert 'action="/console/settings/firing-types/glaze/program"' in shown
+    assert "Firing counts: not set" in shown
+    assert "Firing # for Helios restarts at 1 from its next firing. The all-time count carries on." in shown
+    assert 'action="/console/settings/kilns/helios/new-elements"' in shown
+
+
+def test_set_default_program(staff: Console, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    answer = program_post(staff, cone="item-5", speed="slow", preheat_hours="2", hold_minutes="15")
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/settings?done=program#firing-types"
+    program = staff.world.studio().item(CatalogList.FIRING_TYPES, ItemId("glaze")).default_program
+    assert program is not None
+    assert (program.cone, program.speed, program.preheat_hours, program.hold_minutes) == (
+        "item-5",
+        "slow",
+        2,
+        15,
+    )
+    shown = text(staff.get(answer.headers["location"]))
+    assert "Default program saved." in shown
+    assert "Default program for Glaze: ^5, slow, preheat 2 h, hold 15 min" in shown  # the history
+    assert all(STAFF_EMAIL not in r.getMessage() for r in caplog.records)
+
+
+def test_clear_default_program(staff: Console) -> None:
+    answer = program_post(staff)
+    assert answer.status_code == 303
+    assert staff.world.studio().item(CatalogList.FIRING_TYPES, ItemId("glaze")).default_program is None
+    shown = text(staff.get(SETTINGS))
+    assert "Default program: none" in shown
+    assert "Cleared the default program for Glaze" in shown
+
+
+def test_default_program_invalid_fields(staff: Console) -> None:
+    before = staff.world.studio()
+    answer = program_post(staff, cone="no-such-cone", speed="warp", preheat_hours="99", hold_minutes="7")
+    assert answer.status_code == 400
+    assert staff.world.studio() == before
+    shown = text(answer)
+    assert "Check the default program: the fields marked need fixing." in shown
+    for field in ("cone", "speed", "preheat_hours"):
+        assert f'id="prog-glaze-{field}-error"' in answer.text
+    assert 'id="prog-glaze-hold_minutes-error"' not in answer.text
+    assert 'name="hold_minutes" value="7"' in answer.text  # the typed value kept
+    assert "warp" not in shown  # never echoed back
+
+
+def test_set_kiln_counts(staff: Console) -> None:
+    answer = counts_post(staff, since_elements="40", all_time="1200")
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/settings?done=counts#kilns"
+    counts = staff.world.studio().item(CatalogList.KILNS, HELIOS).counts
+    assert counts is not None
+    assert (counts.since_elements, counts.all_time) == (40, 1200)
+    shown = text(staff.get(answer.headers["location"]))
+    assert "Firing counts saved." in shown
+    assert "Firing counts: 40 since new elements, 1,200 all time, as of Fri Nov 13, 2026" in shown
+    assert "Helios counts: 40 since elements, 1,200 all time" in shown  # the history
+
+
+@pytest.mark.parametrize(
+    ("since", "total", "field"),
+    [("x", "10", "since_elements"), ("5", "-1", "all_time"), ("11", "10", "since_elements")],
+)
+def test_kiln_counts_invalid(staff: Console, since: str, total: str, field: str) -> None:
+    answer = counts_post(staff, since_elements=since, all_time=total)
+    assert answer.status_code == 400
+    assert staff.world.studio().item(CatalogList.KILNS, HELIOS).counts is None
+    assert f'id="counts-helios-{field}-error"' in answer.text
+
+
+def test_new_elements_confirm_then_reset(staff: Console) -> None:
+    counts_post(staff, since_elements="40", all_time="1200")
+    confirm = text(staff.get(SETTINGS))
+    assert "New elements…" in confirm
+    assert "Yes, new elements" in confirm
+
+    answer = counts_post(staff, ELEMENTS)
+
+    assert answer.status_code == 303
+    assert answer.headers["location"] == "/console/settings?done=elements#kilns"
+    counts = staff.world.studio().item(CatalogList.KILNS, HELIOS).counts
+    assert counts is not None
+    assert (counts.since_elements, counts.all_time) == (0, 1200)
+    shown = text(staff.get(answer.headers["location"]))
+    assert "New elements recorded. The next firing is number 1." in shown
+    assert "New elements in Helios" in shown
+
+
+@pytest.mark.parametrize("path", [PROGRAM, COUNTS, ELEMENTS])
+def test_each_needs_csrf(staff: Console, path: str) -> None:
+    before = staff.world.studio()
+    fields = {"version": version(staff), "since_elements": "1", "all_time": "2"}
+    assert staff.post(path, fields, csrf=False).status_code == 403
+    assert staff.post(path, fields | {"csrf": "forged"}, csrf=False).status_code == 403
+    assert staff.world.studio() == before
+
+
+@pytest.mark.parametrize("path", [PROGRAM, COUNTS, ELEMENTS])
+def test_each_conflict(staff: Console, path: str) -> None:
+    before = staff.world.studio()
+    answer = counts_post(staff, path, version="0", since_elements="1", all_time="2", cone="item-5")
+    assert answer.status_code == 409
+    assert "The settings changed while you were working. Here they are now; try again." in text(answer)
+    assert staff.world.studio() == before
+
+
+@pytest.mark.parametrize("path", [PROGRAM, COUNTS, ELEMENTS])
+def test_each_outcome_unknown_says_to_check(staff: Console, path: str) -> None:
+    from asmbly_ceramics.ports.records import CommitOutcomeUnknown
+
+    staff.world.studio()
+    staff.world.records.fail_next_commit_with = CommitOutcomeUnknown("RequestTimeout")
+    answer = counts_post(staff, path, since_elements="1", all_time="2", cone="item-5")
+    assert answer.status_code == 503
+    assert "may or may not have been saved" in answer.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        f"{SETTINGS}/firing-types/no-such-type/program",
+        f"{SETTINGS}/firing-types/helios/program",  # a kiln isn't a firing type
+        f"{SETTINGS}/kilns/no-such-kiln/counts",
+        f"{SETTINGS}/kilns/glaze/new-elements",
+        f"{SETTINGS}/kilns/NOT_AN_ID/counts",
+    ],
+)
+def test_unknown_item_404(staff: Console, path: str) -> None:
+    before = staff.world.studio()
+    assert counts_post(staff, path, since_elements="1", all_time="2").status_code == 404
+    assert staff.world.studio() == before
+
+
+@pytest.mark.parametrize("path", [PROGRAM, COUNTS, ELEMENTS])
+def test_new_settings_need_the_ceramics_group(console: Console, path: str) -> None:
+    console.sign_in(groups=("front-desk",), username="front.desk")
+    before = console.world.studio()
+    answer = counts_post(console, path, since_elements="1", all_time="2")
+    assert answer.status_code == 403
+    assert console.world.studio() == before
+
+
+def test_the_counts_form_starts_blank_so_saving_it_unchanged_cannot_redate_the_counts(staff: Console) -> None:
+    """The stored counts are as of their own day: prefilled under "counts today" and saved
+    unchanged, they would be dated now and lose the firings since. The fields start blank
+    and the summary shows the counts with their day."""
+    counts_post(staff, since_elements="40", all_time="1200")
+
+    answer = staff.get(SETTINGS)
+
+    assert 'id="counts-helios-since_elements" name="since_elements" value=""' in answer.text
+    assert 'id="counts-helios-all_time" name="all_time" value=""' in answer.text
+    assert "as of Fri Nov 13, 2026" in text(answer)
+    before = staff.world.studio()
+    blank = counts_post(staff, since_elements="", all_time="")  # "Save counts" untouched
+    assert blank.status_code == 400
+    assert staff.world.studio() == before
+
+
+def test_a_refused_counts_save_has_the_top_banner(staff: Console) -> None:
+    answer = counts_post(staff, since_elements="11", all_time="10")
+    assert answer.status_code == 400
+    assert "Check the firing counts: the form shows what needs fixing." in text(answer)
+    assert 'role="alert"' in answer.text
+    assert 'name="since_elements" value="11"' in answer.text  # the typed values kept, the form open
+
+
+def test_a_conflict_keeps_the_typed_program_open(staff: Console) -> None:
+    answer = program_post(
+        staff, version="0", cone="item-5", speed="slow", preheat_hours="2", hold_minutes="15"
+    )
+    assert answer.status_code == 409
+    assert "The settings changed while you were working." in text(answer)
+    assert 'name="preheat_hours" value="2"' in answer.text
+    assert 'name="hold_minutes" value="15"' in answer.text
+    assert '<option value="slow" selected>' in answer.text
+    assert '<option value="item-5" selected>' in answer.text
+    assert f'name="version" value="{version(staff)}"' in answer.text  # resubmittable as is
+
+
+def test_a_conflict_keeps_the_typed_counts_open(staff: Console) -> None:
+    answer = counts_post(staff, version="0", since_elements="40", all_time="1200")
+    assert answer.status_code == 409
+    assert 'name="since_elements" value="40"' in answer.text
+    assert 'name="all_time" value="1200"' in answer.text
+    assert staff.world.studio().item(CatalogList.KILNS, HELIOS).counts is None
+
+
+@pytest.mark.parametrize("field", ["preheat_hours", "hold_minutes"])
+def test_markup_in_a_program_number_is_refused_and_escaped(staff: Console, field: str) -> None:
+    sent = '"><script>alert(1)</script>'
+    before = staff.world.studio()
+    answer = program_post(staff, **{field: sent})
+    assert answer.status_code == 400
+    assert staff.world.studio() == before
+    assert f'id="prog-glaze-{field}-error"' in answer.text
+    assert "<script>alert(1)</script>" not in answer.text
+    assert sent not in answer.text
+    assert "&lt;script&gt;" in answer.text  # kept in the field, escaped
+
+
+def cone_options(page: str, firing_type: str) -> str:
+    """The cone select of one firing type's "Default program" form."""
+    return page.split(f'id="prog-{firing_type}-cone"')[1].split("</select>")[0]
+
+
+def test_the_program_form_offers_the_retired_cone_its_program_names(staff: Console) -> None:
+    assert list_post(staff, "cones", "retire", item="item-6").status_code == 303
+    page = staff.get(SETTINGS).text
+    glaze = cone_options(page, "glaze")
+    bisque = cone_options(page, "bisque")
+    assert '<option value="item-6" selected>^6 (retired)</option>' in glaze
+    assert 'value="item-6"' not in bisque
+    answer = program_post(staff, cone="item-6", speed="medium", preheat_hours="0", hold_minutes="7")
+    assert answer.status_code == 303
+    program = staff.world.studio().item(CatalogList.FIRING_TYPES, ItemId("glaze")).default_program
+    assert program is not None
+    assert program.cone == "item-6"

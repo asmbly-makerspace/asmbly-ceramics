@@ -160,8 +160,9 @@ Ref: decision 0002; the plan's phases 5 and 7.
 
 ### Settings are data (BLOCK)
 
-- [ ] Kilns, firing types, glaze types, rejection reasons, the pickup window and hours,
-      and the sending address are read from `Studio` when used, never constants, never in
+- [ ] Kilns, firing types, glaze types, rejection reasons, cones, clay bodies, each
+      firing type's default program, each kiln's firing counts, the pickup window and
+      hours, and the sending address are read from `Studio` when used, never constants, never in
       a template, never in an environment variable (beyond the one-time
       `initial-sending-address` seed). A change records who made it.
 

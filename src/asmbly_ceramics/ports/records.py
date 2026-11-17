@@ -6,7 +6,8 @@ One table, one transaction per change with a version check on each item (decisio
 
 - Keys: a drop-off and a load by their IDs; the studio is one item; an email by
   (`drop_off_id`, `kind`, `occasion`); a submission by `token_hash`; a `SettingChange` by
-  its `at` and a random suffix, so two at the same instant both land.
+  its `at` and a random suffix, so two at the same instant both land; a `LoadEvent` by
+  its load, its `at` and a random suffix, likewise; a `FiringNote` by its load and its ID.
 - `Put` stores the item at `version + 1` and is refused with `Conflict` when the key
   exists. `Update` replaces the whole item (phase 4: a transactional `Put` of the whole
   item under a version condition, not an `UpdateItem`), stores it at `version + 1`, and
@@ -21,7 +22,10 @@ One table, one transaction per change with a version check on each item (decisio
 - Every method raises `RecordsUnavailable(code)` when the table can't be reached.
 - Ranges are half-open, `start <= value < end`, and their bounds are aware.
 - Lists come in order: drop-offs by `created_at` then ID, loads by `date` then ID, emails
-  by `created_at`, history newest first.
+  by `created_at`, history newest first, a load's events oldest first, notes newest
+  `written_at` first (then by ID, highest first). A removed note is listed nowhere.
+- A date range (`loads_dated_between`) is half-open on plain dates; an empty or reversed
+  range lists nothing.
 - History pages by an opaque cursor, never by a time alone: one settings save can write
   several changes at the same instant (`change_email_settings`), and a time cursor would
   skip the ones after a page's end. Changes at one instant come in a fixed order (their
@@ -34,17 +38,19 @@ One table, one transaction per change with a version check on each item (decisio
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote
 from asmbly_ceramics.domain.studio import CatalogList, SettingChange, Studio
 from asmbly_ceramics.ports.errors import PortError, RecordsUnavailable
 
-MAX_CHANGES = 100  # DynamoDB's transaction limit; the 48-drop-off load keeps a fire at 97
+MAX_CHANGES = 100  # DynamoDB's transaction limit; the 48-drop-off load keeps a fire at 98
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +70,7 @@ class Submission:
     expires_at: datetime  # SUBMISSION_LIFETIME after created_at; the adapter sets TTL from it
 
 
-Item = DropOff | Load | Email | Studio | SettingChange | Submission
+Item = DropOff | Load | Email | Studio | SettingChange | Submission | LoadEvent | FiringNote
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +84,7 @@ class Put:
 class Update:
     """Replace; refused unless the stored version equals `item.version`."""
 
-    item: DropOff | Load | Email | Studio
+    item: DropOff | Load | Email | Studio | FiringNote
 
 
 Change = Put | Update
@@ -90,7 +96,7 @@ class Conflict(PortError):
     def __init__(self, ids: Sequence[str] = ()) -> None:
         if isinstance(ids, str):
             raise TypeError("Conflict takes a sequence of IDs, not one string")
-        self.ids = tuple(ids)  # the drop-off or load IDs, when known
+        self.ids = tuple(ids)  # the drop-off, load or note IDs, when known
         super().__init__("changed by someone else first: " + (", ".join(self.ids) or "unknown"))
 
 
@@ -135,6 +141,9 @@ class Records(Protocol):
     def studio(self) -> Studio | None: ...
     def email(self, drop_off_id: DropOffId, kind: EmailKind, occasion: str = "") -> Email | None: ...
     def submission(self, token_hash: str) -> Submission | None: ...
+    def note(self, load_id: LoadId, note_id: NoteId) -> FiringNote | None:
+        """Removed notes are returned too: the use case decides."""
+        ...
 
     # Lists. Eventually consistent is fine: a stale list can't cause a wrong write,
     # because every write checks versions.
@@ -142,6 +151,27 @@ class Records(Protocol):
     def drop_offs_created_between(self, start: datetime, end: datetime) -> list[DropOff]: ...
     def drop_offs_rejected_between(self, start: datetime, end: datetime) -> list[DropOff]: ...
     def loads_in(self, statuses: Collection[LoadStatus]) -> list[Load]: ...
+    def loads_dated_between(self, statuses: Collection[LoadStatus], start: date, end: date) -> list[Load]:
+        """Loads in `statuses` dated `start <= date < end`, by date then ID. Reads only
+        that range of each status's index partition, so its cost doesn't grow with the
+        years kept."""
+        ...
+
+    def load_events(self, load_id: LoadId) -> list[LoadEvent]:
+        """The load's history, oldest first. Two at one instant come in no promised order
+        (the adapter's is its key's random suffix), so a caller or test that needs an order
+        between two events gives them different times."""
+        ...
+
+    def notes_for(self, load_id: LoadId) -> list[FiringNote]:
+        """The load's notes, removed ones left out, newest `written_at` first."""
+        ...
+
+    def notes_written_between(self, start: datetime, end: datetime) -> list[FiringNote]:
+        """Every load's notes written `start <= written_at < end`, removed ones left out,
+        newest first. Reads only that range of the index."""
+        ...
+
     def emails_for(self, drop_off_id: DropOffId) -> list[Email]: ...
     def emails_in(self, statuses: Collection[EmailStatus]) -> list[Email]: ...
     def history(self, limit: int, before: str | None = None) -> HistoryPage:
@@ -152,6 +182,10 @@ class Records(Protocol):
 
     def is_item_used(self, which: CatalogList, id: ItemId) -> bool:
         """Deleted drop-offs and loads use nothing. A kiln by any load; a firing type by
-        any drop-off or load; a glaze type by any drop-off; a reason by any drop-off's
-        rejection, closed ones included."""
+        any drop-off or load; a glaze type by any drop-off or any firing note that isn't
+        removed (#17); a reason by any drop-off's rejection, closed ones included; a cone
+        by any load's program (its record's `program.cone`) or by a firing type's default
+        program in the stored studio (`names_cone`; none when no studio is stored); a clay
+        body by any firing note that isn't removed. A note counts whatever its load's
+        status, a deleted load's included."""
         ...

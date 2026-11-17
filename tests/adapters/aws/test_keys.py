@@ -1,6 +1,7 @@
 """The records table's key design and the item <-> entity conversions."""
 
-from dataclasses import replace
+import logging
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -9,9 +10,21 @@ import pytest
 from asmbly_ceramics.adapters.aws import keys
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, claim, mark_sent, new_email, rejection_occasion
-from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.load import LoadStatus
-from asmbly_ceramics.domain.studio import SettingChange, starting_studio
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, FiringRecord, Program, Speed
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
+from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote, edit_note, remove_note
+from asmbly_ceramics.domain.studio import (
+    STARTING_CLAY_BODIES,
+    STARTING_CONES,
+    CatalogList,
+    SettingChange,
+    Studio,
+    add_item,
+    set_default_program,
+    set_kiln_counts,
+    starting_studio,
+)
 from asmbly_ceramics.ports.records import Item, Submission
 from tests.domain.builders import (
     NOW,
@@ -22,7 +35,10 @@ from tests.domain.builders import (
     TEST_PHONE_DIGITS,
     a_drop_off,
     a_load,
+    a_note,
     a_sending_address,
+    a_studio,
+    an_event,
 )
 
 
@@ -52,6 +68,8 @@ def every_kind() -> list[Item]:
         replace(ready, version=4),
         new_email(DropOffId(2), EmailKind.REJECTED, NOW, rejection_occasion(NOW)),
         a_submission(),
+        an_event(4, "Started firing"),
+        replace(a_note(12, a_load(4)), version=2),
     ]
 
 
@@ -182,3 +200,278 @@ def test_parse_email_key_applies_the_domains_occasion_rule(monkeypatch: pytest.M
 def test_parse_email_key_refuses_any_other_key(stored: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match=r"^not an? (email|records) key$"):
         keys.parse_email_key(stored)
+
+
+# A load's test flag, its firing stamps and its firing record (#42)
+
+FULL_RECORD = FiringRecord(
+    percent_full=85,
+    firing_number=98,
+    all_time_number=252,
+    program=Program(preheat_hours=0, cone=ItemId("cone-6"), speed=Speed.MEDIUM, hold_minutes=7),
+    firing_minutes=698,
+    max_temp_f=2236,
+    board_temp_f=156,
+    cost_cents=819,
+    cone_top=100,
+    cone_center=0,
+    cone_bottom=NO_CONE,
+)
+
+
+def stored(load: Load) -> dict[str, Any]:
+    return keys.to_item(load, keys.item_key(load), load.version)
+
+
+def test_load_round_trips_with_record_and_stamps() -> None:
+    load = replace(a_load(4, LoadStatus.FIRED, members=(1,), test=True, record=FULL_RECORD), version=3)
+    item = stored(load)
+    assert keys.from_item(item) == load
+    assert (item["test"], item["firing_started_by"], item["fired_by"]) == (
+        {"BOOL": True},
+        {"S": STAFF},
+        {"S": STAFF},
+    )
+    assert item["firing_started_at"] == {"S": "2026-11-13T18:30:00.000000Z"}
+    record = item["record"]["M"]
+    assert (record["cost_cents"], record["cone_bottom"], record["cone_center"]) == (
+        {"N": "819"},
+        {"S": "none"},
+        {"N": "0"},
+    )
+    assert record["program"]["M"]["speed"] == {"S": "medium"}
+    partial = replace(load, record=FiringRecord(max_temp_f=2236, program=Program(hold_minutes=7)))
+    assert keys.from_item(stored(partial)) == partial
+    assert set(stored(partial)["record"]["M"]) == {"max_temp_f", "program"}
+
+
+def test_empty_record_stores_no_record() -> None:
+    item = stored(a_load(4, LoadStatus.LOADING))
+    assert not {"record", "program_cone", "test", "firing_started_by", "firing_started_at", "fired_by"} & set(
+        item
+    )
+    load = keys.from_item(item)
+    assert isinstance(load, Load)
+    assert load.record == EMPTY_RECORD
+    no_program = replace(a_load(4), record=FiringRecord(percent_full=0))
+    assert stored(no_program)["record"] == {"M": {"percent_full": {"N": "0"}}}
+
+
+def test_old_load_item_reads_with_defaults() -> None:
+    old = replace(a_load(4, LoadStatus.FIRED, members=(1,), before_42=True), version=2)
+    item = stored(old)
+    # As phase 1's code found it: none of the attributes #42 adds.
+    for name in ("test", "firing_started_by", "firing_started_at", "fired_by", "record", "program_cone"):
+        assert name not in item
+    load = keys.from_item(item)
+    assert isinstance(load, Load)
+    assert load == old
+    assert (load.test, load.firing_started_by, load.firing_started_at, load.fired_by, load.record) == (
+        False,
+        None,
+        None,
+        None,
+        EMPTY_RECORD,
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"M": {"max_temp_f": {"S": "hot"}}},  # a number as text
+        {"M": {"max_temp_f": {"BOOL": True}}},
+        {"M": {"cone_top": {"S": "half"}}},
+        {"M": {"program": {"M": {"speed": {"S": "warp"}}}}},
+        {"M": {"program": {"M": {"cone": {"N": "6"}}}}},
+        {"M": {"program": {"S": "fast"}}},
+        {"S": "a record"},
+    ],
+)
+def test_bad_record_map_names_only_the_load(record: dict[str, Any]) -> None:
+    item = stored(a_load(4, LoadStatus.FIRED, members=(1,)))
+    item["record"] = record
+    with pytest.raises(ValueError, match=r"^load L-4's firing record doesn't parse$"):
+        keys.from_item(item)
+
+
+def test_unknown_record_keys_are_ignored() -> None:
+    load = a_load(4, LoadStatus.FIRED, members=(1,), record=FULL_RECORD)
+    item = stored(load)
+    item["record"]["M"]["colour"] = {"S": "red"}
+    item["record"]["M"]["program"]["M"]["flavour"] = {"N": "6"}
+    assert keys.from_item(item) == load
+
+
+def test_record_keys_name_every_field() -> None:
+    assert {field.name for field in fields(FiringRecord)} == keys._RECORD_KEYS
+    assert {field.name for field in fields(Program)} == keys._PROGRAM_KEYS
+
+
+def test_program_cone_is_top_level() -> None:
+    load = a_load(
+        4, LoadStatus.FIRING, members=(1,), record=FiringRecord(program=Program(cone=ItemId("cone-6")))
+    )
+    assert stored(load)["program_cone"] == {"S": "cone-6"}
+    assert "program_cone" not in stored(replace(load, record=FiringRecord(percent_full=50)))
+
+
+# The studio's lists and item fields (#42, #17)
+
+
+def a_full_studio() -> Studio:
+    studio, _ = starting_studio(a_sending_address(), NOW)
+    studio, _ = set_kiln_counts(studio, ItemId("helios"), "97", "251", "kiln-tech", NOW)
+    studio, _ = add_item(studio, CatalogList.CONES, "^04", "kiln-tech", NOW)
+    studio, _ = add_item(studio, CatalogList.CLAY_BODIES, "Speckled Buff", "kiln-tech", NOW)
+    studio, _ = set_default_program(studio, ItemId("glaze"), {"cone": "item-04"}, "kiln-tech", NOW)
+    return replace(studio, version=3)
+
+
+def test_studio_round_trips_new_lists_and_fields() -> None:
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    assert keys.from_item(item) == studio
+    helios = next(i for i in item["kilns"]["L"] if i["M"]["id"] == {"S": "helios"})["M"]
+    assert helios["counts"]["M"] == {
+        "since_elements": {"N": "97"},
+        "all_time": {"N": "251"},
+        "as_of": {"S": keys.iso(NOW)},
+    }
+    glaze = item["firing_types"]["L"][1]["M"]
+    assert glaze["default_program"]["M"] == {"cone": {"S": "item-04"}}
+    # An item with neither holds no attribute for them (never a null).
+    athena = item["kilns"]["L"][0]["M"]
+    assert "counts" not in athena
+    assert "default_program" not in athena
+
+
+def test_an_empty_default_program_round_trips() -> None:
+    studio = a_full_studio()
+    bisque = replace(studio.firing_types[0], default_program=Program())
+    studio = replace(studio, firing_types=(bisque, *studio.firing_types[1:]))
+    assert keys.from_item(keys.to_item(studio, keys.studio_key(), 1)) == replace(studio, version=1)
+
+
+def test_old_studio_item_reads_starting_lists() -> None:
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    del item["cones"], item["clay_bodies"]
+    for listed in (*item["kilns"]["L"], *item["firing_types"]["L"]):
+        listed["M"].pop("counts", None)
+        listed["M"].pop("default_program", None)
+    old = keys.from_item(item)
+    assert isinstance(old, Studio)
+    assert old.cones == STARTING_CONES
+    assert old.clay_bodies == STARTING_CLAY_BODIES
+    assert all(i.counts is None for i in old.kilns)
+    assert all(i.default_program is None for i in old.firing_types)
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"M": {"since_elements": {"BOOL": True}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
+        {"M": {"since_elements": {"S": "1"}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}, "as_of": {"S": "not a time"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}, "as_of": {"N": "5"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}}},
+        {"S": "97"},
+    ],
+)
+def test_kiln_counts_of_the_wrong_type_read_as_none_and_are_logged(
+    counts: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # Like a bad default program, it costs that kiln's counts, not the whole studio.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    item["kilns"]["L"][0]["M"]["counts"] = counts
+    read = keys.from_item(item)
+    assert isinstance(read, Studio)
+    assert read.kilns[0].counts is None
+    assert read.kilns[1:] == studio.kilns[1:]
+    assert read.firing_types == studio.firing_types
+    [record] = [r for r in caplog.records if getattr(r, "event", "") == "unexpected_item"]
+    assert record.levelno == logging.ERROR
+    assert getattr(record, "item", None) == "athena"
+    assert getattr(record, "error_code", None) == "UnexpectedItem"
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        {"S": "slow"},
+        {"M": {"speed": {"S": "warp"}}},
+        {"M": {"cone": {"N": "6"}}},
+        {"M": {"hold_minutes": {"S": "10"}}},
+        {"M": {"preheat_hours": {"BOOL": True}}},
+    ],
+)
+def test_a_default_program_of_the_wrong_type_reads_as_none_and_is_logged(
+    program: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # It costs that program, not the whole studio: staff can still open the console.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    studio = a_full_studio()
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    item["firing_types"]["L"][0]["M"]["default_program"] = program
+    read = keys.from_item(item)
+    assert isinstance(read, Studio)
+    assert read.firing_types[0].default_program is None
+    assert read.firing_types[1:] == studio.firing_types[1:]
+    assert read.kilns == studio.kilns
+    [record] = [r for r in caplog.records if getattr(r, "event", "") == "unexpected_item"]
+    assert record.levelno == logging.ERROR
+    assert getattr(record, "item", None) == "bisque"
+    assert getattr(record, "error_code", None) == "UnexpectedItem"
+
+
+# Load events and notes (#42, #17)
+
+
+def test_event_item() -> None:
+    event = an_event(4, "Fired")
+    item = keys.to_item(event, keys.item_key(event), None)
+    assert item["PK"] == {"S": "LOAD#L-4"}
+    assert item["SK"]["S"].startswith("EVENT#2026-11-13T18:30:00.000000Z#")
+    assert len(item["SK"]["S"].rsplit("#", 1)[1]) == keys.HISTORY_SUFFIX_HEX
+    assert keys.item_key(event) != keys.item_key(event)  # two at one instant both land
+    assert item["type"] == {"S": "load_event"}
+    assert "version" not in item
+    assert "GSI1PK" not in item  # read by its load's partition only
+    assert keys.from_item(item) == event
+
+
+def test_note_item_round_trip() -> None:
+    note = replace(a_note(12, a_load(4), glaze_types=("house-dip-glaze",), clay_bodies=()), version=1)
+    edited = edit_note(
+        note, "Pinholes at the shoulder.", [], [], None, "glaze-lead", NOW + timedelta(hours=1), a_studio()
+    )
+    for entity in (note, edited):
+        item = keys.to_item(entity, keys.item_key(entity), entity.version + 1)
+        assert item["PK"] == {"S": "LOAD#L-4"}
+        assert item["SK"] == {"S": "NOTE#N-12"}
+        assert item["GSI1PK"] == {"S": "NOTE"}
+        assert item["GSI1SK"] == {"S": "2026-11-13T18:30:00.000000Z#N-12"}  # written, not edited
+        assert keys.from_item(item) == replace(entity, version=entity.version + 1)
+    assert keys.to_item(note, keys.item_key(note), 2)["clay_bodies"] == {"L": []}
+    assert keys.note_key(LoadId(4), NoteId(12)) == keys.item_key(note)
+
+
+def test_removed_note_leaves_the_note_partition() -> None:
+    removed = remove_note(a_note(12, a_load(4)), STAFF, NOW + timedelta(hours=1))
+    item = keys.to_item(removed, keys.item_key(removed), 1)
+    assert item["GSI1PK"] == {"S": "NOTE#removed"}
+    assert item["removed_by"] == {"S": STAFF}
+    assert keys.from_item(item) == replace(removed, version=1)
+
+
+def test_note_with_no_ruling() -> None:
+    note = a_note(3, ruling=None)
+    item = keys.to_item(note, keys.item_key(note), 1)
+    assert "ruling" not in item
+    assert "edited_at" not in item
+    assert "removed_at" not in item
+    parsed = keys.from_item(item)
+    assert isinstance(parsed, FiringNote)
+    assert parsed.ruling is None

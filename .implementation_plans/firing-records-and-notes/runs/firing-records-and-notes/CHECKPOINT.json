@@ -1,0 +1,572 @@
+{
+ "plan_name": "firing-records-and-notes",
+ "run": "firing-records-and-notes",
+ "issue": null,
+ "feature_branch": "feat/firing-records-and-notes",
+ "worktree": null,
+ "status": "complete",
+ "stage": "done",
+ "selected_phases": [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9"
+ ],
+ "environment": {
+  "uv": "ready",
+  "jq": true,
+  "github": "gh-api",
+  "sam": false,
+  "aws_read": false
+ },
+ "plan_sha": "2f16277",
+ "phases": [
+  {
+   "id": "phase-1-load-record-and-steps",
+   "number": "1",
+   "title": "The load: test firings, who moved it, the firing record",
+   "domain": [
+    "app"
+   ],
+   "depends_on": [],
+   "status": "done",
+   "base_sha": "2f16277",
+   "squashed_sha": "6c72632",
+   "review_rounds": 1,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42
+   ],
+   "admin_actions": [
+    "Maintainer, after the merge's deploy: fire a load on stage, check it opens, then set phase 1 [x]"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "phase-2-studio-cones-clays-programs-counts",
+   "number": "2",
+   "title": "The studio: cones, clay bodies, default programs, kiln counts",
+   "domain": [
+    "app",
+    "web"
+   ],
+   "depends_on": [
+    "1"
+   ],
+   "status": "done",
+   "base_sha": "6c72632",
+   "squashed_sha": "509132d",
+   "review_rounds": 1,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42,
+    17
+   ],
+   "admin_actions": [],
+   "notes": ""
+  },
+  {
+   "id": "phase-3-load-history-and-notes-domain",
+   "number": "3",
+   "title": "The domain: a load's history and firing notes",
+   "domain": [
+    "app"
+   ],
+   "depends_on": [
+    "2"
+   ],
+   "status": "done",
+   "base_sha": "509132d",
+   "squashed_sha": "62814e0",
+   "review_rounds": 2,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42,
+    17
+   ],
+   "admin_actions": [],
+   "notes": ""
+  },
+  {
+   "id": "phase-4-records-events-notes-ranges",
+   "number": "4",
+   "title": "Records: events, notes and date ranges, in the fake and DynamoDB",
+   "domain": [
+    "app",
+    "infra"
+   ],
+   "depends_on": [
+    "3"
+   ],
+   "status": "done",
+   "base_sha": "62814e0",
+   "squashed_sha": "ddf98c3",
+   "review_rounds": 1,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42,
+    17
+   ],
+   "admin_actions": [
+    "maintainer, after merge: check both smoke tests pass, then open a load page and the settings page on stage; flip phase 4 to [x]"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "phase-5-use-cases-record-and-log",
+   "number": "5",
+   "title": "Use cases: test loads, history, the firing record, corrections, the firing log",
+   "domain": [
+    "app"
+   ],
+   "depends_on": [
+    "4"
+   ],
+   "status": "done",
+   "base_sha": "ddf98c3",
+   "squashed_sha": "b2f6d21",
+   "review_rounds": 3,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42
+   ],
+   "admin_actions": [],
+   "notes": ""
+  },
+  {
+   "id": "phase-6-console-load-page",
+   "number": "6",
+   "title": "Console: the load page's steps, firing record, test and history",
+   "domain": [
+    "web"
+   ],
+   "depends_on": [
+    "5"
+   ],
+   "status": "done",
+   "base_sha": "b2f6d21",
+   "squashed_sha": "21d16c4",
+   "review_rounds": 2,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42
+   ],
+   "admin_actions": [
+    "Maintainer, after merge: stage walk-through on a phone (empty test load, fire, record, correct time, history), then set phase 6 [x]"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "phase-7-console-firing-log-and-settings",
+   "number": "7",
+   "title": "Console: the firing log, its CSV, and the new settings",
+   "domain": [
+    "web",
+    "docs"
+   ],
+   "depends_on": [
+    "6"
+   ],
+   "status": "done",
+   "base_sha": "21d16c4",
+   "squashed_sha": "5db368b",
+   "review_rounds": 2,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    42
+   ],
+   "admin_actions": [
+    "Maintainer, after the merge: walk the stage check, tell ceramics staff about the firing log and kiln counts, set [x]"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "phase-8-use-cases-notes",
+   "number": "8",
+   "title": "Use cases: firing notes",
+   "domain": [
+    "app"
+   ],
+   "depends_on": [
+    "5"
+   ],
+   "status": "done",
+   "base_sha": "5db368b",
+   "squashed_sha": "7ec99d3",
+   "review_rounds": 2,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [],
+   "refs": [
+    17
+   ],
+   "admin_actions": [],
+   "notes": ""
+  },
+  {
+   "id": "phase-9-console-notes",
+   "number": "9",
+   "title": "Console: notes on a load and the notes search",
+   "domain": [
+    "web",
+    "docs"
+   ],
+   "depends_on": [
+    "7",
+    "8"
+   ],
+   "status": "done",
+   "base_sha": "7ec99d3",
+   "squashed_sha": "410d320",
+   "review_rounds": 3,
+   "cold_review": "fixed",
+   "split_from": null,
+   "parked_branch": null,
+   "closes": [
+    17,
+    42
+   ],
+   "refs": [],
+   "admin_actions": [
+    "Maintainer, after the stage walk-through and prod smoke pass: tell ceramics staff about notes and the notes search, then set phase 9 [x]"
+   ],
+   "notes": ""
+  }
+ ],
+ "gate": {
+  "base_sha": "410d320",
+  "result": "clean",
+  "squashed_sha": null,
+  "test_count": 3723,
+  "coverage": "99.30%",
+  "steps_skipped": [
+   {
+    "step": "sam validate --lint / sam build",
+    "reason": "sam CLI not installed"
+   }
+  ]
+ },
+ "final_review": {
+  "base_sha": "410d320",
+  "result": "fixed",
+  "squashed_sha": "d1e93e2"
+ },
+ "docs": {
+  "base_sha": "d1e93e2",
+  "squashed_sha": "bc9c351"
+ },
+ "qa": {
+  "base_sha": "bc9c351",
+  "squashed_sha": "fee7608",
+  "closes": [
+   17,
+   42
+  ],
+  "refs": []
+ },
+ "pr": {
+  "number": 44,
+  "result": "green",
+  "rounds": []
+ },
+ "events": [
+  {
+   "ts": "2026-11-16T19:17:02Z",
+   "type": "run_start"
+  },
+  {
+   "ts": "2026-11-16T19:17:02Z",
+   "type": "decision",
+   "topic": "work",
+   "choice": "run plan firing-records-and-notes (all 9 phases) found on the given branch claude/adoring-cori-y89qo7",
+   "reason": "the input named a branch holding only that plan"
+  },
+  {
+   "type": "env_missing",
+   "tool": "sam",
+   "ts": ""
+  },
+  {
+   "ts": "2026-11-16T19:50:15Z",
+   "type": "phase_done",
+   "phase": "phase-1-load-record-and-steps"
+  },
+  {
+   "ts": "2026-11-16T19:50:15Z",
+   "type": "cold_review",
+   "phase": "phase-1-load-record-and-steps",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 3
+  },
+  {
+   "ts": "2026-11-16T19:50:22Z",
+   "type": "squash",
+   "phase": "phase-1-load-record-and-steps",
+   "sha": "6c72632"
+  },
+  {
+   "ts": "2026-11-16T19:50:22Z",
+   "type": "phase_start",
+   "phase": "phase-2-studio-cones-clays-programs-counts"
+  },
+  {
+   "ts": "2026-11-16T20:24:14Z",
+   "type": "phase_done",
+   "phase": "phase-2-studio-cones-clays-programs-counts"
+  },
+  {
+   "ts": "2026-11-16T20:24:14Z",
+   "type": "cold_review",
+   "phase": "phase-2-studio-cones-clays-programs-counts",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 3
+  },
+  {
+   "ts": "2026-11-16T20:24:17Z",
+   "type": "squash",
+   "phase": "phase-2-studio-cones-clays-programs-counts",
+   "sha": "509132d"
+  },
+  {
+   "ts": "2026-11-16T20:24:17Z",
+   "type": "phase_start",
+   "phase": "phase-3-load-history-and-notes-domain"
+  },
+  {
+   "ts": "2026-11-16T21:01:08Z",
+   "type": "phase_done",
+   "phase": "phase-3-load-history-and-notes-domain"
+  },
+  {
+   "ts": "2026-11-16T21:01:08Z",
+   "type": "cold_review",
+   "phase": "phase-3-load-history-and-notes-domain",
+   "review_lead": "APPROVED after fix round",
+   "privacy": "CLEAR after fix round"
+  },
+  {
+   "ts": "2026-11-16T21:01:11Z",
+   "type": "squash",
+   "phase": "phase-3-load-history-and-notes-domain",
+   "sha": "62814e0"
+  },
+  {
+   "ts": "2026-11-16T21:01:11Z",
+   "type": "phase_start",
+   "phase": "phase-4-records-events-notes-ranges"
+  },
+  {
+   "ts": "2026-11-16T21:28:05Z",
+   "type": "phase_done",
+   "phase": "phase-4-records-events-notes-ranges"
+  },
+  {
+   "ts": "2026-11-16T21:28:05Z",
+   "type": "cold_review",
+   "phase": "phase-4-records-events-notes-ranges",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 3
+  },
+  {
+   "ts": "2026-11-16T21:28:08Z",
+   "type": "squash",
+   "phase": "phase-4-records-events-notes-ranges",
+   "sha": "ddf98c3"
+  },
+  {
+   "ts": "2026-11-16T21:28:08Z",
+   "type": "phase_start",
+   "phase": "phase-5-use-cases-record-and-log"
+  },
+  {
+   "ts": "2026-11-16T22:05:42Z",
+   "type": "phase_done",
+   "phase": "phase-5-use-cases-record-and-log"
+  },
+  {
+   "ts": "2026-11-16T22:05:42Z",
+   "type": "cold_review",
+   "phase": "phase-5-use-cases-record-and-log",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 7
+  },
+  {
+   "ts": "2026-11-16T22:05:44Z",
+   "type": "squash",
+   "phase": "phase-5-use-cases-record-and-log",
+   "sha": "b2f6d21"
+  },
+  {
+   "ts": "2026-11-16T22:05:44Z",
+   "type": "phase_start",
+   "phase": "phase-6-console-load-page"
+  },
+  {
+   "ts": "2026-11-16T22:36:47Z",
+   "type": "phase_done",
+   "phase": "phase-6-console-load-page"
+  },
+  {
+   "ts": "2026-11-16T22:36:47Z",
+   "type": "cold_review",
+   "phase": "phase-6-console-load-page",
+   "review_lead": "APPROVED",
+   "privacy": "FLAG (1 WARN, a missing test) fixed",
+   "warns_fixed": 5
+  },
+  {
+   "ts": "2026-11-16T22:36:50Z",
+   "type": "squash",
+   "phase": "phase-6-console-load-page",
+   "sha": "21d16c4"
+  },
+  {
+   "ts": "2026-11-16T22:36:50Z",
+   "type": "phase_start",
+   "phase": "phase-7-console-firing-log-and-settings"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "phase_done",
+   "phase": "phase-7-console-firing-log-and-settings"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "cold_review",
+   "phase": "phase-7-console-firing-log-and-settings",
+   "review_lead": "APPROVED after fix rounds (BLOCK fixed)",
+   "privacy": "CLEAR"
+  },
+  {
+   "ts": "2026-11-16T23:16:57Z",
+   "type": "decision",
+   "topic": "story closing",
+   "choice": "phase 7 refs #42; phase 9 closes #17 and #42",
+   "reason": "#42 firing-log criterion includes the notes count column built in phase 9"
+  },
+  {
+   "ts": "2026-11-16T23:17:00Z",
+   "type": "squash",
+   "phase": "phase-7-console-firing-log-and-settings",
+   "sha": "5db368b"
+  },
+  {
+   "ts": "2026-11-16T23:17:00Z",
+   "type": "phase_start",
+   "phase": "phase-8-use-cases-notes"
+  },
+  {
+   "ts": "2026-11-16T23:43:55Z",
+   "type": "phase_done",
+   "phase": "phase-8-use-cases-notes"
+  },
+  {
+   "ts": "2026-11-16T23:43:55Z",
+   "type": "cold_review",
+   "phase": "phase-8-use-cases-notes",
+   "review_lead": "APPROVED",
+   "privacy": "CLEAR",
+   "warns_fixed": 6
+  },
+  {
+   "ts": "2026-11-16T23:43:58Z",
+   "type": "squash",
+   "phase": "phase-8-use-cases-notes",
+   "sha": "7ec99d3"
+  },
+  {
+   "ts": "2026-11-16T23:43:58Z",
+   "type": "phase_start",
+   "phase": "phase-9-console-notes"
+  },
+  {
+   "ts": "2026-11-17T00:33:53Z",
+   "type": "phase_done",
+   "phase": "phase-9-console-notes"
+  },
+  {
+   "ts": "2026-11-17T00:33:53Z",
+   "type": "cold_review",
+   "phase": "phase-9-console-notes",
+   "review_lead": "APPROVED after fix rounds (BLOCK fixed)",
+   "privacy": "CLEAR after fix round"
+  },
+  {
+   "ts": "2026-11-17T00:33:55Z",
+   "type": "squash",
+   "phase": "phase-9-console-notes",
+   "sha": "410d320"
+  },
+  {
+   "ts": "2026-11-17T00:36:33Z",
+   "type": "gate_result",
+   "result": "clean",
+   "test_count": 3723
+  },
+  {
+   "ts": "2026-11-17T00:58:59Z",
+   "type": "final_review",
+   "review_lead": "APPROVED (0 BLOCK, 7 WARN fixed)",
+   "privacy": "FLAG (0 BLOCK, 1 WARN: removed notes keep text; deferred to maintainer)"
+  },
+  {
+   "ts": "2026-11-17T00:58:59Z",
+   "type": "decision",
+   "topic": "product calls left to maintainer",
+   "choice": "firing-number suggestion prefill; empty test firing counting; removed notes keeping text",
+   "reason": "story wording decisions"
+  },
+  {
+   "ts": "2026-11-17T01:05:34Z",
+   "type": "qa_written",
+   "steps": 41
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "pr_opened",
+   "number": 44
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "decision",
+   "topic": "PR subscription",
+   "choice": "unsubscribed this session from #44's activity",
+   "reason": "rule: no PR subscriptions in the orchestrator"
+  },
+  {
+   "ts": "2026-11-17T01:10:21Z",
+   "type": "complete"
+  }
+ ]
+}

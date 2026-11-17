@@ -8,38 +8,69 @@ One table, string keys `PK` and `SK`, two global secondary indexes:
 | Load | `LOAD#L-4` | `META` | `LOAD#<status>` / `<date>#L-4` | | |
 | Studio | `STUDIO` | `CURRENT` | | | |
 | Settings history | `STUDIO` | `HISTORY#<at>#<16 hex>` | | | |
+| Load history | `LOAD#L-4` | `EVENT#<at>#<16 hex>` | | | |
+| Firing note | `LOAD#L-4` | `NOTE#N-12` | `NOTE` (removed: `NOTE#removed`) / `<written_at>#N-12` | | |
 | Email (outbox) | `EMAIL#AC-12` | `<kind>[#<occasion>]` | | `EMAIL#<status>` / `<created>#AC-12#<kind>` | |
-| ID counters | `COUNTER#dropoff`, `COUNTER#load` | `META` | | | |
+| ID counters | `COUNTER#dropoff`, `COUNTER#load`, `COUNTER#note` | `META` | | | |
 | Rate-limit hits | `RATE#<keyed hash>` | `META` | | | a day after the window |
 | Submission | `SUBMISSION#<keyed hash>` | `META` | | | `expires_at` |
 
-Every item has a top-level `type` string; a drop-off, a load, an email and the studio
-also have a `version` number. Times are UTC with
+Every item has a top-level `type` string; a drop-off, a load, an email, the studio and
+a note also have a `version` number. Times are UTC with
 fixed microseconds and a `Z` (`2026-11-13T18:30:00.000000Z`), so they sort as strings;
 a load's date is `YYYY-MM-DD`. A drop-off's personal details are their own top-level
 attributes (`contact_name`, `contact_email`, `contact_phone`, `rejection_message`), and an
 item is always written whole, so a closed drop-off's item holds none of them (#7). An
 email's `type` and `status` are top-level strings, for phase 7's stream filter.
 
+A load's firing record (#42) is a `record` map of the fields that are set, left out when
+none is; a cone reading is a number or the string `none`, the cost a number of cents. The
+program's cone is also a top-level `program_cone`, so an item's use can be found by a
+filter as a kiln's is. `test` is stored only when true. An item written before #42 reads
+with the defaults: not a test, no firing stamps, an empty record.
+
+The studio item holds each list as a list of maps. A firing type's map has a
+`default_program` map and a kiln's a `counts` map only when set. A studio stored before
+#42 and #17 has no `cones` or `clay_bodies` and reads with the starting lists.
+
+A load's partition holds its `META` item, its history (`EVENT#`) and its notes
+(`NOTE#`); a query of the partition names the prefix it wants in its key condition, so
+the others aren't read. A note's tags are lists of item IDs (an empty list is stored as
+one), its ruling is left out when it has none, and a removed note moves to the
+`NOTE#removed` index partition, so a search's range read never meets it.
+
 Lists sort in Python after a query, so an ID's number needs no padding in a sort key.
 """
 
+import logging
 import re
 import secrets
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypeGuard
 
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from asmbly_ceramics.domain.dropoff import Contact, DropOff, DropOffState, Rejection
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, is_email_occasion
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.firing import EMPTY_RECORD, NO_CONE, ConeReading, FiringRecord, Program, Speed
+from asmbly_ceramics.domain.history import LoadEvent
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.notes import FiringNote, Ruling
 from asmbly_ceramics.domain.photos import PhotoRef
-from asmbly_ceramics.domain.studio import CatalogItem, ItemStatus, SettingChange, Studio
+from asmbly_ceramics.domain.studio import (
+    STARTING_CLAY_BODIES,
+    STARTING_CONES,
+    CatalogItem,
+    ItemStatus,
+    KilnCounts,
+    SettingChange,
+    Studio,
+)
 from asmbly_ceramics.ports.records import Item, Submission
+from asmbly_ceramics.use_cases.log import log_event
 
 AttributeMap = dict[str, Any]  # a low-level item: attribute name -> {"S": ...}, {"N": ...}
 
@@ -47,6 +78,8 @@ DROP_OFF = "drop_off"
 LOAD = "load"
 STUDIO = "studio"
 HISTORY = "history"
+LOAD_EVENT = "load_event"
+NOTE = "note"
 EMAIL = "email"
 COUNTER = "counter"
 RATE = "rate"
@@ -56,6 +89,10 @@ META = "META"
 STUDIO_PK = "STUDIO"
 STUDIO_SK = "CURRENT"
 HISTORY_PREFIX = "HISTORY#"
+EVENT_PREFIX = "EVENT#"
+NOTE_PREFIX = "NOTE#"
+NOTE_PARTITION = "NOTE"  # GSI1PK of every note that isn't removed
+REMOVED_NOTE_PARTITION = "NOTE#removed"
 GSI1 = "GSI1"
 GSI2 = "GSI2"
 
@@ -95,8 +132,16 @@ def drop_off_key(id: DropOffId) -> AttributeMap:
     return key(f"DROPOFF#{id}", META)
 
 
+def load_pk(id: LoadId) -> str:
+    return f"LOAD#{id}"
+
+
 def load_key(id: LoadId) -> AttributeMap:
-    return key(f"LOAD#{id}", META)
+    return key(load_pk(id), META)
+
+
+def note_key(load_id: LoadId, note_id: NoteId) -> AttributeMap:
+    return key(load_pk(load_id), f"{NOTE_PREFIX}{note_id}")
 
 
 def studio_key() -> AttributeMap:
@@ -167,9 +212,14 @@ def new_history_sk(at: datetime) -> str:
     return f"{HISTORY_PREFIX}{iso(at)}#{secrets.token_hex(HISTORY_SUFFIX_HEX // 2)}"
 
 
+def new_event_sk(at: datetime) -> str:
+    """A load event's sort key: as a settings change's, under `EVENT#`."""
+    return f"{EVENT_PREFIX}{iso(at)}#{secrets.token_hex(HISTORY_SUFFIX_HEX // 2)}"
+
+
 def item_key(item: Item) -> AttributeMap:
-    """The key an entity is stored under. A `SettingChange` gets a new random one each
-    call: call once per change."""
+    """The key an entity is stored under. A `SettingChange` or a `LoadEvent` gets a new
+    random one each call: call once per change."""
     match item:
         case DropOff():
             return drop_off_key(item.id)
@@ -183,6 +233,10 @@ def item_key(item: Item) -> AttributeMap:
             return submission_key(item.token_hash)
         case SettingChange():
             return key(STUDIO_PK, new_history_sk(item.at))
+        case LoadEvent():
+            return key(load_pk(item.load_id), new_event_sk(item.at))
+        case FiringNote():
+            return note_key(item.load_id, item.id)
 
 
 # Entity -> item -----------------------------------------------------------------------
@@ -190,7 +244,7 @@ def item_key(item: Item) -> AttributeMap:
 
 def to_item(entity: Item, stored_key: AttributeMap, version: int | None) -> AttributeMap:
     """The whole item for `entity`, under `stored_key`, at `version` (`None` for an item
-    that has none: a settings change, a submission). `None` attributes are left out,
+    that has none: a settings change, a load event, a submission). `None` attributes are left out,
     never stored as nulls."""
     attributes: dict[str, object] = {"version": version, **_attributes(entity)}
     item = dict(stored_key)
@@ -220,6 +274,12 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "fired_at": _iso_or_none(entity.fired_at),
                 "deleted_by": entity.deleted_by,
                 "deleted_at": _iso_or_none(entity.deleted_at),
+                "test": True if entity.test else None,
+                "firing_started_by": entity.firing_started_by,
+                "firing_started_at": _iso_or_none(entity.firing_started_at),
+                "fired_by": entity.fired_by,
+                "record": _record(entity.record),
+                "program_cone": entity.record.program.cone,
             }
         case Studio():
             return {
@@ -231,9 +291,21 @@ def _attributes(entity: Item) -> dict[str, object]:
                 "firing_types": [_catalog_item(i) for i in entity.firing_types],
                 "glaze_types": [_catalog_item(i) for i in entity.glaze_types],
                 "reasons": [_catalog_item(i) for i in entity.reasons],
+                "cones": [_catalog_item(i) for i in entity.cones],
+                "clay_bodies": [_catalog_item(i) for i in entity.clay_bodies],
             }
         case SettingChange():
             return {"type": HISTORY, "at": iso(entity.at), "by": entity.by, "what": entity.what}
+        case LoadEvent():
+            return {
+                "type": LOAD_EVENT,
+                "load_id": str(entity.load_id),
+                "at": iso(entity.at),
+                "by": entity.by,
+                "what": entity.what,
+            }
+        case FiringNote():
+            return _note(entity)
         case Email():
             return {
                 "type": EMAIL,
@@ -302,14 +374,86 @@ def _drop_off(d: DropOff) -> dict[str, object]:
     return attributes
 
 
-def _catalog_item(item: CatalogItem) -> dict[str, object]:
+def _note(note: FiringNote) -> dict[str, object]:
     return {
+        "type": NOTE,
+        "GSI1PK": REMOVED_NOTE_PARTITION if note.removed else NOTE_PARTITION,
+        "GSI1SK": f"{iso(note.written_at)}#{note.id}",
+        "id": str(note.id),
+        "load_id": str(note.load_id),
+        "kiln": note.kiln,
+        "text": note.text,
+        "glaze_types": [str(tag) for tag in note.glaze_types],
+        "clay_bodies": [str(tag) for tag in note.clay_bodies],
+        "ruling": None if note.ruling is None else note.ruling.value,
+        "written_by": note.written_by,
+        "written_at": iso(note.written_at),
+        "edited_by": note.edited_by,
+        "edited_at": _iso_or_none(note.edited_at),
+        "removed_by": note.removed_by,
+        "removed_at": _iso_or_none(note.removed_at),
+    }
+
+
+_RECORD_NUMBERS = (
+    "percent_full",
+    "firing_number",
+    "all_time_number",
+    "firing_minutes",
+    "max_temp_f",
+    "board_temp_f",
+    "cost_cents",
+)
+_PROGRAM_NUMBERS = ("preheat_hours", "hold_minutes")
+_CONE_READINGS = ("cone_top", "cone_center", "cone_bottom")
+# The keys `record` and its `program` map hold: a test checks they name every field of
+# `FiringRecord` and `Program`, so a field added there is stored and read here too.
+_RECORD_KEYS = frozenset({*_RECORD_NUMBERS, *_CONE_READINGS, "program"})
+_PROGRAM_KEYS = frozenset({*_PROGRAM_NUMBERS, "cone", "speed"})
+
+
+def _record(record: FiringRecord) -> dict[str, object] | None:
+    """The record's set fields, or None (no attribute) for an empty record."""
+    stored: dict[str, object] = {name: getattr(record, name) for name in _RECORD_NUMBERS}
+    stored |= {name: _stored_reading(getattr(record, name)) for name in _CONE_READINGS}
+    stored["program"] = _program(record.program)
+    return {name: value for name, value in stored.items() if value is not None} or None
+
+
+def _program(program: Program) -> dict[str, object] | None:
+    """The program's set fields, or None for an empty program."""
+    program_map = {
+        "preheat_hours": program.preheat_hours,
+        "cone": program.cone,
+        "speed": None if program.speed is None else program.speed.value,
+        "hold_minutes": program.hold_minutes,
+    }
+    return {name: value for name, value in program_map.items() if value is not None} or None
+
+
+def _stored_reading(reading: ConeReading | None) -> object:
+    return reading.value if reading is NO_CONE else reading
+
+
+def _catalog_item(item: CatalogItem) -> dict[str, object]:
+    """A list item's map. `default_program` (a firing type's) and `counts` (a kiln's) are
+    there only when set: DynamoDB's serializer would store a None inside a map as a null."""
+    stored: dict[str, object] = {
         "id": item.id,
         "name": item.name,
         "status": item.status.value,
         "needs_glaze_type": item.needs_glaze_type,
         "needs_message": item.needs_message,
     }
+    if item.default_program is not None:
+        stored["default_program"] = _program(item.default_program) or {}
+    if item.counts is not None:
+        stored["counts"] = {
+            "since_elements": item.counts.since_elements,
+            "all_time": item.counts.all_time,
+            "as_of": iso(item.counts.as_of),
+        }
+    return stored
 
 
 def _iso_or_none(at: datetime | None) -> str | None:
@@ -344,6 +488,11 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 fired_at=_time_or_none(values.get("fired_at")),
                 deleted_by=values.get("deleted_by"),
                 deleted_at=_time_or_none(values.get("deleted_at")),
+                test=values.get("test", False) is True,
+                firing_started_by=values.get("firing_started_by"),
+                firing_started_at=_time_or_none(values.get("firing_started_at")),
+                fired_by=values.get("fired_by"),
+                record=_to_record(values["id"], values.get("record")),
                 version=values["version"],
             )
         case "studio":
@@ -355,10 +504,24 @@ def from_item(item: Mapping[str, Any]) -> Item:
                 firing_types=_catalog(values["firing_types"]),
                 glaze_types=_catalog(values["glaze_types"]),
                 reasons=_catalog(values["reasons"]),
+                # A studio stored before #42 and #17 has neither list: the starting ones.
+                cones=_catalog(values["cones"]) if "cones" in values else STARTING_CONES,
+                clay_bodies=(
+                    _catalog(values["clay_bodies"]) if "clay_bodies" in values else STARTING_CLAY_BODIES
+                ),
                 version=values["version"],
             )
         case "history":
             return SettingChange(at=parse_iso(values["at"]), by=values["by"], what=values["what"])
+        case "load_event":
+            return LoadEvent(
+                load_id=LoadId.parse(values["load_id"]),
+                at=parse_iso(values["at"]),
+                by=values["by"],
+                what=values["what"],
+            )
+        case "note":
+            return _to_note(values)
         case "email":
             return Email(
                 drop_off_id=DropOffId.parse(values["drop_off_id"]),
@@ -424,17 +587,138 @@ def _to_drop_off(values: dict[str, Any]) -> DropOff:
     )
 
 
-def _catalog(items: list[dict[str, Any]]) -> tuple[CatalogItem, ...]:
-    return tuple(
-        CatalogItem(
-            id=ItemId(i["id"]),
-            name=i["name"],
-            status=ItemStatus(i["status"]),
-            needs_glaze_type=i["needs_glaze_type"],
-            needs_message=i["needs_message"],
-        )
-        for i in items
+def _to_note(values: dict[str, Any]) -> FiringNote:
+    ruling = values.get("ruling")
+    return FiringNote(
+        id=NoteId.parse(values["id"]),
+        load_id=LoadId.parse(values["load_id"]),
+        kiln=ItemId(values["kiln"]),
+        text=values["text"],
+        glaze_types=tuple(ItemId(tag) for tag in values["glaze_types"]),
+        clay_bodies=tuple(ItemId(tag) for tag in values["clay_bodies"]),
+        ruling=None if ruling is None else Ruling(ruling),
+        written_by=values["written_by"],
+        written_at=parse_iso(values["written_at"]),
+        edited_by=values.get("edited_by"),
+        edited_at=_time_or_none(values.get("edited_at")),
+        removed_by=values.get("removed_by"),
+        removed_at=_time_or_none(values.get("removed_at")),
+        version=values["version"],
     )
+
+
+def _to_record(load_id: str, stored: object) -> FiringRecord:
+    """A load's `record` map as a `FiringRecord`. A value of the wrong type is a
+    `ValueError` naming the load only, never the value. An unknown key is ignored, so a
+    key a later version adds doesn't make the load, and every list holding it, unreadable."""
+    if stored is None:
+        return EMPTY_RECORD
+    refused = ValueError(f"load {load_id}'s firing record doesn't parse")
+    if not isinstance(stored, dict):
+        raise refused
+    numbers = {name: stored.get(name) for name in _RECORD_NUMBERS}
+    if not all(_is_number(value) for value in numbers.values()):
+        raise refused
+    program = _to_program(stored.get("program", {}), refused)
+    readings = {name: stored.get(name) for name in _CONE_READINGS}
+    if not all(_is_number(value) or value == NO_CONE.value for value in readings.values()):
+        raise refused
+    return FiringRecord(
+        **numbers,
+        program=program,
+        cone_top=_reading(readings["cone_top"]),
+        cone_center=_reading(readings["cone_center"]),
+        cone_bottom=_reading(readings["cone_bottom"]),
+    )
+
+
+def _to_program(stored: object, refused: ValueError) -> Program:
+    """A stored `program` map as a `Program`, or `refused` for a value of the wrong type."""
+    if not isinstance(stored, dict):
+        raise refused
+    numbers = {name: stored.get(name) for name in _PROGRAM_NUMBERS}
+    if not all(_is_number(value) for value in numbers.values()):
+        raise refused
+    cone, speed = stored.get("cone"), stored.get("speed")
+    if not (cone is None or isinstance(cone, str)) or not (
+        speed is None or (isinstance(speed, str) and speed in {s.value for s in Speed})
+    ):
+        raise refused
+    return Program(
+        **numbers,
+        cone=None if cone is None else ItemId(cone),
+        speed=None if speed is None else Speed(speed),
+    )
+
+
+def _reading(value: object) -> ConeReading | None:
+    """A checked cone reading: `none`, a whole number or None."""
+    if value == NO_CONE.value:
+        return NO_CONE
+    return value if isinstance(value, int) else None
+
+
+def _is_count(value: object) -> TypeGuard[int]:
+    """A whole number; a boolean isn't one."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: object) -> bool:
+    """None (not recorded) or a whole number; a boolean isn't one."""
+    return value is None or (isinstance(value, int) and not isinstance(value, bool))
+
+
+def _catalog(items: list[dict[str, Any]]) -> tuple[CatalogItem, ...]:
+    return tuple(_to_catalog_item(i) for i in items)
+
+
+def _to_catalog_item(i: dict[str, Any]) -> CatalogItem:
+    """A list item's map; one stored before #42 has no `default_program` or `counts`."""
+    refused = ValueError(f"the studio's item {i['id']} doesn't parse")
+    stored_program = i.get("default_program")
+    return CatalogItem(
+        id=ItemId(i["id"]),
+        name=i["name"],
+        status=ItemStatus(i["status"]),
+        needs_glaze_type=i["needs_glaze_type"],
+        needs_message=i["needs_message"],
+        default_program=_default_program(i["id"], stored_program, refused),
+        counts=_kiln_counts(i["id"], i.get("counts")),
+    )
+
+
+def _kiln_counts(item_id: str, stored: object) -> KilnCounts | None:
+    """A kiln's stored firing counts, or None when none are stored. Counts that don't
+    parse (not a map, a count that isn't a whole number, a missing or malformed `as_of`)
+    are logged as `unexpected_item` by the kiln's ID and read as None, like a bad default
+    program, so they cost that kiln's counts, not the whole studio: staff set them again
+    in the console."""
+    if stored is None:
+        return None
+    try:
+        if not isinstance(stored, dict):
+            raise ValueError("the counts aren't a map")
+        since, total, as_of = stored.get("since_elements"), stored.get("all_time"), stored.get("as_of")
+        if not (_is_count(since) and _is_count(total) and isinstance(as_of, str)):
+            raise ValueError("the counts don't parse")
+        return KilnCounts(since_elements=since, all_time=total, as_of=parse_iso(as_of))
+    except ValueError:
+        log_event("unexpected_item", level=logging.ERROR, error_code="UnexpectedItem", item=item_id)
+        return None
+
+
+def _default_program(item_id: str, stored: object, refused: ValueError) -> Program | None:
+    """A firing type's stored default program, or None when none is stored. One that
+    doesn't parse (an unknown speed, a number of the wrong type) is logged as
+    `unexpected_item` by the firing type's ID and read as None, so it costs that
+    program, not the whole studio: staff set it again in the console."""
+    if stored is None:
+        return None
+    try:
+        return _to_program(stored, refused)
+    except ValueError:
+        log_event("unexpected_item", level=logging.ERROR, error_code="UnexpectedItem", item=item_id)
+        return None
 
 
 def _time_or_none(text: str | None) -> datetime | None:

@@ -206,6 +206,12 @@ def test_austin_time_is_formatted_by_hand(at: datetime, shown: str) -> None:
     assert austin_time(at) == shown
 
 
+def test_austin_time_with_year_carries_the_austin_day_s_year() -> None:
+    assert austin_time(datetime(2026, 11, 13, 16, 42, tzinfo=UTC), year=True) == "Fri Nov 13, 2026, 10:42 AM"
+    # 00:30 UTC on 1 January is still New Year's Eve in Austin.
+    assert austin_time(datetime(2027, 1, 1, 0, 30, tzinfo=UTC), year=True) == "Thu Dec 31, 2026, 6:30 PM"
+
+
 def test_received_holds_the_id_pieces_firing_and_glaze_type() -> None:
     email = COMPOSER.received(a_glaze_drop_off(), a_studio(), cid)
     assert "Hi Test Person, thanks for dropping off. Here's your ID:" in email.html
@@ -406,3 +412,13 @@ def test_the_composer_imports_no_web_layer() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert loaded.stdout.strip() == "[]"
+
+
+def test_austin_date_is_austin_day_with_its_year() -> None:
+    from datetime import date
+
+    from asmbly_ceramics.mail.compose import austin_date, austin_day
+
+    assert austin_day(date(2026, 11, 13)) == "Fri Nov 13"
+    assert austin_date(date(2026, 11, 13)) == "Fri Nov 13, 2026"
+    assert austin_date(date(2027, 1, 1)) == "Fri Jan 1, 2027"

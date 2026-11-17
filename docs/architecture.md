@@ -10,7 +10,8 @@ decided and why is in
 Built, and tested without AWS: the domain model (`src/asmbly_ceramics/domain/`), the
 ports (`ports/`), in-memory fakes of them (`adapters/memory/`), the use cases
 (`use_cases/`: submit a drop-off, the waiting list, search, one drop-off, rejection,
-loads, settings, the daily close, counts, emails needing attention), the email composer
+loads (with each load's firing record and history), firing notes and their search, the
+firing log, settings, the daily close, counts, emails needing attention), the email composer
 and its templates (`mail/`), the AWS adapters (`adapters/aws/`: DynamoDB records,
 counters and rate limiter, the S3 photo store, the SES mailer, Cognito staff tokens,
 Parameter Store secrets), the system clock (`adapters/clock.py`), the photo
@@ -18,8 +19,10 @@ inspector, which checks and re-encodes photos with Pillow (`adapters/images.py`)
 public drop-off form and the staff console (`web/`, `web/console/`: Starlette pages rendered with Jinja2, the photo upload
 script, the Content-Security-Policy and other headers, same-origin checks and signed
 cookies; the console adds sign-in through the staff sign-in, a CSRF check and the pages
-for the waiting list, search, one drop-off and its photos, rejection, loads, settings
-and their history, counts and the emails needing attention; `web/local.py` runs the
+for the waiting list, search, one drop-off and its photos, rejection, loads (with each
+load's status steps, firing record, notes and history), the notes search, the firing log
+and its CSV download,
+settings and their history, counts and the emails needing attention; `web/local.py` runs the
 form on the fakes on a laptop). The brand colours the pages
 and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap stack
 (deploy roles, boundaries, addresses), deployed by hand with
@@ -41,9 +44,9 @@ What the domain code settles, beyond the stories:
 
 - A load refuses a new firing type once it has drop-offs (`FiringTypeLocked`); remove
   them first.
-- A catalog item (kiln, firing type, glaze type, rejection reason) is deleted only after
-  it is retired; an active one is refused. An item a drop-off or load used can't be
-  deleted.
+- A catalog item (kiln, firing type, glaze type, rejection reason, cone, clay body) is
+  deleted only after it is retired; an active one is refused. An item a drop-off or load
+  used can't be deleted, nor can a cone a firing type's default program names.
 - The settings history records that the sending address changed, never the address.
 - The form's rate limit counts hits in a rolling window, refused hits included, and
   fails closed.
@@ -55,7 +58,7 @@ What the domain code settles, beyond the stories:
 | Part | Who uses it | Stories |
 | --- | --- | --- |
 | **Drop-off form**: public, no sign-in, phone-friendly, reached by the studio's QR code; shows the new ID (`AC-1`, `AC-2`, …) at once | Anyone dropping off | #2 |
-| **Staff console**: the waiting list, search, loads, rejections, settings and their history, weekly counts | Ceramics staff (the `ceramics` staff group) | #3, #4, #5, #6, #7 |
+| **Staff console**: the waiting list, search, loads (with each load's firing record and notes), rejections, the firing log, the notes search, settings and their history, weekly counts | Ceramics staff (the `ceramics` staff group) | #3, #4, #5, #6, #7, #17, #42 |
 | **Emails**: received, ready for pickup (after firing), needs attention (rejected); each with the drop-off's photos in the email, from the sending address set in the console | The person who dropped off | #2, #4, #5, #6 |
 | **Photo storage**: 1 to 6 photos per drop-off, private in S3, seen only through the console | Ceramics staff | #2, #3 |
 | **Closing**: once the pickup window has passed, a drop-off closes and its personal details and photos are deleted | Nobody sees it run | #7 |
@@ -80,10 +83,49 @@ What the domain code settles, beyond the stories:
   nowhere again (a soft delete, so the functions need no `DeleteItem` right). Every
   fired drop-off belongs to exactly one load. With #9, a
   load can be planned ahead with a date.
+- A load can be a **test firing** (#42), chosen when it is started and changeable only
+  while it is loading. A test can start firing and be marked fired with no drop-offs,
+  and then emails no one; one that holds drop-offs fires as any load does. Each step a
+  load reaches (started, firing, fired) keeps who reached it, by staff username, and
+  when; staff can correct a step's time (never its username), keeping started ≤ firing ≤
+  fired and nothing in the future.
+- Each live load has an optional **firing record** (#42), every field optional and
+  checked on the server: % full, the firing number since the kiln's elements and all
+  time (suggested from the kiln's last fired load, or its counts), the program (preheat,
+  cone, speed, hold), the firing time, max and board temperatures, the cost, and how far
+  the top, center and bottom witness cones bent (or "no cone"). Saving it never touches
+  the load's drop-offs or sends an email, so a fired load's contents still can't change.
+- A load has a **history**: one line per change (started, changed, firing started,
+  fired, deleted, the record's changed fields with their new values, a step's time
+  corrected), with the staff username and the time. Adding or removing a drop-off
+  writes none. The record and the history hold no personal details and the close (#7)
+  never touches them.
+- The **firing log** lists fired loads by kiln, a date range of at most 5 years read
+  from an index, and kind (all, tests only, no tests), with the record's main fields as
+  columns and each load's number of notes (and how many say "not allowed"), and downloads
+  the same rows as a CSV whose cells can't start a spreadsheet formula. Neither holds
+  anything but staff usernames, studio items, record values and note counts.
+- A load has **firing notes** (#17), any number, written, edited or removed at any stage
+  (after firing too) on the load page: plain text of 1 to 2,000 characters, tagged with glaze
+  types and clay bodies from the studio's lists, and optionally a **ruling** (allowed,
+  allowed with conditions, not allowed). Each keeps who wrote it and when, and who last
+  edited or removed it and when; a removed note is kept but listed nowhere again, and
+  deleting a load removes its notes. A note holds no personal details: the form says
+  so, and the server refuses text holding something shaped like an email address or a
+  phone number (a ramp written as three numbers of 3, 3 and 4 digits looks like one, so
+  the form says to write it with units or commas). The **notes search** filters notes
+  by kiln, glaze type, clay body, ruling and the date written (at most 5 years, read
+  from an index), each linking to its load. Notes are kept with their load, never
+  deleted by the close (#7), never logged (logs carry note IDs such as `N-12`), and
+  never on the public form or in an email; the kiln schedule (#9) must keep them off it
+  too. Their text is autoescaped wherever it is shown.
 - **Kilns** (Athena, Helios and Vulcan today), **firing types**, **glaze types**,
-  **rejection reasons**, the **pickup window and hours** and the **sending address**
-  are settings, edited in the console with a history of who changed what. Anything a
-  drop-off or load has used is retired, not deleted.
+  **rejection reasons**, **cones** (^06, ^5 and ^6 to start), **clay bodies**, the
+  **pickup window and hours** and the **sending address** are settings, edited in the
+  console with a history of who changed what. Anything a drop-off or load has used is
+  retired, not deleted. A firing type can carry a **default program** that fills each
+  new load's record, and a kiln its **firing counts** (since new elements and all time,
+  as of when they were set), which "New elements" resets so its next firing is number 1.
 
 ## The shape of the code
 

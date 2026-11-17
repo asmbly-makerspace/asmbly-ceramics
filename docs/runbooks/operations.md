@@ -25,6 +25,27 @@ environment's site, version and smoke result. Check: both smoke tests pass, and
 The smoke test never submits a drop-off and never sends an email. It prints S3's answer
 to an oversized upload (the first run settles what that answer is).
 
+## What to check on stage after a merge
+
+The smoke tests don't open a load or a note. After a merge that changes loads, the
+firing log or notes, walk this on stage (`https://ceramics-stage.asmbly.org/console`)
+with made-up drop-offs only, before staff rely on prod:
+
+1. A load page and the settings page open. A load started with a made-up drop-off can
+   start firing and be marked fired; its emails are queued as before.
+2. A test load with no drop-offs starts, fires with no email, takes a firing record, and
+   has its fired time corrected; the load's history shows each change.
+3. Settings › Kilns takes a kiln's counts; a made-up load fired afterwards suggests the
+   next firing numbers. The firing log filters to tests, and its CSV opens in a
+   spreadsheet.
+4. A note with a glaze type, a clay body and a ruling is written on a load, edited and
+   removed. The notes search finds it by glaze type, and the firing log's notes column
+   counts it.
+
+**Undo:** revert, as below. Event and note items already written stay in the table,
+unread. A revert that predates the studio's new lists drops them on the next settings
+save; staff set any they changed again.
+
 ## Roll back a change
 
 **Do:** open a pull request that reverts the change, and merge it on the maintainer's

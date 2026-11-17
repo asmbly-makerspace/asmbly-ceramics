@@ -1,13 +1,15 @@
 """The settings use cases and the test email (#6), against the fakes."""
 
 import logging
-from datetime import timedelta
+from dataclasses import replace
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
 from asmbly_ceramics.domain.email import EmailStatus
 from asmbly_ceramics.domain.errors import (
     DuplicateItem,
+    InvalidRecord,
     InvalidSetting,
     ItemInUse,
     NoStaffEmail,
@@ -15,12 +17,15 @@ from asmbly_ceramics.domain.errors import (
     TestEmailFailed,
     UnknownItem,
 )
+from asmbly_ceramics.domain.firing import FiringRecord, Program, Speed
 from asmbly_ceramics.domain.ids import ItemId
-from asmbly_ceramics.domain.studio import CatalogList, ItemStatus, Studio
+from asmbly_ceramics.domain.limits import NUMBERS_DATE_MARGIN, NUMBERS_READ_AHEAD, STUDIO_TZ
+from asmbly_ceramics.domain.load import Load, LoadStatus
+from asmbly_ceramics.domain.studio import CatalogList, ItemStatus, KilnCounts, Studio
 from asmbly_ceramics.ports.errors import RecordsUnavailable
-from asmbly_ceramics.ports.records import BadCursor, Conflict
+from asmbly_ceramics.ports.records import BadCursor, Conflict, Put, Update
 from asmbly_ceramics.ports.staff import StaffMember
-from tests.domain.builders import NOW, STAFF, a_sending_address, an_address
+from tests.domain.builders import NOW, STAFF, a_load, a_sending_address, an_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import ATHENA, BISQUE, STAFF_EMAIL, STAFF_MEMBER, dropped_off, loaded
 
@@ -315,3 +320,183 @@ def test_a_store_that_cant_be_reached_saves_nothing(world: World, caplog: pytest
     world.records.fail_reads_with = RecordsUnavailable("InternalServerError")
     with pytest.raises(RecordsUnavailable):
         world.view_studio()
+
+
+# Default programs, kiln counts and new elements (#42)
+
+GLAZE = ItemId("glaze")
+HELIOS = ItemId("helios")
+PROGRAM_FORM = {"preheat_hours": "1", "cone": "item-5", "speed": "slow", "hold_minutes": "15"}
+
+
+def test_set_default_program_saves_logs_and_records_history(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    saved = world.set_default_program(GLAZE, PROGRAM_FORM, world.studio().version, STAFF_MEMBER)
+
+    assert saved.item(CatalogList.FIRING_TYPES, GLAZE).default_program == Program(
+        preheat_hours=1, cone=ItemId("item-5"), speed=Speed.SLOW, hold_minutes=15
+    )
+    assert world.studio() == saved
+    change = world.view_studio().history[0]
+    assert (change.what, change.by, change.at) == (
+        "Default program for Glaze: ^5, slow, preheat 1 h, hold 15 min",
+        STAFF,
+        NOW,
+    )
+    [event] = events(caplog, "settings_changed")
+    assert (event["list"], event["item"], event["user"]) == ("firing_types", "glaze", STAFF)
+    # A new glaze load starts with it.
+    load = world.start_load(ATHENA, GLAZE, None, STAFF_MEMBER)
+    assert load.record.program == saved.item(CatalogList.FIRING_TYPES, GLAZE).default_program
+
+
+def test_set_default_program_unchanged_commits_nothing(world: World) -> None:
+    saved = world.set_default_program(GLAZE, PROGRAM_FORM, world.studio().version, STAFF_MEMBER)
+    commits = len(world.records.commits)
+    assert world.set_default_program(GLAZE, PROGRAM_FORM, saved.version, STAFF_MEMBER) == saved
+    assert len(world.records.commits) == commits
+
+
+def test_set_default_program_refused_field_and_conflict(world: World) -> None:
+    stale = world.studio().version
+    commits = len(world.records.commits)
+    with pytest.raises(InvalidRecord) as refused:
+        world.set_default_program(GLAZE, PROGRAM_FORM | {"speed": "warp"}, stale, STAFF_MEMBER)
+    assert list(refused.value.errors) == ["speed"]
+    with pytest.raises(UnknownItem):
+        world.set_default_program(ItemId("raku"), PROGRAM_FORM, stale, STAFF_MEMBER)
+    change_email(world, window="21")
+    with pytest.raises(Conflict):
+        world.set_default_program(GLAZE, PROGRAM_FORM, stale, STAFF_MEMBER)
+    assert len(world.records.commits) == commits + 1  # the email settings only
+
+
+def test_set_kiln_counts_saves_and_records_history(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    saved = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(97, 251, NOW)
+    assert world.view_studio().history[0].what == "Helios counts: 97 since elements, 251 all time"
+    [event] = events(caplog, "settings_changed")
+    assert (event["list"], event["item"], event["user"]) == ("kilns", "helios", STAFF)
+
+
+def test_set_kiln_counts_refused_field_and_conflict(world: World) -> None:
+    stale = world.studio().version
+    with pytest.raises(InvalidSetting) as refused:
+        world.set_kiln_counts(HELIOS, "300", "251", stale, STAFF_MEMBER)
+    assert refused.value.field == "since_elements"
+    with pytest.raises(InvalidSetting) as refused:
+        world.set_kiln_counts(HELIOS, "1", "lots", stale, STAFF_MEMBER)
+    assert refused.value.field == "all_time"
+    change_email(world, window="21")
+    with pytest.raises(Conflict):
+        world.set_kiln_counts(HELIOS, "1", "2", stale, STAFF_MEMBER)
+    assert world.studio().item(KILNS, HELIOS).counts is None
+
+
+def fire_numbered(world: World, kiln: ItemId, since: int | None, total: int | None) -> None:
+    """A fired test load on `kiln` whose record holds these numbers."""
+    load = world.start_load(kiln, BISQUE, None, STAFF_MEMBER, test=True)
+    stored = world.records.load(load.id)
+    assert stored is not None
+    numbered = replace(stored, record=replace(stored.record, firing_number=since, all_time_number=total))
+    world.records.commit([Update(numbered)])
+    firing = world.start_firing(load.id, numbered.version + 1, STAFF_MEMBER)
+    world.mark_fired(load.id, firing.version, STAFF_MEMBER)
+
+
+def test_record_new_elements_counts_fired_loads(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(days=1))
+    fire_numbered(world, HELIOS, 98, 252)
+    fire_numbered(world, ATHENA, 40, 900)  # another kiln's firing doesn't count
+    world.clock.advance(timedelta(days=1))
+    caplog.set_level(logging.INFO)
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+    assert world.view_studio().history[0].what == "New elements in Helios"
+    [event] = events(caplog, "settings_changed")
+    assert (event["list"], event["item"], event["user"]) == ("kilns", "helios", STAFF)
+
+
+def fired_dated(number: int, on: date, fired_at: datetime, total: int) -> Load:
+    """A fired Helios load dated `on` (noon in Austin), fired at `fired_at`, numbered `total`."""
+    load = a_load(number, LoadStatus.FIRED, kiln="helios", at=datetime.combine(on, time(12), STUDIO_TZ))
+    return replace(load, fired_at=fired_at, record=FiringRecord(all_time_number=total))
+
+
+def test_record_new_elements_reads_since_counts(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    counts_day = NOW.astimezone(STUDIO_TZ).date()
+    first = counts_day - NUMBERS_DATE_MARGIN
+    later = NOW + timedelta(hours=2)
+    # Dated on the window's first day, fired after the counts: read and counted.
+    on_edge = fired_dated(90, first, NOW + timedelta(hours=1), 300)
+    # Dated the day before, fired later still: not read, so not counted.
+    outside = fired_dated(91, first - timedelta(days=1), later, 900)
+    world.records.commit([Put(on_edge), Put(outside)])
+    world.clock.advance(timedelta(hours=3))
+    reads = len(world.records.reads)
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 300, world.clock.now())
+    assert world.records.date_ranges[-1] == (first, counts_day + NUMBERS_READ_AHEAD)
+    assert "loads_dated_between" in world.records.reads[reads:]
+    assert "loads_in" not in world.records.reads[reads:]
+
+
+def test_record_new_elements_counts_a_load_dated_before_the_counts_day(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    the_day_before = NOW.astimezone(STUDIO_TZ).date() - timedelta(days=1)
+    world.records.commit([Put(fired_dated(90, the_day_before, NOW + timedelta(hours=1), 252))])
+    world.clock.advance(timedelta(hours=2))
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+
+
+def test_record_new_elements_counts_a_fired_load_dated_after_today(world: World) -> None:
+    studio = world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    next_month = NOW.astimezone(STUDIO_TZ).date() + timedelta(days=30)
+    world.records.commit([Put(fired_dated(90, next_month, NOW + timedelta(hours=1), 252))])
+    world.clock.advance(timedelta(hours=2))
+
+    saved = world.record_new_elements(HELIOS, studio.version, STAFF_MEMBER)
+
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 252, world.clock.now())
+
+
+def test_record_new_elements_without_counts_looks_back_400_days(world: World) -> None:
+    def fired(number: int, days_ago: int, total: int) -> Load:
+        load = a_load(number, LoadStatus.FIRED, kiln="helios", at=NOW - timedelta(days=days_ago))
+        return replace(load, record=FiringRecord(all_time_number=total))
+
+    # Dated 401 days ago: not read, though its (made-up) firing time is the latest.
+    too_old = replace(fired(90, 401, 900), fired_at=NOW - timedelta(days=1))
+    world.records.commit([Put(too_old), Put(fired(91, 399, 300))])
+    saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 300, NOW)
+
+
+def test_record_new_elements_without_counts_or_firings_starts_at_0(world: World) -> None:
+    saved = world.record_new_elements(HELIOS, world.studio().version, STAFF_MEMBER)
+    assert saved.item(KILNS, HELIOS).counts == KilnCounts(0, 0, NOW)
+
+
+def test_record_new_elements_unknown_kiln_and_conflict(world: World) -> None:
+    stale = world.studio().version
+    reads = len(world.records.reads)
+    with pytest.raises(UnknownItem):
+        world.record_new_elements(ItemId("hestia"), stale, STAFF_MEMBER)
+    assert "loads_dated_between" not in world.records.reads[reads:]
+    change_email(world, window="21")
+    with pytest.raises(Conflict):
+        world.record_new_elements(HELIOS, stale, STAFF_MEMBER)
+    assert world.studio().item(KILNS, HELIOS).counts is None

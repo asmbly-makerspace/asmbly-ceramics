@@ -15,22 +15,38 @@ from asmbly_ceramics.domain.errors import (
     FiredLoadNotDeletable,
     FiringTypeLocked,
     FiringTypeMismatch,
+    InvalidRecord,
     ItemRetired,
     LoadNotLoading,
     NotFound,
     NotInLoad,
     NotWaiting,
+    StepNotReached,
+    StepTimeInFuture,
+    StepTimeOutOfOrder,
+    TooManyNotesToMove,
     UnknownItem,
     WrongLoadStatus,
 )
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
-from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER, STUDIO_TZ
-from asmbly_ceramics.domain.load import LoadStatus
+from asmbly_ceramics.domain.firing import record_values
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
+from asmbly_ceramics.domain.limits import (
+    LOAD_CAPACITY,
+    NUMBERS_DATE_MARGIN,
+    NUMBERS_LOOKBACK,
+    NUMBERS_READ_AHEAD,
+    STALE_SENDING_AFTER,
+    STUDIO_TZ,
+)
+from asmbly_ceramics.domain.load import LoadStatus, Step
+from asmbly_ceramics.domain.notes import remove_note
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import IdsUnavailable, RecordsUnavailable
-from asmbly_ceramics.ports.records import Conflict, Update
+from asmbly_ceramics.ports.records import MAX_CHANGES, Conflict, Put, Update
+from asmbly_ceramics.ports.staff import StaffMember
+from asmbly_ceramics.use_cases.loads import NOTES_MOVED_MAX
 from asmbly_ceramics.use_cases.reject import RejectRequest
-from tests.domain.builders import NOW, STAFF, TEST_MESSAGE
+from tests.domain.builders import NOW, STAFF, TEST_MESSAGE, a_drop_off, a_load, a_note, an_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import (
     ATHENA,
@@ -113,7 +129,7 @@ def test_change_load_changes_kiln_and_date_with_drop_offs_in_it(
     load_id = loaded(world, AC_1)
 
     changed = world.change_load(
-        load_id, HELIOS, BISQUE, date(2026, 11, 14), version(world, load_id), STAFF_MEMBER
+        load_id, HELIOS, BISQUE, date(2026, 11, 14), version(world, load_id), STAFF_MEMBER, test=False
     )
 
     assert (changed.kiln, changed.date, changed.members) == (HELIOS, date(2026, 11, 14), (AC_1,))
@@ -128,7 +144,9 @@ def test_change_load_refuses_a_new_firing_type_once_it_has_drop_offs(world: Worl
     commits = len(world.records.commits)
 
     with pytest.raises(FiringTypeLocked):
-        world.change_load(load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
 
     assert len(world.records.commits) == commits
 
@@ -136,7 +154,9 @@ def test_change_load_refuses_a_new_firing_type_once_it_has_drop_offs(world: Worl
 def test_change_load_changes_the_firing_type_of_an_empty_load(world: World) -> None:
     load_id = loaded(world)
 
-    changed = world.change_load(load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+    changed = world.change_load(
+        load_id, ATHENA, GLAZE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+    )
 
     assert changed.firing_type == GLAZE
 
@@ -147,11 +167,15 @@ def test_change_load_refuses_a_load_that_isnt_loading(world: World) -> None:
     commits = len(world.records.commits)
 
     with pytest.raises(LoadNotLoading):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
     world.mark_fired(load_id, version(world, load_id), STAFF_MEMBER)
     commits = len(world.records.commits)
     with pytest.raises(LoadNotLoading):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id), STAFF_MEMBER, test=False
+        )
 
     assert len(world.records.commits) == commits
 
@@ -159,7 +183,9 @@ def test_change_load_refuses_a_load_that_isnt_loading(world: World) -> None:
 def test_change_load_with_a_stale_version_is_a_conflict(world: World) -> None:
     load_id = loaded(world)
     with pytest.raises(Conflict):
-        world.change_load(load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id) - 1, STAFF_MEMBER)
+        world.change_load(
+            load_id, HELIOS, BISQUE, NOW.date(), version(world, load_id) - 1, STAFF_MEMBER, test=False
+        )
 
 
 def test_an_unknown_load_is_not_found(world: World) -> None:
@@ -338,7 +364,8 @@ def test_mark_fired_marks_every_member_and_queues_one_ready_email_each_in_one_co
     assert len(world.records.commits) == commits + 1
     commit = world.records.commits[-1]
     assert sorted(type(change.item).__name__ for change in commit) == ["DropOff"] * 3 + ["Email"] * 3 + [
-        "Load"
+        "Load",
+        "LoadEvent",
     ]
     for id in (AC_1, AC_2, AC_3):
         assert state(world, id) is DropOffState.FIRED
@@ -656,3 +683,662 @@ def test_view_load_of_a_past_load_whose_drop_offs_closed(world: World) -> None:
     assert view.members[0].contact is None
     assert view.members[0].photos == ()
     assert view.needing_attention == ()
+
+
+# Test firings and who moved the load (#42)
+
+OTHER_STAFF = StaffMember("robin", an_address("robin.kiln"))
+
+
+def test_start_load_as_test(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    assert load.test
+    assert world.records.load(load.id) == load
+    [event] = events(caplog, "load_started")
+    assert (event["load_id"], event["kind"], event["user"]) == ("L-1", "test", STAFF)
+    regular = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    assert not regular.test
+    assert "kind" not in events(caplog, "load_started")[1]
+
+
+def test_change_load_corrects_test_while_loading(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    changed = world.change_load(load.id, ATHENA, BISQUE, load.date, load.version, STAFF_MEMBER, test=False)
+    assert not changed.test
+    assert world.records.load(load.id) == changed
+
+
+def test_start_firing_empty_test_load(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    firing_load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    assert (firing_load.status, firing_load.members) == (LoadStatus.FIRING, ())
+
+    done = world.mark_fired(load.id, firing_load.version, OTHER_STAFF)
+
+    assert (done.status, done.fired_by) == (LoadStatus.FIRED, "robin")
+    assert world.records.load(load.id) == done
+    assert world.records.emails_in(set(EmailStatus)) == []  # nobody to email
+    with pytest.raises(LoadNotLoading):
+        world.change_load(load.id, ATHENA, BISQUE, load.date, done.version, STAFF_MEMBER, test=False)
+
+
+def test_start_firing_records_who_and_when(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.clock.advance(timedelta(hours=2))
+
+    load = world.start_firing(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert (load.firing_started_by, load.firing_started_at) == ("robin", NOW + timedelta(hours=2))
+    assert (load.started_by, load.started_at) == (STAFF, NOW)
+    assert world.records.load(load_id) == load
+
+
+def test_mark_fired_records_who(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = firing(world, AC_1)
+    world.clock.advance(timedelta(hours=10))
+
+    load = world.mark_fired(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert (load.fired_by, load.fired_at) == ("robin", NOW + timedelta(hours=10))
+    assert (load.firing_started_by, load.firing_started_at) == (STAFF, NOW)
+    assert world.records.load(load_id) == load
+
+
+# A load's history (#42)
+
+
+def history(world: World, load_id: LoadId) -> list[tuple[str, str]]:
+    """(username, what) of each line of the load's history, oldest first."""
+    return [(line.by, line.what) for line in world.records.load_events(load_id)]
+
+
+def last_commit_types(world: World) -> list[str]:
+    return sorted(type(change.item).__name__ for change in world.records.commits[-1])
+
+
+def test_start_load_writes_its_history_line_in_its_commit(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    assert last_commit_types(world) == ["Load", "LoadEvent"]
+    [line] = world.records.load_events(load.id)
+    assert (line.by, line.at, line.what) == (STAFF, NOW, "Started the load")
+
+    test = world.start_load(ATHENA, BISQUE, None, OTHER_STAFF, test=True)
+    assert history(world, test.id) == [("robin", "Started the load as a test firing")]
+
+
+def test_change_load_writes_one_line_per_change(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, BISQUE, date(2026, 11, 12), STAFF_MEMBER)
+    world.clock.advance(timedelta(minutes=5))
+
+    changed = world.change_load(
+        load.id, HELIOS, GLAZE, date(2026, 11, 13), load.version, OTHER_STAFF, test=True
+    )
+
+    [_, line] = world.records.load_events(load.id)
+    assert (line.by, line.at) == ("robin", NOW + timedelta(minutes=5))
+    assert line.what == (
+        "Kiln: Athena → Helios; Firing type: Bisque → Glaze; Date: Nov 12 → Nov 13; "
+        "Marked a test firing; Firing record: Preheat: 0 h; Cone: ^6; Speed: medium; Hold: 7 min"
+    )
+    assert last_commit_types(world) == ["Load", "LoadEvent"]
+    assert world.records.load(load.id) == changed
+    world.clock.advance(timedelta(minutes=1))  # two lines at one instant come in no promised order
+    world.change_load(load.id, HELIOS, GLAZE, changed.date, changed.version, OTHER_STAFF, test=False)
+    assert history(world, load.id)[-1] == ("robin", "No longer a test firing")
+    assert len(events(caplog, "load_changed")) == 2
+
+
+def test_change_load_without_changes_writes_no_line(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    commits = len(world.records.commits)
+
+    same = world.change_load(load.id, ATHENA, BISQUE, load.date, load.version, STAFF_MEMBER, test=False)
+
+    assert same == load
+    assert len(world.records.commits) == commits
+    assert history(world, load.id) == [(STAFF, "Started the load")]
+    assert events(caplog, "load_changed") == []
+    with pytest.raises(Conflict):  # a stale page still hears so
+        world.change_load(load.id, ATHENA, BISQUE, load.date, load.version - 1, STAFF_MEMBER, test=False)
+
+
+def put_notes(world: World, load_id: LoadId, first: int, count: int) -> None:
+    load = world.records.load(load_id)
+    assert load is not None
+    notes = [
+        a_note(number, load, glaze_types=(), clay_bodies=(), studio=world.studio())
+        for number in range(first, first + count)
+    ]
+    world.records.commit([Put(note) for note in notes])
+
+
+def note_kiln(world: World, load_id: LoadId, number: int) -> ItemId:
+    note = world.records.note(load_id, NoteId(number))
+    assert note is not None
+    return note.kiln
+
+
+def test_change_load_kiln_moves_its_notes(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    other = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    put_notes(world, load.id, 1, 3)
+    put_notes(world, other.id, 4, 1)
+    removed = world.records.note(load.id, NoteId(3))
+    assert removed is not None
+    world.records.commit([Update(remove_note(removed, STAFF, NOW))])
+
+    world.change_load(load.id, HELIOS, BISQUE, load.date, load.version, STAFF_MEMBER, test=False)
+
+    assert last_commit_types(world) == ["FiringNote", "FiringNote", "Load", "LoadEvent"]
+    assert [note_kiln(world, load.id, n) for n in (1, 2)] == [HELIOS, HELIOS]
+    assert note_kiln(world, load.id, 3) == ATHENA  # removed: listed nowhere, so not moved
+    assert note_kiln(world, other.id, 4) == ATHENA
+
+
+def test_change_load_kiln_with_too_many_notes_refused(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    put_notes(world, load.id, 1, NOTES_MOVED_MAX)
+    # At the limit, the commit is exactly MAX_CHANGES.
+    moved = world.change_load(load.id, HELIOS, BISQUE, load.date, load.version, STAFF_MEMBER, test=False)
+    assert len(world.records.commits[-1]) == MAX_CHANGES
+    put_notes(world, load.id, NOTES_MOVED_MAX + 1, 1)
+    commits = len(world.records.commits)
+
+    with pytest.raises(TooManyNotesToMove):
+        world.change_load(load.id, ATHENA, BISQUE, load.date, moved.version, STAFF_MEMBER, test=False)
+
+    assert len(world.records.commits) == commits
+    assert note_kiln(world, load.id, 1) == HELIOS
+
+
+def test_change_load_date_only_reads_no_notes(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    reads = len(world.records.reads)
+    world.clock.advance(timedelta(minutes=1))  # two lines at one instant come in no promised order
+    world.change_load(load.id, ATHENA, BISQUE, date(2026, 11, 20), load.version, STAFF_MEMBER, test=False)
+    assert "notes_for" not in world.records.reads[reads:]
+    assert history(world, load.id)[-1] == (STAFF, "Date: Nov 13 → Nov 20")
+
+
+def test_start_firing_writes_its_history_line(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    world.clock.advance(timedelta(hours=1))
+    world.start_firing(load.id, load.version, OTHER_STAFF)
+    assert last_commit_types(world) == ["Load", "LoadEvent"]
+    [_, line] = world.records.load_events(load.id)
+    assert (line.by, line.at, line.what) == ("robin", NOW + timedelta(hours=1), "Started firing")
+
+
+def test_mark_fired_full_load_commits_98_changes(world: World) -> None:
+    ids = [DropOffId(n) for n in range(1, LOAD_CAPACITY + 1)]
+    world.records.commit([Put(a_drop_off(id.number)) for id in ids])
+    load_id = firing(world, *ids)
+    world.clock.advance(timedelta(hours=9))
+
+    world.mark_fired(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert len(world.records.commits[-1]) == 1 + 2 * LOAD_CAPACITY + 1 == 98
+    line = world.records.load_events(load_id)[-1]
+    assert (line.by, line.at, line.what) == ("robin", NOW + timedelta(hours=9), "Marked fired")
+
+
+def test_delete_load_writes_its_history_line(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.clock.advance(timedelta(minutes=1))  # two lines at one instant come in no promised order
+    world.delete_load(load_id, version(world, load_id), OTHER_STAFF)
+    assert last_commit_types(world) == ["DropOff", "Load", "LoadEvent"]
+    assert history(world, load_id)[-1] == ("robin", "Deleted the load")
+
+
+def test_adding_and_removing_write_no_history_line(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.remove_from_load(load_id, AC_1, STAFF_MEMBER)
+    assert history(world, load_id) == [(STAFF, "Started the load")]
+
+
+def test_a_failed_commit_writes_no_history_line(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    attempts: list[Callable[[], object]] = [
+        lambda: world.start_firing(load.id, load.version, STAFF_MEMBER),
+        lambda: world.change_load(load.id, HELIOS, BISQUE, load.date, load.version, STAFF_MEMBER, test=True),
+        lambda: world.delete_load(load.id, load.version, STAFF_MEMBER),
+        lambda: world.save_firing_record(load.id, {"percent_full": "50"}, load.version, STAFF_MEMBER),
+        lambda: world.correct_step_time(
+            load.id, Step.STARTED, NOW - timedelta(hours=1), load.version, STAFF_MEMBER
+        ),
+    ]
+    for attempt in attempts:
+        world.records.fail_next_commit_with = RecordsUnavailable("InternalServerError")
+        with pytest.raises(RecordsUnavailable):
+            attempt()
+    assert world.records.load(load.id) == load
+    assert history(world, load.id) == [(STAFF, "Started the load as a test firing")]
+
+    world.records.fail_next_commit_with = RecordsUnavailable("InternalServerError")
+    with pytest.raises(RecordsUnavailable):
+        world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER, test=True)  # L-2's number is spent
+    assert world.records.load(L_2) is None
+    assert history(world, L_2) == []
+
+    firing = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    world.clock.advance(timedelta(minutes=1))
+    firing = world.start_firing(firing.id, firing.version, STAFF_MEMBER)
+    world.records.fail_next_commit_with = RecordsUnavailable("InternalServerError")
+    with pytest.raises(RecordsUnavailable):
+        world.mark_fired(firing.id, firing.version, STAFF_MEMBER)
+    assert world.records.load(firing.id) == firing
+    assert history(world, firing.id) == [
+        (STAFF, "Started the load as a test firing"),
+        (STAFF, "Started firing"),
+    ]
+
+
+# The firing record (#42)
+
+
+def test_save_firing_record(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, GLAZE, None, STAFF_MEMBER)  # Glaze's default program
+    world.clock.advance(timedelta(minutes=30))
+    values = record_values(load.record) | {"percent_full": "85", "max_temp_f": "2236", "cost": "8.19"}
+
+    saved = world.save_firing_record(load.id, values, load.version, OTHER_STAFF)
+
+    assert (saved.record.percent_full, saved.record.max_temp_f, saved.record.cost_cents) == (85, 2236, 819)
+    assert saved.record.program == load.record.program
+    assert world.records.load(load.id) == saved
+    assert last_commit_types(world) == ["Load", "LoadEvent"]
+    line = world.records.load_events(load.id)[-1]
+    assert (line.by, line.at) == ("robin", NOW + timedelta(minutes=30))
+    assert line.what == "Firing record: % full: 85%; Max temp: 2,236 °F; Cost: $8.19"
+    [event] = events(caplog, "firing_record_saved")
+    assert (event["load_id"], event["user"], event["fields"]) == (
+        "L-1",
+        "robin",
+        "percent_full,max_temp_f,cost",
+    )
+
+
+def test_save_firing_record_unchanged_no_commit(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    load = world.start_load(ATHENA, GLAZE, None, STAFF_MEMBER)
+    commits = len(world.records.commits)
+
+    same = world.save_firing_record(load.id, record_values(load.record), load.version, STAFF_MEMBER)
+
+    assert same == load
+    assert len(world.records.commits) == commits
+    assert events(caplog, "firing_record_saved") == []
+
+
+def test_save_firing_record_invalid_names_fields(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    commits = len(world.records.commits)
+
+    with pytest.raises(InvalidRecord) as refused:
+        world.save_firing_record(
+            load.id, {"percent_full": "101", "cone": "item-9", "cost": "8.19"}, load.version, STAFF_MEMBER
+        )
+
+    assert set(refused.value.errors) == {"percent_full", "cone"}
+    assert len(world.records.commits) == commits
+
+
+def test_save_firing_record_conflict(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    with pytest.raises(Conflict):
+        world.save_firing_record(load.id, {"percent_full": "50"}, load.version - 1, STAFF_MEMBER)
+    assert world.records.load(load.id) == load
+
+
+def test_save_firing_record_on_fired_load_keeps_members_and_sends_nothing(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = fired(world, AC_1)
+    before = world.records.load(load_id)
+    assert before is not None
+    emails = world.records.emails_in(set(EmailStatus))
+
+    saved = world.save_firing_record(load_id, {"firing_time": "11:38"}, before.version, STAFF_MEMBER)
+
+    assert (saved.status, saved.members, saved.record.firing_minutes) == (LoadStatus.FIRED, (AC_1,), 698)
+    assert last_commit_types(world) == ["Load", "LoadEvent"]  # no drop-off, no email
+    assert world.records.emails_in(set(EmailStatus)) == emails
+    assert state(world, AC_1) is DropOffState.FIRED
+
+
+def test_save_firing_record_deleted_load_not_found(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    deleted = world.delete_load(load.id, load.version, STAFF_MEMBER)
+    with pytest.raises(NotFound):
+        world.save_firing_record(load.id, {"percent_full": "50"}, deleted.version, STAFF_MEMBER)
+    with pytest.raises(NotFound):
+        world.save_firing_record(LoadId(9), {}, 1, STAFF_MEMBER)
+
+
+def test_save_firing_record_retired_cone_already_on_record_saves(world: World) -> None:
+    load = world.start_load(ATHENA, GLAZE, None, STAFF_MEMBER)  # its program names ^6
+    cone_6, cone_5 = ItemId("item-6"), ItemId("item-5")
+    for cone in (cone_6, cone_5):
+        world.retire_item(CatalogList.CONES, cone, world.studio().version, STAFF_MEMBER)
+    assert [cone.name for cone in world.view_load(load.id).cones] == ["^06", "^6"]
+
+    saved = world.save_firing_record(
+        load.id, record_values(load.record) | {"hold_minutes": "9"}, load.version, STAFF_MEMBER
+    )
+    assert (saved.record.program.cone, saved.record.program.hold_minutes) == (cone_6, 9)
+    with pytest.raises(InvalidRecord) as refused:
+        world.save_firing_record(load.id, {"cone": str(cone_5)}, saved.version, STAFF_MEMBER)
+    assert set(refused.value.errors) == {"cone"}
+
+
+# Correcting a step's time (#42)
+
+
+def test_correct_step_time_writes_old_and_new(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.clock.advance(timedelta(hours=4))  # 16:30 Austin
+    load = world.start_firing(load_id, version(world, load_id), STAFF_MEMBER)
+    world.clock.advance(timedelta(minutes=10))
+    earlier = NOW + timedelta(hours=3, minutes=45)
+
+    corrected = world.correct_step_time(load_id, Step.FIRING, earlier, load.version, OTHER_STAFF)
+
+    assert (corrected.firing_started_at, corrected.firing_started_by) == (earlier, STAFF)
+    assert world.records.load(load_id) == corrected
+    line = world.records.load_events(load_id)[-1]
+    assert (line.by, line.at) == ("robin", NOW + timedelta(hours=4, minutes=10))
+    assert line.what == "Corrected when it started firing: Nov 13, 4:30 pm → Nov 13, 4:15 pm"
+    [event] = events(caplog, "step_time_corrected")
+    assert (event["load_id"], event["kind"], event["user"]) == ("L-1", "firing", "robin")
+
+
+def test_correct_step_time_names_each_step(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    load = world.mark_fired(load.id, load.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    load = world.correct_step_time(
+        load.id, Step.FIRED, NOW + timedelta(minutes=30), load.version, STAFF_MEMBER
+    )
+    world.clock.advance(timedelta(minutes=1))  # two lines at one instant come in no promised order
+    load = world.correct_step_time(
+        load.id, Step.STARTED, NOW - timedelta(hours=12), load.version, STAFF_MEMBER
+    )
+    assert [what for _, what in history(world, load.id)[-2:]] == [
+        "Corrected when it was fired: Nov 13, 12:30 pm → Nov 13, 1:00 pm",
+        "Corrected when it was started: Nov 13, 12:30 pm → Nov 13, 12:30 am",
+    ]
+    commits = len(world.records.commits)
+    assert world.correct_step_time(load.id, Step.STARTED, load.started_at, load.version, STAFF_MEMBER) == load
+    assert len(world.records.commits) == commits  # the same time again: nothing to record
+
+
+def test_correct_step_time_the_same_minute_is_unchanged(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    world.clock.advance(timedelta(seconds=42))
+    load = world.start_firing(load.id, load.version, STAFF_MEMBER)  # at 12:30:42 pm
+    world.clock.advance(timedelta(hours=1))
+    commits = len(world.records.commits)
+
+    # The page posts minutes: its prefilled form sent back as it is changes nothing.
+    same = world.correct_step_time(load.id, Step.FIRING, NOW, load.version, STAFF_MEMBER)
+
+    assert same == load
+    assert same.firing_started_at == NOW + timedelta(seconds=42)  # the seconds stay
+    assert len(world.records.commits) == commits
+
+
+def test_correct_step_time_shows_the_years_when_they_differ(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    world.clock.advance(timedelta(minutes=1))
+    a_year_back = NOW - timedelta(days=365)
+
+    world.correct_step_time(load.id, Step.STARTED, a_year_back, load.version, STAFF_MEMBER)
+
+    assert history(world, load.id)[-1][1] == (
+        "Corrected when it was started: Nov 13, 2026, 12:30 pm → Nov 13, 2025, 12:30 pm"
+    )
+
+
+def test_change_load_date_shows_the_years_when_they_differ(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER)
+    world.clock.advance(timedelta(minutes=1))
+
+    world.change_load(load.id, ATHENA, BISQUE, date(2027, 11, 13), load.version, STAFF_MEMBER, test=False)
+
+    assert history(world, load.id)[-1][1] == "Date: Nov 13, 2026 → Nov 13, 2027"
+
+
+def test_correct_step_time_refusals(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    commits = len(world.records.commits)
+    with pytest.raises(StepNotReached):
+        world.correct_step_time(load.id, Step.FIRING, NOW, load.version, STAFF_MEMBER)
+    with pytest.raises(StepTimeInFuture):
+        world.correct_step_time(load.id, Step.STARTED, NOW + timedelta(minutes=1), load.version, STAFF_MEMBER)
+    firing_load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    with pytest.raises(StepTimeOutOfOrder):
+        world.correct_step_time(
+            load.id, Step.FIRING, NOW - timedelta(minutes=1), firing_load.version, STAFF_MEMBER
+        )
+    with pytest.raises(Conflict):
+        world.correct_step_time(load.id, Step.STARTED, NOW - timedelta(hours=1), load.version, STAFF_MEMBER)
+    deleted = world.delete_load(load.id, firing_load.version, STAFF_MEMBER)
+    with pytest.raises(NotFound):
+        world.correct_step_time(
+            load.id, Step.STARTED, NOW - timedelta(hours=1), deleted.version, STAFF_MEMBER
+        )
+    assert len(world.records.commits) == commits + 2  # the firing and the delete only
+
+
+# Viewing a load's steps, record and history (#42)
+
+
+def test_view_load_steps_with_who(world: World) -> None:
+    load = world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER, test=True)
+    view = world.view_load(load.id)
+    assert [(s.step, s.label, s.reached, s.by, s.at, s.can_correct) for s in view.steps] == [
+        (Step.STARTED, "Loading", True, STAFF, NOW, True),
+        (Step.FIRING, "Firing", False, None, None, False),
+        (Step.FIRED, "Fired", False, None, None, False),
+    ]
+    world.clock.advance(timedelta(hours=1))
+    load = world.start_firing(load.id, load.version, OTHER_STAFF)
+    world.clock.advance(timedelta(hours=1))
+    world.mark_fired(load.id, load.version, STAFF_MEMBER)
+
+    view = world.view_load(load.id)
+
+    assert [(s.reached, s.by, s.at) for s in view.steps] == [
+        (True, STAFF, NOW),
+        (True, "robin", NOW + timedelta(hours=1)),
+        (True, STAFF, NOW + timedelta(hours=2)),
+    ]
+
+
+def test_view_load_old_load_firing_not_recorded(world: World) -> None:
+    world.studio()
+    world.records.commit([Put(a_load(5, LoadStatus.FIRED, before_42=True))])
+
+    view = world.view_load(LoadId(5))
+
+    assert [(s.reached, s.by, s.at, s.can_correct) for s in view.steps] == [
+        (True, STAFF, NOW, True),
+        (True, None, None, False),  # the page says "not recorded", and offers no correction
+        (True, None, NOW, True),
+    ]
+    assert view.history == ()
+
+
+def test_view_load_history_oldest_first(world: World) -> None:
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    world.clock.advance(timedelta(minutes=1))
+    world.change_load(
+        load_id, HELIOS, BISQUE, date(2026, 11, 14), version(world, load_id), STAFF_MEMBER, test=False
+    )
+    world.clock.advance(timedelta(minutes=1))
+    world.start_firing(load_id, version(world, load_id), OTHER_STAFF)
+    world.clock.advance(timedelta(minutes=1))
+    world.mark_fired(load_id, version(world, load_id), OTHER_STAFF)
+
+    view = world.view_load(load_id)
+
+    assert [(line.by, line.what) for line in view.history] == [
+        (STAFF, "Started the load"),
+        (STAFF, "Kiln: Athena → Helios; Date: Nov 13 → Nov 14"),
+        ("robin", "Started firing"),
+        ("robin", "Marked fired"),
+    ]
+    assert [line.at for line in view.history] == [NOW + timedelta(minutes=m) for m in range(4)]
+
+
+def test_view_load_record_fields_as_the_form_shows_them(world: World) -> None:
+    load = world.start_load(ATHENA, GLAZE, None, STAFF_MEMBER)
+    saved = world.save_firing_record(
+        load.id, record_values(load.record) | {"firing_time": "11:38", "cone_bottom": "none"}, 1, STAFF_MEMBER
+    )
+    view = world.view_load(load.id)
+    assert view.record_fields == record_values(saved.record)
+    assert (view.record_fields["firing_time"], view.record_fields["cone_bottom"]) == ("11:38", "none")
+    assert view.record_fields["cone"] == "item-6"
+    assert [cone.name for cone in view.cones] == ["^06", "^5", "^6"]
+
+
+def numbered_fired(world: World, kiln: ItemId, since: str, total: str) -> LoadId:
+    load = world.start_load(kiln, BISQUE, None, STAFF_MEMBER, test=True)
+    load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    load = world.mark_fired(load.id, load.version, STAFF_MEMBER)
+    values = {"firing_number": since, "all_time_number": total}
+    world.save_firing_record(load.id, values, load.version, STAFF_MEMBER)
+    return load.id
+
+
+def test_view_load_suggested_numbers(world: World) -> None:
+    world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    assert world.view_load(world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER).id).suggested == (98, 252)
+    world.clock.advance(timedelta(hours=1))
+    numbered_fired(world, HELIOS, "98", "252")
+    numbered_fired(world, ATHENA, "500", "900")  # another kiln's firing doesn't count
+    world.clock.advance(timedelta(hours=1))
+    ranges = len(world.records.date_ranges)
+
+    assert world.view_load(L_1).suggested == (99, 253)
+    today = date(2026, 11, 13)
+    assert world.records.date_ranges[ranges:] == [(today - NUMBERS_DATE_MARGIN, today + NUMBERS_READ_AHEAD)]
+
+
+def test_view_load_no_suggestion_for_a_load_fired_before_the_counts(world: World) -> None:
+    load = world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER, test=True)
+    load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    world.mark_fired(load.id, load.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    # Counts set after it was fired: they already count it.
+    world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    reads = len(world.records.reads)
+
+    assert world.view_load(load.id).suggested == (None, None)
+    assert "loads_dated_between" not in world.records.reads[reads:]
+    # The next new load is still suggested the counts plus 1.
+    assert world.view_load(world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER).id).suggested == (98, 252)
+
+
+def test_view_load_reads_a_bounded_window_around_when_it_was_fired(world: World) -> None:
+    world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    load = world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER, test=True)
+    load = world.start_firing(load.id, load.version, STAFF_MEMBER)
+    world.mark_fired(load.id, load.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(days=3 * 365))  # years later, the counts never set again
+    ranges = len(world.records.date_ranges)
+
+    assert world.view_load(load.id).suggested == (98, 252)
+    fired_day = date(2026, 11, 13)
+    start, end = world.records.date_ranges[ranges]
+    assert (start, end) == (fired_day - NUMBERS_DATE_MARGIN, fired_day + NUMBERS_READ_AHEAD)
+    assert end - start <= NUMBERS_LOOKBACK + NUMBERS_READ_AHEAD
+
+
+def test_view_load_suggests_from_firings_before_a_fired_load(world: World) -> None:
+    unnumbered = world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER, test=True)
+    unnumbered = world.start_firing(unnumbered.id, unnumbered.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    numbered_fired(world, HELIOS, "4", "40")  # fired before the unnumbered one
+    world.clock.advance(timedelta(hours=1))
+    world.mark_fired(unnumbered.id, unnumbered.version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    numbered_fired(world, HELIOS, "6", "60")  # fired after it
+
+    assert world.view_load(unnumbered.id).suggested == (5, 41)
+
+
+def test_view_load_no_suggestion_once_numbered(world: World) -> None:
+    world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    load = world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER)
+    world.save_firing_record(load.id, {"firing_number": "98"}, load.version, STAFF_MEMBER)
+    reads = len(world.records.reads)
+
+    assert world.view_load(load.id).suggested == (None, None)
+    assert "loads_dated_between" not in world.records.reads[reads:]
+    assert world.view_load(world.start_load(ATHENA, BISQUE, None, STAFF_MEMBER).id).suggested == (None, None)
+
+
+def test_delete_load_removes_its_notes(world: World) -> None:
+    """A deleted load's notes are removed with it, so its tags count as used nowhere (#17)."""
+    dropped_off(world, 1)
+    load_id = loaded(world, AC_1)
+    load = world.records.load(load_id)
+    assert load is not None
+    note = a_note(
+        1, load, glaze_types=("commercial-glaze",), clay_bodies=("buffalo-wallow",), studio=world.studio()
+    )
+    world.records.commit([Put(note)])
+    assert world.records.is_item_used(CatalogList.CLAY_BODIES, ItemId("buffalo-wallow"))
+    world.clock.advance(timedelta(minutes=1))
+
+    world.delete_load(load_id, version(world, load_id), OTHER_STAFF)
+
+    assert last_commit_types(world) == ["DropOff", "FiringNote", "Load", "LoadEvent"]
+    removed = world.records.note(load_id, NoteId(1))
+    assert removed is not None
+    assert (removed.removed_by, removed.removed_at) == ("robin", NOW + timedelta(minutes=1))
+    assert world.records.notes_for(load_id) == []
+    assert not world.records.is_item_used(CatalogList.CLAY_BODIES, ItemId("buffalo-wallow"))
+    assert not world.records.is_item_used(CatalogList.GLAZE_TYPES, ItemId("commercial-glaze"))
+
+
+def test_delete_load_with_too_many_notes_is_refused(world: World) -> None:
+    for number in (1, 2):
+        dropped_off(world, number)
+    load_id = loaded(world, AC_1, AC_2)
+    room = MAX_CHANGES - 2 - 2
+    put_notes(world, load_id, 1, room)
+    world.delete_load(load_id, version(world, load_id), STAFF_MEMBER)  # at the limit: exactly MAX_CHANGES
+    assert len(world.records.commits[-1]) == MAX_CHANGES
+
+    other = loaded(world)
+    put_notes(world, other, room + 1, MAX_CHANGES - 1)
+    commits = len(world.records.commits)
+    with pytest.raises(TooManyNotesToMove) as refused:
+        world.delete_load(other, version(world, other), STAFF_MEMBER)
+    assert (
+        refused.value.message
+        == f"Load {other} has more than {MAX_CHANGES - 2} notes, so it can't be deleted."
+        " Remove some of its notes first."
+    )
+    assert len(world.records.commits) == commits
+    still = world.records.load(other)
+    assert still is not None
+    assert still.status is LoadStatus.LOADING

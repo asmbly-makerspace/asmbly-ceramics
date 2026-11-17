@@ -22,8 +22,10 @@ from asmbly_ceramics.web.console.services import ConsoleServices
 from asmbly_ceramics.web.errors import PageError
 from asmbly_ceramics.web.security import read_body
 
-FORM_BODY_MAX = 32 * 1024  # a 1,000-character message, percent-encoded, with room to spare
-FORM_FIELDS_MAX = 16
+# The largest form is a note's: 2,000 characters of 3-byte UTF-8, percent-encoded, is
+# 18,000 bytes, and its 40 tags, version and token about 2,300 more, so about 12 KB spare.
+FORM_BODY_MAX = 32 * 1024
+FORM_FIELDS_MAX = 24  # the firing record form posts 19: its 14 fields, 3 "No cone" boxes, version, csrf
 FORM_TYPE = "application/x-www-form-urlencoded"
 VERSION_DIGITS_MAX = 12  # a record's version, as the page showed it
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)
@@ -66,9 +68,25 @@ def templates(request: Request) -> Jinja2Templates:
     return found
 
 
-async def read_form(request: Request) -> Mapping[str, str]:
-    """A posted form's fields, the first value of each, strictly UTF-8 and bounded.
-    Anything else is a 400 page; no value is ever logged."""
+class PostedForm(dict[str, str]):
+    """A posted form: the first value of each field, as a mapping, and every value of a
+    field repeated by a checkbox list (`getlist`)."""
+
+    def __init__(self, pairs: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._lists: dict[str, list[str]] = {}
+        for name, value in pairs:
+            self.setdefault(name, value)
+            self._lists.setdefault(name, []).append(value)
+
+    def getlist(self, name: str) -> list[str]:
+        """Every value sent for `name`, in order; none when it wasn't sent."""
+        return list(self._lists.get(name, ()))
+
+
+async def read_form(request: Request, max_fields: int = FORM_FIELDS_MAX) -> PostedForm:
+    """A posted form's fields, strictly UTF-8 and bounded: at most `FORM_BODY_MAX` bytes
+    and `max_fields` fields. Anything else is a 400 page; no value is ever logged."""
     media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if media_type != FORM_TYPE:
         raise PageError(400)
@@ -79,14 +97,11 @@ async def read_form(request: Request) -> Mapping[str, str]:
             keep_blank_values=True,
             encoding="utf-8",
             errors="strict",
-            max_num_fields=FORM_FIELDS_MAX,
+            max_num_fields=max_fields,
         )
     except UnicodeDecodeError, ValueError:
         raise PageError(400) from None
-    fields: dict[str, str] = {}
-    for name, value in pairs:
-        fields.setdefault(name, value)
-    return fields
+    return PostedForm(pairs)
 
 
 def form_version(form: Mapping[str, str]) -> int:

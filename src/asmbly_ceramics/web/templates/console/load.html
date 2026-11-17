@@ -4,20 +4,16 @@
 {% if notice %}<div class="notice" role="status"><p>{{ notice }}</p></div>{% endif %}
 {% if problem %}<div class="notice notice-error" role="alert"><h2>{{ problem }}</h2></div>{% endif %}
 <div class="page-head">
-  <h2>{{ title }} <span class="mono">{{ load.id }}</span></h2>
+  <h2>{{ title }} <span class="mono">{{ load.id }}</span>{% if load.test %} <span class="tag">Test</span>{% endif %}</h2>
   <p class="hint">Load started by {{ load.started_by }} on {{ started }}{% if fired %} · Fired {{ fired_on }}{% endif %}</p>
 </div>
 
-<ol class="steps" aria-label="Status">
-  {% for label, status in steps %}
-  <li{% if load.status == status %} aria-current="step"{% endif %}>{{ loop.index }} {{ label }}</li>
-  {% endfor %}
-</ol>
+{% include "console/_steps.html" %}
 
 {% if confirm_delete %}
 <section class="panel panel-danger" id="confirm-delete" aria-labelledby="confirm-delete-title">
   <h3 id="confirm-delete-title">Delete load {{ load.id }}?</h3>
-  <p><strong>This can't be undone.</strong> The load disappears from the console for everyone, and its number isn't used again.</p>
+  <p><strong>This can't be undone.</strong> The load disappears from the console for everyone, its notes are removed with it, and its number isn't used again.</p>
   {% if members %}
   <p>{{ view.total_drop_offs }} drop-off{{ "" if view.total_drop_offs == 1 else "s" }} in it go{{ "es" if view.total_drop_offs == 1 else "" }} back to the waiting list: <span class="mono">{% for row in members %}{{ row.drop_off.id }}{{ ", " if not loop.last }}{% endfor %}</span>. No one is emailed.</p>
   {% else %}
@@ -44,7 +40,11 @@
 {% elif confirm_fire %}
 <section class="panel" id="confirm-fire">
   <h3>Mark {{ load.id }} fired?</h3>
+  {% if view.total_drop_offs %}
   <p>This emails {{ view.total_drop_offs }} {{ "person" if view.total_drop_offs == 1 else "people" }} “Ready for pickup”.</p>
+  {% else %}
+  <p>The load is empty. No one is emailed.</p>
+  {% endif %}
   <div class="actions">
     <form method="post" action="/console/loads/{{ load.id }}/fire" class="inline-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -139,7 +139,7 @@
       {% if add.error %}<p class="field-error" id="drop_off-error">{{ add.error }}</p>{% endif %}
       {% if add.detail %}<p class="hint" id="drop_off-detail">{{ add.detail }}</p>{% endif %}
       <div class="search-row">
-        <input type="text" id="drop_off" name="drop_off" value="{{ '' if add.mismatch else add.text }}" maxlength="{{ query_max }}" autocomplete="off" inputmode="text" autofocus{% if add.error %} aria-describedby="drop_off-error{% if add.detail %} drop_off-detail{% endif %}"{% endif %}>
+        <input type="text" id="drop_off" name="drop_off" value="{{ '' if add.mismatch else add.text }}" maxlength="{{ query_max }}" autocomplete="off" inputmode="text"{% if not record.problem and not notes.add.form.problem and not notes.confirm_remove %} autofocus{% endif %}{% if add.error %} aria-describedby="drop_off-error{% if add.detail %} drop_off-detail{% endif %}"{% endif %}>
         <button type="submit">Add</button>
       </div>
     </div>
@@ -247,6 +247,10 @@
       <label for="edit-date">Date</label>
       <input type="date" id="edit-date" name="date" value="{{ load.date.isoformat() }}" required>
     </div>
+    <div class="field">
+      <label class="choice" for="edit-test"><input type="checkbox" id="edit-test" name="test" value="1"{% if load.test %} checked{% endif %} aria-describedby="edit-test-hint"> <span>This is a test firing</span></label>
+      <p class="hint" id="edit-test-hint">A test can be fired with no drop-offs. You can't change this once it starts firing.</p>
+    </div>
     <button type="submit">Save changes</button>
   </form>
 </details>
@@ -263,6 +267,10 @@
   </form>
 </details>
 {% endif %}
+
+{% include "console/_record.html" %}
+
+{% include "console/_notes.html" %}
 
 {% if fired %}
 <section id="emails">
@@ -283,4 +291,19 @@
   </ul>
 </section>
 {% endif %}
+
+<section id="history" aria-labelledby="history-title">
+  <details class="panel" open>
+    <summary><span id="history-title">History{% if history %} · {{ history | length }}{% endif %}</span></summary>
+    {% if history %}
+    <ul class="history">
+      {% for when, by, what in history %}
+      <li>{{ when }} · {{ by }} · {{ what }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="notice" role="status">No history recorded.</p>
+    {% endif %}
+  </details>
+</section>
 {% endblock %}

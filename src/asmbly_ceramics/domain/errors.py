@@ -14,7 +14,8 @@ The class names are the plan's contract with the later phases and read as what h
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId
+from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId
+from asmbly_ceramics.domain.limits import LOG_RANGE_MAX_YEARS
 
 FieldErrors = Mapping[str, str]
 """A field's name mapped to its message key (`email.invalid`), never to the field's value."""
@@ -46,9 +47,11 @@ class InvalidDetails(DomainError):
 
 
 class NotFound(DomainError):
-    def __init__(self, id: DropOffId | LoadId) -> None:
+    def __init__(self, id: DropOffId | LoadId | NoteId) -> None:
         if isinstance(id, LoadId):
             super().__init__(f"Load {id} doesn't exist.")
+        elif isinstance(id, NoteId):
+            super().__init__(f"Note {id} doesn't exist.")
         else:
             super().__init__(f"{id} doesn't exist.")
         self.id = id
@@ -136,6 +139,84 @@ class FiringTypeLocked(DomainError):
         self.load_id = load_id
 
 
+class InvalidRecord(DomainError):
+    """A firing record with refused fields (#42). Unlike `InvalidDetails`' keys, `errors`
+    maps each field's name to its message, fixed text built from the limits, as
+    `InvalidSetting`'s is: never the value sent."""
+
+    def __init__(self, errors: Mapping[str, str]) -> None:
+        if not errors:
+            raise ValueError("InvalidRecord needs at least one field error")
+        count = len(errors)
+        fields = "1 field needs" if count == 1 else f"{count} fields need"
+        super().__init__(f"Check the firing record: {fields} fixing.")
+        self.errors: Mapping[str, str] = MappingProxyType(dict(errors))
+
+
+class InvalidNote(DomainError):
+    """A firing note with refused fields (#17). As `InvalidRecord`'s, `errors` maps each
+    field's name to its message, fixed text: never the note's text or anything sent."""
+
+    def __init__(self, errors: Mapping[str, str]) -> None:
+        if not errors:
+            raise ValueError("InvalidNote needs at least one field error")
+        super().__init__("Check the note.")
+        self.errors: Mapping[str, str] = MappingProxyType(dict(errors))
+
+
+class LoadNotNotable(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__(f"Load {load_id} was deleted: it takes no notes.")
+        self.load_id = load_id
+
+
+class StepNotReached(DomainError):
+    def __init__(self, load_id: LoadId, step: str) -> None:
+        super().__init__(f"Load {load_id} hasn't reached {step}, or its time wasn't recorded.")
+        self.load_id = load_id
+
+
+class StepTimeOutOfOrder(DomainError):
+    def __init__(self, load_id: LoadId, step: str) -> None:
+        super().__init__(
+            f"Load {load_id} can't have started firing before it was started, "
+            "or have been fired before it started firing."
+        )
+        self.load_id = load_id
+        self.step = step
+
+
+class StepTimeInFuture(DomainError):
+    def __init__(self, load_id: LoadId) -> None:
+        super().__init__("That time is in the future.")
+        self.load_id = load_id
+
+
+class StepTimeTooEarly(DomainError):
+    def __init__(self, load_id: LoadId, year: int) -> None:
+        super().__init__(f"Enter a time from {year} on.")
+        self.load_id = load_id
+
+
+class InvalidLogRange(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            f"Choose a date range of at most {LOG_RANGE_MAX_YEARS} years, ending after it starts."
+        )
+
+
+class TooManyNotesToMove(DomainError):
+    """A kiln change moves the load's notes in its commit, and a delete removes them in its
+    own; the commit holds at most `limit` of them. `deleting` says which was refused."""
+
+    def __init__(self, load_id: LoadId, limit: int, *, deleting: bool = False) -> None:
+        refused = (
+            "it can't be deleted. Remove some of its notes first" if deleting else "its kiln can't be changed"
+        )
+        super().__init__(f"Load {load_id} has more than {limit} notes, so {refused}.")
+        self.load_id = load_id
+
+
 class MessageRequired(DomainError):
     def __init__(self) -> None:
         super().__init__("This reason needs a message.")
@@ -181,7 +262,9 @@ class ItemRetired(DomainError):
 
 class ItemInUse(DomainError):
     def __init__(self, name: str) -> None:
-        super().__init__(f"{name} is used by a drop-off or a load: retire it instead.")
+        super().__init__(
+            f"{name} is in use by a drop-off, a load, a default program or a note, so it stays retired."
+        )
 
 
 class DuplicateItem(DomainError):
