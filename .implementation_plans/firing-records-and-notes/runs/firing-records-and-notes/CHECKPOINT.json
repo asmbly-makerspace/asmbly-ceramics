@@ -5,7 +5,7 @@
  "feature_branch": "feat/firing-records-and-notes",
  "worktree": null,
  "status": "in-progress",
- "stage": "qa",
+ "stage": "pr",
  "selected_phases": [
   "1",
   "2",
@@ -280,12 +280,15 @@
  },
  "docs": {
   "base_sha": "d1e93e2",
-  "squashed_sha": null
+  "squashed_sha": "bc9c351"
  },
  "qa": {
-  "base_sha": null,
+  "base_sha": "bc9c351",
   "squashed_sha": null,
-  "closes": [],
+  "closes": [
+   17,
+   42
+  ],
   "refs": []
  },
  "pr": {
@@ -543,6 +546,11 @@
    "topic": "product calls left to maintainer",
    "choice": "firing-number suggestion prefill; empty test firing counting; removed notes keeping text",
    "reason": "story wording decisions"
+  },
+  {
+   "ts": "2026-11-17T01:05:34Z",
+   "type": "qa_written",
+   "steps": 41
   }
  ]
 }
