@@ -41,6 +41,8 @@
   --danger: var(--lasers-shade); /* the one button that deletes: a load (#4) */
   --notice-bg: var(--ceramics-10);
   --glyph-error: "✕";
+  --glyph-closed: "▸"; /* a disclosure button's cue, closed and open */
+  --glyph-open: "▾";
 
   /* The staff console's desktop surfaces: a quiet canvas, cards on it, hairlines. */
   --canvas: var(--asmbly-purple-5);
@@ -51,6 +53,7 @@
   --row-hover: var(--canvas);
   --tag-bg: var(--ceramics-10);
   --tag-text: var(--ceramics-shade-60);
+  --rule-accent: var(--ceramics-20); /* a group's heading rule */
 
   /* Type: system stacks, no font file is fetched. */
   --font-body: Roboto, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -96,6 +99,7 @@
   --font-size-label: 0.75rem;
   --tracking-label: 0.06em;
   --font-size-stat: 2rem;
+  --font-size-stat-inset: 1.625rem; /* a card inside a panel */
   --radius-card: 0.75rem;
   --radius-pill: 62rem;
   --tab-bar: 3px;
@@ -103,6 +107,8 @@
   --field-medium: 30rem;
   --form-col-min: 12rem;
   --record-col: 18rem; /* a firing record group's narrowest column (#42) */
+  --field-joined-wide: 10rem; /* a joined unit box whose example text needs room ("e.g. 11:38") */
+  --card-min-inset: 8.25rem; /* a card inside a panel: the firing record's six tiles in one row */
   --settings-col: 26rem;
   --photo-min: 18rem;
   --none: 0;
@@ -335,7 +341,7 @@ a { color: var(--accent-strong); }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--card-min-width), 1fr)); gap: var(--space-4); margin: var(--none) var(--none) var(--space-5); }
 .card { padding: var(--space-4) var(--space-5); }
-.page-console .card h3 {
+.page-console .card h3, .card dt, .sheet-group legend {
   font-size: var(--font-size-small);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -344,6 +350,12 @@ a { color: var(--accent-strong); }
 }
 .card p { margin: var(--none); color: var(--muted); font-size: var(--font-size-small); }
 .card .card-number { font-size: var(--font-size-stat); font-weight: var(--weight-heading); color: var(--text); line-height: var(--line-height-heading); margin-bottom: var(--space-1); }
+/* Cards inside a panel (the firing record's readout): on the canvas, no edge, smaller. */
+.cards-inset { grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--card-min-inset)), 1fr)); gap: var(--space-3); margin: var(--none) var(--none) var(--space-4); }
+.cards-inset .card { padding: var(--space-3) var(--space-4); background: var(--canvas); border: var(--none); }
+.card dt, .sheet-group legend { font-weight: var(--weight-strong); }
+.card dd { margin: var(--none); }
+.cards-inset .card-number { margin: var(--none); font-size: var(--font-size-stat-inset); overflow-wrap: anywhere; }
 
 /* Search and the waiting list's filter. */
 .search { margin: var(--none) var(--none) var(--space-5); max-width: var(--field-medium); }
@@ -475,7 +487,7 @@ a { color: var(--accent-strong); }
 .add-form > label { display: block; font-weight: var(--weight-strong); margin-bottom: var(--space-2); }
 .add-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .add-row input[type="text"] { flex: 1; width: auto; min-width: var(--form-col-min); }
-.add-row .choice { font-size: var(--font-size-small); }
+.add-row .choice, .choice-small { font-size: var(--font-size-small); }
 
 /* Settings: the emails card in two columns, the four lists in a grid. */
 .settings-grid { display: grid; gap: var(--none) var(--space-6); }
@@ -519,7 +531,7 @@ a { color: var(--accent-strong); }
 .actions a { display: inline-flex; align-items: center; min-height: var(--tap-target); }
 summary { min-height: var(--tap-target); padding: var(--space-2) var(--none); cursor: pointer; font-weight: var(--weight-strong); }
 details.panel > summary { margin: calc(-1 * var(--space-2)) var(--none); }
-details.panel[open] > summary { margin-bottom: var(--space-4); }
+details.panel[open] > summary, .record-edit[open] > summary { margin-bottom: var(--space-4); }
 .steps { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: var(--none) var(--none) var(--space-5); padding: var(--none); }
 .steps li {
   padding: var(--space-1) var(--space-4);
@@ -538,14 +550,63 @@ details.panel[open] > summary { margin-bottom: var(--space-4); }
 .step-correct { color: var(--text); font-weight: normal; }
 .step-correct form { margin-top: var(--space-2); padding: var(--space-3); color: var(--text); background: var(--surface); border-radius: var(--radius); }
 .steps li[aria-current="step"] .step-correct summary { color: var(--on-accent); }
-/* The firing record: four groups side by side on a wide screen, one column on a phone. */
-.record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
-.record-group { margin: var(--none); padding: var(--none); border: var(--none); min-width: var(--none); }
-.record-group legend { font-family: var(--font-heading); font-weight: var(--weight-heading); margin-bottom: var(--space-3); padding: var(--none); }
-.console .record-group .field { margin-bottom: var(--space-4); }
+/* A number box with its unit beside it (settings); joined, the unit sits inside the box's
+   edge so the boxes line up (the firing record). */
 .unit-row { display: flex; align-items: center; gap: var(--space-2); }
 .unit-row input { flex: 1; min-width: var(--none); }
 .unit { flex: none; color: var(--muted); }
+.unit-row-joined { flex: none; width: var(--field-narrow); max-width: var(--full); gap: var(--none); background: var(--field-bg); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
+.unit-row-wide { width: var(--field-joined-wide); }
+.unit-row-joined:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+/* input[type] ties `.field-invalid input[type=…]` (0,2,1) and wins by coming later in the
+   file: keep this rule after that one, so the box, not the input, carries the error edge. */
+.unit-row-joined input[type] { border: var(--none); background: transparent; outline: none; text-align: right; }
+.unit-row-joined .unit { align-self: stretch; display: flex; align-items: center; padding: var(--none) var(--space-2); font-size: var(--font-size-small); background: var(--canvas); }
+.unit-row-joined .unit:last-child { border-left: var(--border-width) solid var(--line-soft); border-radius: var(--none) var(--radius) var(--radius) var(--none); }
+.unit-row-joined .unit:first-child { border-right: var(--border-width) solid var(--line-soft); border-radius: var(--radius) var(--none) var(--none) var(--radius); }
+.sheet-row.field-invalid .unit-row-joined, .cone-cell.field-invalid .unit-row-joined { border: var(--border-width-accent) solid var(--error-edge); }
+
+/* The firing record (#42). The readout (inset cards, a line of the rest, a bar per witness
+   cone) once a load is fired. The form: a log sheet, a label on the left of each row and a
+   joined unit box or one-tap choices on the right; three groups side by side on a wide
+   screen, the witness cones in a row below; one column on a phone. */
+.readout { margin: var(--space-4) var(--none); }
+.readout-line { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: var(--none); padding: var(--space-3) var(--none); border-top: var(--border-width) solid var(--line-soft); border-bottom: var(--border-width) solid var(--line-soft); font-size: var(--font-size-small); }
+.readout-line div { display: flex; gap: var(--space-1); }
+.readout-line dt, .readout-cones dt { color: var(--muted); }
+.readout-line dt::after { content: ":"; }
+.readout-line dd { margin: var(--none); font-weight: var(--weight-strong); }
+.readout-cones, .cone-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); }
+.readout-cones { margin: var(--space-4) var(--none) var(--none); }
+.readout-cones dd { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--none); font-weight: var(--weight-strong); }
+.readout-cones meter, .readout-track { display: block; width: var(--full); height: var(--space-2); border: var(--none); border-radius: var(--radius-pill); background: var(--line-soft); overflow: hidden; appearance: none; }
+.readout-cones meter::-webkit-meter-bar { height: var(--space-2); background: var(--line-soft); border: var(--none); }
+.readout-cones meter::-webkit-meter-optimum-value { background: var(--accent-strong); }
+.readout-cones meter::-moz-meter-bar { background: var(--accent-strong); }
+.record-edit { margin-top: var(--space-4); }
+.record-edit > summary::-webkit-details-marker { display: none; }
+.record-edit > summary::after { content: var(--glyph-closed); margin-left: var(--space-2); }
+.record-edit[open] > summary::after { content: var(--glyph-open); }
+.sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-5) var(--space-6); margin: var(--space-4) var(--none) var(--space-5); }
+.sheet-group { margin: var(--none); padding: var(--none); border: var(--none); min-width: var(--none); }
+.sheet-group legend { float: left; width: var(--full); margin: var(--none); padding: var(--none) var(--none) var(--space-2); border-bottom: var(--border-width-accent) solid var(--rule-accent); }
+.sheet-group legend + * { clear: both; }
+.sheet-cones { grid-column: 1 / -1; }
+.sheet-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--none); border-bottom: var(--border-width) solid var(--line-soft); }
+.sheet-row:last-child { border-bottom: var(--none); }
+.sheet-row > label, .sheet-label { flex: 1 1 auto; font-weight: var(--weight-normal); }
+.sheet-row > .field-error, .sheet-row > .hint { flex-basis: var(--full); margin: var(--none); }
+/* One-tap choices: native radios (visually hidden, still focusable) with joined labels;
+   the gap over the hairline background draws the dividers, also when a long list wraps. */
+.segmented { display: inline-flex; flex-wrap: wrap; gap: var(--border-width); max-width: var(--full); background: var(--line-soft); border: var(--border-width) solid var(--control-edge); border-radius: var(--radius); overflow: hidden; }
+.segmented label { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; text-align: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: var(--none) var(--space-3); cursor: pointer; background: var(--field-bg); }
+.segmented input:checked + label { color: var(--on-accent); background: var(--accent-strong); font-weight: var(--weight-strong); }
+.segmented input:focus-visible + label { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+.segmented input:checked:focus-visible + label { outline-color: var(--on-accent); }
+.sheet-row.field-invalid .segmented { border: var(--border-width-accent) solid var(--error-edge); }
+.cone-cells { padding-top: var(--space-3); }
+.cone-cell > label:first-child { display: block; margin-bottom: var(--space-1); }
+.cone-cell > .field-error { margin: var(--space-2) var(--none) var(--none); }
 .email-preview { display: block; width: var(--full); height: var(--preview-height); border: var(--border-width) solid var(--line-soft); border-radius: var(--radius-card); }
 
 @media (min-width: 48rem) {

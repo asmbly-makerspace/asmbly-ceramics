@@ -69,7 +69,7 @@ def test_derived_colours_follow_the_formula(name: str) -> None:
 def test_buttons_and_inputs_are_at_least_44px() -> None:
     assert TOKENS["tap-target"].strip() == "2.75rem"
     rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
-    for selector in ("button, .button", 'input[type="file"]', ".choice"):
+    for selector in ("button, .button", 'input[type="file"]', ".choice", ".segmented label"):
         body = next(body for sel, body in rules.items() if sel.strip() == selector)
         assert "min-height: var(--tap-target)" in body, selector
     text_inputs = next(body for sel, body in rules.items() if sel.strip().startswith('input[type="text"]'))

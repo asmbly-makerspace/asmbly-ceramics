@@ -295,15 +295,21 @@ def record_changes(
     return tuple(lines)
 
 
-def record_summary(record: FiringRecord, cone_name: Callable[[ItemId], str]) -> tuple[tuple[str, str], ...]:
-    """Each recorded field as (label, value as the page shows it), in the page's order,
-    leaving out the fields not recorded: what a "Save firing record" refused by a
-    `Conflict` shows as stored now, beside what was typed."""
-    return tuple(
-        (RECORD_LABELS[field], _shown(field, value, cone_name))
+def record_shown(record: FiringRecord, cone_name: Callable[[ItemId], str]) -> dict[str, str]:
+    """Each recorded field's value as the page shows it, by its name in `RECORD_FIELDS`, in
+    the page's order, leaving out the fields not recorded: what the load page's readout of
+    the saved record shows, also after a `Conflict`, as the record stored now."""
+    return {
+        field: _shown(field, value, cone_name)
         for field in RECORD_FIELDS
         if (value := _value(record, field)) is not None
-    )
+    }
+
+
+def cone_bends(record: FiringRecord) -> dict[str, int]:
+    """Each witness cone read as a % bent, by its field name; a cone not recorded or with
+    no cone at its spot is left out. The readout draws a bar for each."""
+    return {field: value for field in WITNESS_CONES if isinstance(value := _value(record, field), int)}
 
 
 def changed_fields(old: FiringRecord, new: FiringRecord) -> tuple[str, ...]:
