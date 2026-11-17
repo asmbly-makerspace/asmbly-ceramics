@@ -63,7 +63,7 @@ follow-up work on the drop-off form (#2, from pull request #52) and the pull req
    → no output (no npm package, no dependency, no workflow, no template, no application
    file).
 
-## Phase 2: it runs in CI (acceptance criterion 6, still open)
+## Phase 2: it runs in CI (acceptance criterion 6, seen on pull request #54)
 
 10. Open the pull request's `PR check` run and its `Python` job log → the log shows
     `tests/web/test_upload_script.py` with six tests passing, on GitHub's runner, using
@@ -74,7 +74,8 @@ follow-up work on the drop-off form (#2, from pull request #52) and the pull req
     `.implementation_plans/photo-form-follow-ups/phase-2-upload-script-behaviour-tests.md`
     and replace the "Not yet seen" sentence in decision 0009's **What has and has not been
     seen to work** with the date and the runner result. The status of 0009 does not change
-    in this step.
+    in this step. Done on pull request #54: six tests passed on runner image `ubuntu-24.04`
+    version 20261111.370.1 (Node.js 22.23.4 in its software list).
 
 ## Decision 0009 (status: proposed)
 

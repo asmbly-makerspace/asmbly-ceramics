@@ -234,8 +234,10 @@ The existing tests in `tests/web/test_form.py` stay as they are.
 - [x] No `package.json`, lock file, `node_modules`, image file or build step is added;
       `pyproject.toml`, `uv.lock` and `.github/workflows/` are unchanged.
 - [x] `tests/repo/test_personal_data.py` scans `*.js` and `*.mjs` and passes.
-- [ ] The pull request's `Python` job log shows `tests/web/test_upload_script.py`
-      passing on GitHub's runner (Node from the runner image).
+- [x] The pull request's `Python` job log shows `tests/web/test_upload_script.py`
+      passing on GitHub's runner (Node from the runner image): pull request #54,
+      runner image `ubuntu-24.04` version 20261111.370.1, whose software list names
+      Node.js 22.23.4; all six tests in the file passed.
 
 ## Verification
 
@@ -297,5 +299,5 @@ What later work can rely on:
   nothing ties the template's `photo_accept` literal to `FORMATS` in
   `adapters/images.py` (noted in phase 1's review; a template-and-inspector check, not a
   script one).
-- Still to see: the pull request's `Python` job running `tests/web/test_upload_script.py`
-  on GitHub's runner (acceptance criterion 6).
+- Seen: the pull request's `Python` job (#54) ran `tests/web/test_upload_script.py`
+  on GitHub's runner and it passed (acceptance criterion 6).

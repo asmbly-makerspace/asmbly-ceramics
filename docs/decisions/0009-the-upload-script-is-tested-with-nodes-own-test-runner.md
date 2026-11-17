@@ -81,5 +81,10 @@ with no `node` on the `PATH` fails with the "Node 20 or later" message instead o
 skipping. Breaking the script in a scratch copy (no renumbering after a Remove, the
 button left enabled on a full list, no size message when a photo is added, the camera
 button always shown, a Remove or a pick let through during an upload, among others) made
-a test fail each time. Not yet seen: their run on GitHub's runner, which the pull
-request's `Python` job shows.
+a test fail each time.
+
+On 17 November 2026, on GitHub's runner: pull request #54's `Python` job ran
+`tests/web/test_upload_script.py` inside `uv run pytest --cov` and all six of its tests
+passed, so the 14 Node tests ran and passed there, on the Node the runner image already
+has. The job log does not print Node's version; it names the image, `ubuntu-24.04`
+version 20261111.370.1, whose software list names Node.js 22.23.4.
