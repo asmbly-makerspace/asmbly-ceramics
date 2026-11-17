@@ -148,9 +148,9 @@ def test_the_script_locks_the_photo_list_while_it_uploads() -> None:
     import asmbly_ceramics.web
 
     script = (Path(asmbly_ceramics.web.__file__).parent / "static" / "upload.js").read_text()
-    assert "picker.disabled = value;" in script
-    assert "camera.disabled = value;" in script
-    assert "takePhoto.disabled = value;" in script
+    assert "picker.disabled = busy || full;" in script
+    assert "camera.disabled = busy || full;" in script
+    assert "takePhoto.disabled = busy || full;" in script
     assert (
         'list.querySelectorAll(".remove").forEach(function (button) { button.disabled = value; });' in script
     )
@@ -173,5 +173,7 @@ def test_both_inputs_feed_one_list_that_stops_at_the_limit() -> None:
     assert script.count("function addFiles(") == 1
     assert "keptCount() + chosen.length >= PHOTOS_MAX" in script
     assert 'matchMedia("(pointer: coarse)")' in script
+    assert script.count("sizeMessages()") >= 4  # add, both Removes, submit: one place builds them
+    assert "var tooLarge = sizeMessages();" in script
     assert "getUserMedia" not in script  # the phone's own camera app, not a viewfinder
     assert "Remove photo " in script  # each Remove names its photo

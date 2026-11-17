@@ -2,6 +2,7 @@
 {% from "partials/field.html" import input, choices as radio_choices %}
 {% block scripts %}<script src="/static/upload.js?v={{ version }}" defer></script>{% endblock %}
 {% block content %}
+{% set photo_accept = "image/jpeg,image/png,image/webp" %}{# decision 0002: specific types, so an iPhone converts HEIC to JPEG #}
 <noscript>
   <div class="notice notice-error"><p>This form needs JavaScript to upload photos.</p></div>
 </noscript>
@@ -66,9 +67,9 @@
       </li>
       {% endfor %}
     </ul>
-    <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photos-hint photos-error">
+    <input id="photos" type="file" accept="{{ photo_accept }}" multiple aria-describedby="photos-hint photos-error">
     <button type="button" id="take-photo" class="button button-quiet" aria-describedby="photos-hint photos-error" hidden>Take a photo</button>
-    <input id="photos-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+    <input id="photos-camera" type="file" accept="{{ photo_accept }}" capture="environment" hidden>
   </div>
 
   <p class="upload-status" id="upload-status" role="status" aria-live="polite"></p>

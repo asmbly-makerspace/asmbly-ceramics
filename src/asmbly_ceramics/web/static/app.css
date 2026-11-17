@@ -263,6 +263,7 @@ a { color: var(--accent-strong); }
 
 [hidden] { display: none; }
 .button-quiet { color: var(--accent-strong); background: var(--surface); border: var(--border-width) solid var(--accent-strong); }
+.button-quiet:disabled { color: var(--muted); background: var(--surface); border-color: var(--control-edge); }
 
 /* The staff console (phase 8). It is used at a desk as much as at the kiln, so it is
    laid out for a wide screen first: a quiet canvas, content on cards, hairline rows,

@@ -98,6 +98,10 @@
   var busy = false;
   function updateControls() {
     var full = keptCount() + chosen.length >= PHOTOS_MAX;
+    var active = document.activeElement;
+    if (!busy && full && (active === picker || active === camera || active === takePhoto)) {
+      submit.focus(); // a disabled control would drop the keyboard's place to the top
+    }
     picker.disabled = busy || full;
     camera.disabled = busy || full;
     takePhoto.disabled = busy || full;
@@ -105,11 +109,18 @@
   function setBusy(value) {
     busy = value;
     submit.disabled = value;
-    picker.disabled = value;
-    camera.disabled = value;
-    takePhoto.disabled = value;
     list.querySelectorAll(".remove").forEach(function (button) { button.disabled = value; });
     updateControls();
+  }
+
+  // The photos over the size limit, by their place in the list. Built from the list each
+  // time, so a removed photo takes its message with it and the numbers stay right.
+  function sizeMessages() {
+    var out = [];
+    chosen.forEach(function (entry, i) {
+      if (entry.file.size > PHOTO_MAX_BYTES) { out.push(MESSAGES.tooLarge(keptCount() + i + 1)); }
+    });
+    return out;
   }
 
   // The label of each photo is its place in the list, so a screen reader hears which Remove
@@ -123,6 +134,7 @@
     });
     updateControls();
   }
+  renumber();
 
   // Photos already uploaded and kept by the server after a refused submit.
   list.querySelectorAll(".photo-kept .remove").forEach(function (button) {
@@ -130,6 +142,7 @@
       if (busy) { return; }
       button.parentNode.remove();
       status.textContent = "";
+      showErrors(sizeMessages());
       renumber();
     });
   });
@@ -166,15 +179,16 @@
         URL.revokeObjectURL(entry.url);
         item.remove();
         status.textContent = "";
+        showErrors(sizeMessages());
         renumber();
       }));
       list.appendChild(item);
-      if (file.size > PHOTO_MAX_BYTES) { messages.push(MESSAGES.tooLarge(keptCount() + chosen.length)); }
     });
+    messages = messages.concat(sizeMessages());
     showErrors(messages);
     input.value = "";
     renumber();
-    if (added) {
+    if (added && !messages.length) {
       status.textContent = "Photo " + (keptCount() + chosen.length) + " of " + PHOTOS_MAX + " added";
     }
   }
@@ -222,10 +236,7 @@
       showErrors([MESSAGES.count]);
       return;
     }
-    var tooLarge = [];
-    chosen.forEach(function (entry, i) {
-      if (entry.file.size > PHOTO_MAX_BYTES) { tooLarge.push(MESSAGES.tooLarge(keptCount() + i + 1)); }
-    });
+    var tooLarge = sizeMessages();
     if (tooLarge.length) {
       showErrors(tooLarge);
       return;

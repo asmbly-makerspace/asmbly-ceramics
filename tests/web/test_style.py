@@ -205,3 +205,12 @@ def test_a_hidden_file_input_stays_hidden() -> None:
     body = next(body for sel, body in rules.items() if sel.strip() == 'input[type="file"][hidden]')
     assert "display: none" in body
     assert REST.index('input[type="file"][hidden]') > REST.index('input[type="file"] {')
+
+
+def test_a_disabled_quiet_button_is_readable() -> None:
+    """`button:disabled` paints the accent-hover background; the quiet button must set its
+    own, or its accent text sits on it at about 1.3:1."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == ".button-quiet:disabled")
+    assert "background: var(--surface)" in body
+    assert "color: var(--muted)" in body
