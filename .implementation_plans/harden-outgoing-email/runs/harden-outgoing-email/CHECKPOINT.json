@@ -4,8 +4,8 @@
   "issue": 22,
   "feature_branch": "feat/harden-outgoing-email",
   "worktree": null,
-  "status": "in-progress",
-  "stage": "qa",
+  "status": "complete",
+  "stage": "briefing",
   "selected_phases": [
     "1",
     "2",
@@ -128,7 +128,7 @@
   },
   "qa": {
     "base_sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f",
-    "squashed_sha": null,
+    "squashed_sha": "8557a75076319aa8a2ee3c64151d28aaa161d71f",
     "closes": [
       22,
       30,
@@ -139,8 +139,8 @@
     ]
   },
   "pr": {
-    "number": null,
-    "result": null,
+    "number": 50,
+    "result": "green",
     "rounds": []
   },
   "events": [
@@ -292,6 +292,21 @@
     {
       "ts": "2026-11-17T07:51:37Z",
       "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-17T07:51:37Z",
+      "type": "squash",
+      "unit": "qa",
+      "sha": "8557a75076319aa8a2ee3c64151d28aaa161d71f"
+    },
+    {
+      "ts": "2026-11-17T07:56:35Z",
+      "type": "pr_opened",
+      "number": 50
+    },
+    {
+      "ts": "2026-11-17T07:56:35Z",
+      "type": "complete"
     }
   ]
 }
