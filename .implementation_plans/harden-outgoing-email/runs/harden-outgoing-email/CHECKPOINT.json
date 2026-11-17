@@ -5,7 +5,7 @@
   "feature_branch": "feat/harden-outgoing-email",
   "worktree": null,
   "status": "in-progress",
-  "stage": "docs",
+  "stage": "qa",
   "selected_phases": [
     "1",
     "2",
@@ -124,13 +124,19 @@
   },
   "docs": {
     "base_sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2",
-    "squashed_sha": null
+    "squashed_sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f"
   },
   "qa": {
-    "base_sha": null,
+    "base_sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f",
     "squashed_sha": null,
-    "closes": [],
-    "refs": []
+    "closes": [
+      22,
+      30,
+      18
+    ],
+    "refs": [
+      21
+    ]
   },
   "pr": {
     "number": null,
@@ -276,6 +282,16 @@
       "type": "squash",
       "unit": "final-review",
       "sha": "4cb51a48affc09501b680a7589edef8d4d14e5c2"
+    },
+    {
+      "ts": "2026-11-17T07:49:10Z",
+      "type": "squash",
+      "unit": "docs",
+      "sha": "f6d3c0dd677c1e80b426832375578ca9e6c41a3f"
+    },
+    {
+      "ts": "2026-11-17T07:51:37Z",
+      "type": "qa_written"
     }
   ]
 }
