@@ -63,7 +63,9 @@ def check_recipient(limiter: RateLimiter, *, recipient_key: str, now: datetime, 
 def check_received_cap(limiter: RateLimiter, *, per_day: int, now: datetime, refused_event: str) -> None:
     """Counts one received email against the studio's daily cap, in a rolling
     `RECEIVED_CAP_WINDOW`; `DropOffNotTaken` past it, logged as `refused_event` with
-    `reason=daily_cap` at ERROR, so the logged-errors alarm tells the maintainers.
+    `reason=daily_cap` at WARNING: below ERROR, so a reached cap (which attempts keep
+    shut) doesn't hold the shared logged-errors alarm in ALARM and hide the errors it is
+    for; the email-volume alarm is the signal (decision 0008).
     `RecordsUnavailable` goes up after a WARNING line (`reason=limiter_unavailable`): the
     cap fails closed. Neither line holds the count or the setting's value.
 
@@ -75,5 +77,5 @@ def check_received_cap(limiter: RateLimiter, *, per_day: int, now: datetime, ref
         log_event(refused_event, level=logging.WARNING, reason="limiter_unavailable", error_code=error.code)
         raise
     if not allowed:
-        log_event(refused_event, level=logging.ERROR, reason="daily_cap")
+        log_event(refused_event, level=logging.WARNING, reason="daily_cap")
         raise DropOffNotTaken()

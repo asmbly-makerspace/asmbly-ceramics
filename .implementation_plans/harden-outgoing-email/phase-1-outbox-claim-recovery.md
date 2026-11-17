@@ -215,7 +215,9 @@ only after `dropped_off`. `conftest.py` isn't changed.
 
 After the merge: nothing to see unless a claim times out. On stage, drop off with a
 made-up name to the tester's own inbox; the received email arrives there once, and the mailer's log shows
-`email_sent` for that ID and no `email_claim_unknown`.
+`email_sent` for that ID and no `email_claim_unknown`. With phase 3's limit live (the
+phases merge together), this spends one of that inbox's three drop-offs a day (#18), so
+phase 3's check uses another inbox, or waits 24 hours.
 
 ## Rollout
 

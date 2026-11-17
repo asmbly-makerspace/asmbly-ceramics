@@ -43,7 +43,9 @@ def test_hit_reads_consistently_and_puts_with_the_version_condition_and_ttl() ->
                     **ITEM_KEY,
                     "type": {"S": "rate"},
                     "version": {"N": "4"},
-                    "hits": {"L": [{"N": str(earlier)}, {"N": str(NOW_US)}]},
+                    # `gone` no longer counts, but stays among the latest ten: an
+                    # earlier-clocked hit arriving later may still count it.
+                    "hits": {"L": [{"N": str(gone)}, {"N": str(earlier)}, {"N": str(NOW_US)}]},
                     "ttl": {"N": str(int((NOW + timedelta(minutes=10, days=1)).timestamp()))},
                 },
                 "ConditionExpression": "attribute_not_exists(PK) OR #v = :v",

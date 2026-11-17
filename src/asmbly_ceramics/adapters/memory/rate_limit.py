@@ -18,9 +18,14 @@ class MemoryRateLimiter:
             raise self.fail_with
         self.keys_hit.append(key)
         start = now - limit.window
-        earlier = [at for at in self._hits.get(key, []) if start < at <= now]
-        allowed = len(earlier) < limit.limit
-        # Counted, allowed or not. Only the latest `limit` hits can decide a later one,
-        # so no more are kept (phase 4's item keeps the same bound).
-        self._hits[key] = [*earlier, now][-limit.limit :]
+        hits = self._hits.get(key, [])
+        # Hits later than `now` count: a slow request that read the clock before a fast
+        # one must not forget the fast one's hit.
+        counted = [at for at in hits if start < at]
+        allowed = len(counted) < limit.limit
+        # Counted, allowed or not. The latest `limit` hits of all stored, not only of
+        # those in this hit's window: a hit outside it may still be inside the window of
+        # an earlier-clocked hit that arrives later. Only those can decide a later hit,
+        # so no more are kept (the DynamoDB item keeps the same bound).
+        self._hits[key] = sorted([*hits, now])[-limit.limit :]
         return allowed

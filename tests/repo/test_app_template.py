@@ -553,6 +553,15 @@ def test_the_email_volume_alarm_counts_the_mailer_s_sent_emails_per_hour() -> No
     assert emails.count('outcome="failed"') == 1
 
 
+def test_the_daily_cap_s_refusal_stays_out_of_the_logged_errors_alarm() -> None:
+    # While the cap is reached every attempt is refused; at ERROR that would hold the shared
+    # logged-errors alarm in ALARM and hide the errors it is for (decision 0008). The
+    # email-volume alarm is the cap's signal.
+    limits = (REPO / "src" / "asmbly_ceramics" / "use_cases" / "limits.py").read_text()
+    assert 'level=logging.WARNING, reason="daily_cap"' in limits
+    assert "logging.ERROR" not in limits
+
+
 def test_the_email_failures_alarm_counts_the_email_failed_event() -> None:
     email = RESOURCES["EmailFailuresFilter"]["Properties"]
     assert email["LogGroupName"] == {"Ref": "MailerLogGroup"}

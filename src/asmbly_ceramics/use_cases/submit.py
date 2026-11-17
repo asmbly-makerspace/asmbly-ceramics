@@ -148,9 +148,12 @@ class SubmitDropOff:
         # and stored the drop-off, it is this one's answer. The recipient's hit stays
         # spent when nothing is stored after it (the cap refuses or can't be counted, or a
         # later step fails), as decision 0008 records. Both refusals give the same page.
+        # The clock is read again: reading and inspecting the photos takes seconds, and
+        # these hits belong at the time they are counted, not at step 1's.
+        counted_at = self._clock.now()
         try:
-            self._check_recipient(details.contact.email, now)
-            self._check_cap(studio, now)
+            self._check_recipient(details.contact.email, counted_at)
+            self._check_cap(studio, counted_at)
         except DropOffNotTaken:
             winner = self._winner_or_none(token_hash, now)
             if winner is None:

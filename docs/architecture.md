@@ -50,7 +50,9 @@ What the domain code settles, beyond the stories:
   used can't be deleted, nor can a cone a firing type's default program names.
 - The settings history records that the sending address changed, never the address.
 - The form's rate limit counts hits in a rolling window, refused hits included, and
-  fails closed.
+  fails closed. A hit counted with an earlier time than hits already stored (a slow
+  submit that read the clock before a fast one) counts and keeps them, never forgets
+  them, so overlapping submits can't exceed a limit.
 - The form counts each otherwise-acceptable drop-off against the studio's daily cap on
   received emails (a setting, 300 to start) in a rolling 24 hours, and refuses past it
   with one sentence that names no cap (`DropOffNotTaken`, decision 0008).

@@ -73,7 +73,11 @@ What this plan adds, without reworking the model:
   domain error, `DropOffNotTaken`, whose one fixed sentence names no cap, limit, count,
   address or hash.
 - **Ports:** none new, none changed in shape. `RateLimiter`'s docstring allows a fixed,
-  non-personal key beside a keyed hash. No adapter or fake changes.
+  non-personal key beside a keyed hash, and (since the whole-branch review) says a hit
+  later than the caller's `now` is counted and kept. The limiter's fake and its DynamoDB
+  adapter change to match (they used to drop such hits, so overlapping submits could
+  exceed a limit), and `adapters/aws/keys.py` reads and writes the studio's new
+  attribute.
 - **Entry points:** the public `POST /drop-off` answers `DropOffNotTaken` with 429 and
   its sentence; the console's settings page gains one field; the mailer's handler is
   unchanged.
@@ -136,7 +140,7 @@ The pull request that lands phase 1 says `Closes #22` and `Refs #21`; phase 2's 
 | When | Who | What | Why a template can't |
 | --- | --- | --- | --- |
 | After the merge | The maintainer, or whoever talks to ceramics staff | Tell staff about Settings › Emails › "Received emails a day, at most" (300; no need to change it), that one email address can make at most three drop-offs a day, and that someone the form turns away is asked to see staff: take that drop-off by hand and tell the maintainers | Telling people |
-| After the merge | The maintainer | Confirm the stage checks in phases 2 and 3 (the cap set to 1 refuses the second drop-off; the logged-errors alarm email arrives; the cap set back to 300; the fourth drop-off to one address refused), then set phase 2's tracker row to `[x]` | A check by a person on the live stage |
+| After the merge | The maintainer | Confirm the stage checks in phases 2 and 3 (the cap set to the number of stage drop-offs of the last 24 hours, phase 1's check among them, plus one: the next drop-off is taken and the one after it refused; the form's log shows `reason=daily_cap` at WARNING and no logged-errors alarm email arrives; the cap set back to 300; the fourth drop-off to one address refused, sent to an inbox phases 1 and 2's checks didn't use, or 24 hours after them), then set phase 2's tracker row to `[x]` | A check by a person on the live stage |
 
 No AWS or GitHub step: the new alarm notifies the existing alarm topic, whose email
 subscription is confirmed; no parameter, secret, right or bootstrap change.
@@ -156,13 +160,17 @@ test, prod, its smoke test); none needs a by-hand step.
    email arrives once. Undo: revert.
 2. **Phase 2** writes the studio's new attribute on its next save (it reads 300 until
    then), one `RATE#received-emails` item per environment, and creates the metric filter
-   and the alarm. Check: the stage steps in the phase (cap 1 refuses the second drop-off
-   with the friendly sentence, the logged-errors alarm email arrives, cap back to 300;
+   and the alarm. Check: the stage steps in the phase (the cap counts every stage drop-off of
+   the last 24 hours, phase 1's check among them, so it is set to that count plus one:
+   the next drop-off is taken and the one after it refused with the friendly sentence, the form's log shows `reason=daily_cap` at WARNING and the
+   logged-errors alarm stays OK, cap back to 300;
    `describe-alarms` shows `asmbly-ceramics-stage-email-volume`). Undo: revert;
    CloudFormation deletes the filter and alarm, the `RATE#` item expires, and the reverted
    code's first settings save drops the attribute (it reads 300 again when re-applied).
 3. **Phase 3** changes the form's code only and writes `RATE#recipient#…` items. Check:
-   on stage, four drop-offs to the tester's own inbox, spelled the ways the limit folds
+   on stage, four drop-offs to an inbox the tester can read that phases 1 and 2's checks
+   didn't use (they spend one and two of their inbox's three, so the first would be
+   refused there), or to the same inbox 24 hours after them, spelled the ways the limit folds
    (as typed, with a `+` tag if their provider delivers it, in other letter case): the
    fourth is refused, and only three received emails arrive in that inbox. Undo: revert; the items expire by TTL.
 

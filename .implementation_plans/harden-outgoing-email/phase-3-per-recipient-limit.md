@@ -242,7 +242,10 @@ address, its normalized form, or any `recipient#` hash):
 - [ ] No log line, error or page holds an address, its normalized form or a
       `recipient#` hash.
 
-After the merge, on stage: drop off four times to the tester's own inbox, spelled a
+After the merge, on stage: drop off four times to an inbox the tester can read that
+phases 1 and 2's checks didn't use (they spend one and two of their inbox's three, so
+the first drop-off there would be refused, not the fourth), or to the same inbox 24
+hours after those checks, spelled a
 different way each time that the limit folds into one (as typed, with a `+` tag if your provider delivers it, in
 other letter case), with made-up names and a different device for each (e.g. private
 windows); the fourth shows the friendly sentence; the form's log shows
@@ -267,8 +270,8 @@ TTL, unread.
 ## Hand-off
 
 Built on branch `feat/harden-outgoing-email` on 17 November 2026; stays `[~] In progress`
-until the maintainer confirms the stage check after the merge (a fourth drop-off to the
-tester's own inbox, spelled four folded ways, refused with the friendly sentence,
+until the maintainer confirms the stage check after the merge (a fourth drop-off to an
+inbox phases 1 and 2's checks didn't use, or 24 hours after them, spelled four folded ways, refused with the friendly sentence,
 `drop_off_refused` with `reason=recipient_limit` and no address in the form's log, three
 received emails in that inbox), then
 sets it `[x] Complete` here and in the README.

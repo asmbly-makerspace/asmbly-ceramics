@@ -12,7 +12,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from asmbly_ceramics.adapters.memory.images import NOT_IMAGE, TOO_LARGE, TOO_MANY_PIXELS, UNSUPPORTED_TYPE
+from asmbly_ceramics.adapters.memory.images import (
+    NOT_IMAGE,
+    TOO_LARGE,
+    TOO_MANY_PIXELS,
+    UNSUPPORTED_TYPE,
+    MemoryPhotoInspector,
+)
 from asmbly_ceramics.adapters.memory.photos import MemoryPhotoStore
 from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.domain.dropoff import DropOffState, normalized_recipient
@@ -396,7 +402,7 @@ def test_a_drop_off_past_the_daily_cap_is_refused_and_nothing_is_stored(
     assert world.ids.next_drop_off_id() == DropOffId(3)  # no number was taken
     assert world.photos.upload_count() == 2  # the third's uploads are left for their lifetime
     [event] = events(caplog, "drop_off_refused")
-    assert (event["reason"], event["levelno"]) == ("daily_cap", logging.ERROR)
+    assert (event["reason"], event["levelno"]) == ("daily_cap", logging.WARNING)
     assert set(event) & {"count", "limit", "per_day"} == set()
     assert_no_personal_details_logged(caplog)
 
@@ -643,6 +649,48 @@ def test_another_recipient_isnt_affected(world: World, caplog: pytest.LogCapture
     other = to_recipient(world, 5, an_address("made.up.recipient", "example.net"))
     assert world.submit(other).view.id == DropOffId(4)
     assert_recipient_not_logged(caplog, RECIPIENT, an_address("made.up.recipient", "example.net"))
+
+
+class SlowInspector(MemoryPhotoInspector):
+    """Runs `meanwhile` once, during the first photo it inspects, after the clock moves on:
+    another request taken while this one is still reading its photos."""
+
+    def __init__(self, world: World, meanwhile: Callable[[], object]) -> None:
+        self._world = world
+        self._meanwhile: Callable[[], object] | None = meanwhile
+
+    def inspect(self, data: bytes) -> CheckedPhoto:
+        meanwhile, self._meanwhile = self._meanwhile, None
+        if meanwhile is not None:
+            self._world.clock.advance(timedelta(seconds=5))
+            meanwhile()
+        return super().inspect(data)
+
+
+def test_a_request_taken_while_another_inspects_its_photos_still_counts(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Two drop-offs to the recipient, then a slow one (A) that reads the clock before a
+    # fast one (B) and counts after it. B takes the third place; A, counted after B, is the
+    # fourth and is refused, and B's hit isn't forgotten, so a fifth is refused too.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    for number in (1, 2):
+        world.submit(to_recipient(world, number))
+    world.clock.advance(timedelta(minutes=1))
+    slow = to_recipient(world, 3)
+    fast = to_recipient(world, 4)
+    taken: list[Submitted] = []
+    world.inspector = SlowInspector(world, lambda: taken.append(world.submit(fast)))
+    rebuilt(world)
+
+    with pytest.raises(DropOffNotTaken):
+        world.submit(slow)
+
+    assert [t.view.id for t in taken] == [DropOffId(3)]
+    with pytest.raises(DropOffNotTaken):
+        world.submit(to_recipient(world, 5))
+    assert len(submission_commits(world)) == RECIPIENT_LIMIT.limit
+    assert_recipient_not_logged(caplog, RECIPIENT)
 
 
 def test_a_refused_recipient_isnt_counted_against_the_cap(

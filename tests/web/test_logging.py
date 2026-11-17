@@ -107,6 +107,9 @@ def test_a_whole_drop_off_logs_nothing_personal(site: Site, caplog: pytest.LogCa
         "not_taken",
         "expired",
     }
+    # The cap's refusal is below ERROR, so it stays out of the logged-errors alarm.
+    [capped_line] = [r for r in caplog.records if r.__dict__.get("reason") == "daily_cap"]
+    assert capped_line.levelno == logging.WARNING
     events = {r.getMessage() for r in caplog.records}
     assert {"drop_off_unavailable", "upload_slots_unavailable", "upload_slots"} <= events
     assert any(r.__dict__.get("fields") == "email,phone" for r in page_lines)

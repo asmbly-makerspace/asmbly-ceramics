@@ -48,8 +48,9 @@ Finishes #30.
   studio stored before it reads as 300.
 - The submit counts each otherwise-acceptable drop-off against that setting in a rolling
   24 hours; past it, the drop-off is refused with one friendly sentence that says nothing
-  about a cap, nothing is stored, no email is queued, and an ERROR line tells the
-  maintainers.
+  about a cap, nothing is stored, no email is queued, and a WARNING line records it
+  (below ERROR since the whole-branch review, so a reached cap doesn't hold the shared
+  logged-errors alarm in ALARM; decision 0008).
 - An alarm, `asmbly-ceramics-<env>-email-volume`, goes off when the mailer sends 100 or
   more emails in an hour.
 
@@ -146,9 +147,10 @@ nothing personal, stored as `RATE#received-emails`; never a hash of anything."""
 def check_received_cap(limiter: RateLimiter, *, per_day: int, now: datetime, refused_event: str) -> None:
     """Counts one received email against the studio's daily cap, in a rolling
     `RECEIVED_CAP_WINDOW`; `DropOffNotTaken` past it, logged as `refused_event` with
-    `reason=daily_cap` at ERROR, so the logged-errors alarm tells the maintainers.
-    `RecordsUnavailable` goes up after a WARNING line (`reason=limiter_unavailable`): the
-    cap fails closed."""
+    `reason=daily_cap` at WARNING (ERROR in the first build; moved below ERROR in the
+    whole-branch review, so a reached cap doesn't hold the shared logged-errors alarm in
+    ALARM). `RecordsUnavailable` goes up after a WARNING line
+    (`reason=limiter_unavailable`): the cap fails closed."""
 ```
 
 It calls `limiter.hit(RECEIVED_CAP_KEY, RateLimit(limit=per_day, window=RECEIVED_CAP_WINDOW), now)`.
@@ -190,7 +192,7 @@ studio paragraph: "A studio stored before #30 has no `received_emails_per_day` a
 300." The in-memory records store the `Studio` value as it is, so the fake needs nothing.
 The form role reads `STUDIO` and the console role writes it already: no IAM change.
 
-**What is logged:** `drop_off_refused` with `reason=daily_cap` (ERROR) or
+**What is logged:** `drop_off_refused` with `reason=daily_cap` (WARNING) or
 `reason=limiter_unavailable` (WARNING, `error_code`), and `settings_changed` with the
 username, as today. No count and no setting's value in a log line.
 
@@ -276,8 +278,9 @@ A metric filter takes no tags (as the existing filters). The alarm's name starts
 grants `logs:PutMetricFilter` and `cloudwatch:PutMetricAlarm`/`TagResource` on
 `asmbly-ceramics-*` alarms (the seven existing alarms deploy with them): no bootstrap or
 IAM change. The test email (#6) goes from the console, not the mailer, so it isn't
-counted. The cap's own refusals reach the maintainers through the existing
-`FormLoggedErrorsFilter` (ERROR lines), so no second alarm.
+counted. The cap's own refusals are logged at WARNING, outside the existing
+`FormLoggedErrorsFilter` (ERROR lines), so a reached cap can't hold the shared
+logged-errors alarm in ALARM; the email-volume alarm is the signal, and no second alarm.
 
 ### docs
 
@@ -321,7 +324,7 @@ counted. The cap's own refusals reach the maintainers through the existing
 - `test_a_drop_off_past_the_daily_cap_is_refused_and_nothing_is_stored`: with the studio's
   cap set to 2, two submits succeed, the third raises `DropOffNotTaken`; no third
   drop-off, email, submission or kept photos; the uploads are left; one
-  `drop_off_refused` with `reason == "daily_cap"` at ERROR.
+  `drop_off_refused` with `reason == "daily_cap"` at WARNING.
 - `test_the_cap_is_a_rolling_24_hours`: the third, 24 hours and a microsecond after the
   first, is taken.
 - `test_a_refused_field_isnt_counted_against_the_cap`: a submit refused for a field, then
@@ -385,8 +388,9 @@ counted. The cap's own refusals reach the maintainers through the existing
 4. A refused field, a repeated token and a commit's retry with the next ID never count
    against the cap.
 5. If the cap can't be counted, the form answers "try again" and stores nothing.
-6. The maintainers are told: `drop_off_refused reason=daily_cap` at ERROR (the
-   logged-errors alarm), and `asmbly-ceramics-<env>-email-volume` at 100 emails sent in an
+6. The maintainers are told: `drop_off_refused reason=daily_cap` at WARNING in the
+   form's log (below ERROR, so it stays out of the logged-errors alarm), and
+   `asmbly-ceramics-<env>-email-volume` at 100 emails the mailer sends in a clock
    hour (#30: "a CloudWatch alarm on the mailer's send volume").
 7. The alarm carries the five tags and notifies the alarm topic; the runbook has its row.
 
@@ -405,12 +409,16 @@ counted. The cap's own refusals reach the maintainers through the existing
 
 After the merge, on stage:
 
-- Settings › Emails shows "Received emails a day, at most: 300". Set it to 1 and save;
-  the history shows "300 → 1". Drop off once to the tester's own inbox, with a made-up
+- Settings › Emails shows "Received emails a day, at most: 300". The cap counts every
+  stage drop-off of the last 24 hours (phase 1's check drop-off among them, and any
+  other), so first count them in the console (N). Set the cap to N + 1 and save; the
+  history shows "300 → N + 1". Drop off once to the tester's own inbox, with a made-up
   name (taken; the received email arrives there), then again to the same inbox: the
-  second shows the friendly sentence. The form's log
-  shows `drop_off_refused` with `reason=daily_cap`, and the `logged-errors` alarm goes off
-  (its email says stage). Set it back to 300.
+  second shows the friendly sentence. (If phase 1's drop-off is the only one of the last
+  24 hours, N + 1 is 2.) The form's log
+  shows `drop_off_refused` with `reason=daily_cap` at WARNING, and the `logged-errors`
+  alarm stays OK (no alarm email). Set it back to 300. These two drop-offs spend two of
+  that inbox's three (#18), so phase 3's check uses another inbox, or waits 24 hours.
 - `aws cloudwatch describe-alarms --alarm-names asmbly-ceramics-stage-email-volume
   --profile asmbly --region us-east-2` (read only) shows the alarm in `OK` or
   `INSUFFICIENT_DATA`, period 3600, threshold 100.
@@ -445,8 +453,9 @@ The phase's tracker row stays `[~] In progress` until the stage check is confirm
 ## Hand-off
 
 Built on branch `feat/harden-outgoing-email` on 17 November 2026; stays `[~] In progress`
-until the maintainer confirms the stage check after the merge (the cap set to 1 refuses
-the second drop-off with the friendly sentence, the `logged-errors` alarm email arrives,
+until the maintainer confirms the stage check after the merge (the cap set to the last 24 hours' stage drop-offs plus one
+takes the next drop-off and refuses the one after it with the friendly sentence, `reason=daily_cap` at WARNING in the
+form's log and no `logged-errors` alarm email,
 the cap set back to 300, and `describe-alarms` shows
 `asmbly-ceramics-stage-email-volume`), then sets it `[x] Complete` here and in the README.
 
@@ -457,7 +466,7 @@ Phase 3 can rely on:
   `not_taken`).
 - `use_cases/limits.py`: `RECEIVED_CAP_KEY = "received-emails"` and
   `check_received_cap(limiter, *, per_day, now, refused_event)`, which logs
-  `refused_event` with `reason=daily_cap` at ERROR or `reason=limiter_unavailable` at
+  `refused_event` with `reason=daily_cap` at WARNING or `reason=limiter_unavailable` at
   WARNING (`error_code`), and raises `DropOffNotTaken` or `RecordsUnavailable`.
 - `use_cases/submit.py`: step 4b, `self._check_cap(studio, now)`, after every field and
   photo passes and the `_PHOTO_MISSING` winner path, before the firing type's name is
