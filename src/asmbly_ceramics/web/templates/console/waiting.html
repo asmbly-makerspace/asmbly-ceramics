@@ -67,7 +67,7 @@
   {% set d = row.drop_off %}
     <tr>
       <td>{% if d.photos %}<img class="thumb" src="/console/drop-offs/{{ d.id }}/photos/1/thumb" alt="Photo of {{ d.id }}" width="56" height="56" loading="lazy">{% endif %}</td>
-      <td class="mono">{{ d.id }}</td>
+      <td class="mono"><a class="row-link" href="/console/drop-offs/{{ d.id }}">{{ d.id }}</a></td>
       <td>{{ d.contact.name if d.contact else "—" }}</td>
       <td>{{ d.pieces }}</td>
       <td><span class="tag">{{ row.firing_type }}</span></td>
@@ -80,7 +80,7 @@
         {{ d.state.label }}
         {% endif %}
       </td>
-      <td><a href="/console/drop-offs/{{ d.id }}">Open</a></td>
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>

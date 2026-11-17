@@ -14,7 +14,8 @@ MARKUP = "<script>alert(1)</script>"
 
 
 def ids_in(html: str) -> list[str]:
-    return re.findall(r'<td class="mono">(AC-\d+)</td>', html)
+    row_link = r'<td class="mono"><a class="row-link" href="/console/drop-offs/(AC-\d+)">\1</a></td>'
+    return re.findall(row_link, html)
 
 
 @pytest.fixture

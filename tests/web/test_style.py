@@ -172,3 +172,27 @@ def test_console_rules_do_not_reach_the_public_form() -> None:
             if first is not None and first.group(1) in public:
                 problems.append(selector.strip())
     assert problems == []
+
+
+def test_rows_that_open_something_are_one_link_with_a_chevron() -> None:
+    """A table row that opens a drop-off or a load is one stretched link (.row-link) and
+    ends in a chevron cell (.row-go); no row carries a bare underlined "Open" link."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    stretched = next(body for sel, body in rules.items() if sel.strip() == ".list .row-link::after")
+    assert "position: absolute" in stretched
+    assert "inset: var(--none)" in stretched
+    lifted = next(body for sel, body in rules.items() if ":is(form, button, input, select)" in sel)
+    assert "z-index" in lifted  # a row's own buttons stay clickable above the link
+    pages = {
+        "loads.html": 2,
+        "waiting.html": 1,
+        "load.html": 1,
+        "counts.html": 1,
+        "emails.html": 1,
+        "firing_log.html": 1,
+    }
+    for name, tables in pages.items():
+        page = (WEB / "templates" / "console" / name).read_text()
+        assert page.count('class="row-link') == tables, name
+        assert page.count('<td class="row-go"></td>') == tables, name
+        assert ">Open</a>" not in page, name

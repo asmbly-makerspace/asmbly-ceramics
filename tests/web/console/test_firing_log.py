@@ -506,7 +506,10 @@ def test_notes_column(staff: Console) -> None:
     answer = staff.get(LOG)
 
     assert '<th scope="col">Notes</th>' in answer.text
-    last = r"<td>([0-9]+)(?: <span class=\"tag tag-not-allowed\">✕ ([0-9]+).*?</span></span>)?</td>\s*</tr>"
+    last = (
+        r"<td>([0-9]+)(?: <span class=\"tag tag-not-allowed\">✕ ([0-9]+).*?</span></span>)?</td>"
+        r"\s*<td class=\"row-go\"></td>\s*</tr>"
+    )
     cells = re.findall(last, answer.text)
     assert listed(answer) == [quiet, noted]
     assert cells == [("0", ""), ("3", "1")]

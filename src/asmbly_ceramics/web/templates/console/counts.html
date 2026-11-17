@@ -19,13 +19,14 @@
   {% if view.overdue %}
   <div class="table-box">
   <table class="list">
-    <thead><tr><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Days waiting</th></tr></thead>
+    <thead><tr><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Days waiting</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead>
     <tbody>
     {% for row in view.overdue %}
       <tr>
-        <td class="mono"><a href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
+        <td class="mono"><a class="row-link" href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
         <td>{{ row.drop_off.contact.name if row.drop_off.contact else "Closed" }}</td>
         <td>{{ row.days_waiting }}</td>
+        <td class="row-go"></td>
       </tr>
     {% endfor %}
     </tbody>

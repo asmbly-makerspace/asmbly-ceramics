@@ -977,13 +977,13 @@ def test_test_tag_on_lists_and_page(staff: Console) -> None:
     start(staff)  # L-2, not a test
     listed = text(staff.get("/console/loads"))
     assert listed.count('<span class="tag">Test</span>') == 1
-    assert 'L-1</span> <span class="tag">Test</span>' in listed
+    assert 'L-1</span></a> <span class="tag">Test</span>' in listed
     assert '<span class="tag">Test</span>' in text(staff.get("/console/loads/L-1"))
     assert '<span class="tag">Test</span>' not in text(staff.get("/console/loads/L-2"))
 
     fire(staff)  # the fired list tags it too
     fired_list = text(staff.get("/console/loads")).split("Past loads")[1]
-    assert 'L-1</span> <span class="tag">Test</span>' in fired_list
+    assert 'L-1</span></a> <span class="tag">Test</span>' in fired_list
 
 
 def test_change_load_marks_test(staff: Console) -> None:

@@ -70,12 +70,13 @@
       <th scope="col">Cost</th>
       <th scope="col">Started / fired by</th>
       <th scope="col">Notes</th>
+      <th scope="col"><span class="visually-hidden">Open</span></th>
     </tr>
   </thead>
   <tbody>
   {% for row in rows %}
     <tr>
-      <td><a href="/console/loads/{{ row.load.id }}" class="mono">{{ row.load.id }}</a>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
+      <td><a class="row-link mono" href="/console/loads/{{ row.load.id }}">{{ row.load.id }}</a>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
       {% if show_kiln %}<td>{{ row.kiln }}</td>{% endif %}
       <td>{{ row.fired }}</td>
       <td>{{ row.firing_number }}</td>
@@ -87,6 +88,7 @@
       <td>{{ row.cost }}</td>
       <td>{{ row.started_by }} / {{ row.fired_by }}</td>
       <td>{{ row.notes }}{% if row.not_allowed %} <span class="tag tag-not-allowed">✕ {{ row.not_allowed }}<span class="visually-hidden"> not allowed</span></span>{% endif %}</td>
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>

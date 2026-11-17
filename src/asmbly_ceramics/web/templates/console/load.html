@@ -86,13 +86,14 @@
       <th scope="col">Name</th>
       <th scope="col">Pieces</th>
       {% if loading %}<th scope="col"><span class="visually-hidden">Remove</span></th>{% endif %}
+      <th scope="col"><span class="visually-hidden">Open</span></th>
     </tr>
   </thead>
   <tbody>
   {% for row in members %}
     <tr>
       <td>{% if row.thumb %}<img class="thumb" src="{{ row.thumb }}" alt="Photo of {{ row.drop_off.id }}" width="48" height="48" loading="lazy">{% endif %}</td>
-      <td class="mono"><a href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
+      <td class="mono"><a class="row-link" href="/console/drop-offs/{{ row.drop_off.id }}">{{ row.drop_off.id }}</a></td>
       <td>{{ row.name }}</td>
       <td>{{ row.drop_off.pieces }}</td>
       {% if loading %}
@@ -104,6 +105,7 @@
         </form>
       </td>
       {% endif %}
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>

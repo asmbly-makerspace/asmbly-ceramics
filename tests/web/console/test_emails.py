@@ -40,7 +40,7 @@ def test_a_failed_ready_email_of_a_fired_drop_off_is_listed_after_its_load_leave
     assert ready.world.list_loads()[1] == []
     page = ready.get("/console/emails")
     assert page.status_code == 200
-    assert '<a href="/console/drop-offs/AC-1">AC-1</a>' in page.text
+    assert '<a class="row-link" href="/console/drop-offs/AC-1">AC-1</a>' in page.text
     assert "Ready for pickup" in page.text
     assert "Sending failed (MessageRejected)" in page.text
 
