@@ -300,6 +300,39 @@ def test_add_selected_refuses_the_lot_when_one_is_another_firing_type(staff: Con
     assert answer.status_code == 409
     assert "Nothing was added." in text(answer)
     assert load_of(staff).members == ()
+    assert re.search(r'value="AC-1" form="add-many" checked', answer.text)  # still ticked
+
+
+def test_add_selected_refuses_one_already_in_another_load_and_adds_none(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    start(staff)
+    add(staff, "AC-2", load=LoadId(2))
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": ["AC-1", "AC-2"]})
+
+    assert answer.status_code == 400
+    assert "AC-2 is already in load L-2." in text(answer)
+    assert load_of(staff).members == ()
+
+
+def test_add_selected_is_refused_once_the_load_is_firing(staff: Console) -> None:
+    staff.drop_off(1)
+    staff.drop_off(2)
+    start(staff)
+    add(staff, "AC-1")
+    v = str(load_of(staff).version)
+    staff.post("/console/loads/L-1/start-firing", {"version": v})
+
+    answer = staff.post("/console/loads/L-1/add-many", {"drop_off": "AC-2"})
+
+    assert answer.status_code == 400
+    assert load_of(staff).members == (DropOffId(1),)
+
+
+def test_add_selected_to_a_missing_load_is_a_404(staff: Console) -> None:
+    assert staff.post("/console/loads/L-9/add-many", {"drop_off": "AC-1"}).status_code == 404
 
 
 def test_add_selected_refuses_a_made_up_id(staff: Console) -> None:

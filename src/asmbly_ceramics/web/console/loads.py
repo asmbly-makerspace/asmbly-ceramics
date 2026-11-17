@@ -485,6 +485,7 @@ def _load_page(
     note_form: NoteForm | None = None,
     confirm_remove: NoteId | None = None,
     note_notice: str | None = None,
+    ticked: frozenset[DropOffId] = frozenset(),
     status: int = 200,
 ) -> Response:
     console = services(request)
@@ -524,6 +525,7 @@ def _load_page(
         "kilns": _choices(studio, CatalogList.KILNS, load.kiln),
         "firing_types": _choices(studio, CatalogList.FIRING_TYPES, load.firing_type),
         "waiting": view.waiting,
+        "ticked": ticked,  # a refused "Add selected" keeps its boxes ticked
         "all_types": all_types,
         "emails": emails,
         "notice": notice,
@@ -634,10 +636,13 @@ def _refused(
     add: AddState | None = None,
     status: int = 400,
     all_types: bool = False,
+    ticked: frozenset[DropOffId] = frozenset(),
 ) -> Response:
     """The load as it is now, with the refusal; nothing was stored."""
     view = _view(request, id, all_types=all_types)
-    return _load_page(request, staff, view, all_types=all_types, problem=problem, add=add, status=status)
+    return _load_page(
+        request, staff, view, all_types=all_types, problem=problem, add=add, ticked=ticked, status=status
+    )
 
 
 def _conflicted(request: Request, staff: Staff, id: LoadId, conflict: Conflict) -> Response:
@@ -726,6 +731,7 @@ async def add_many_to_load(request: Request) -> Response:
     if any(drop_off is None for drop_off in ids):
         raise PageError(400)
     wanted = [drop_off for drop_off in ids if drop_off is not None]
+    ticked = frozenset(wanted)
     if not wanted:
         view = _view(request, id, all_types=all_types)
         return _load_page(request, staff, view, all_types=all_types, problem=TICK_SOMETHING, status=400)
@@ -734,7 +740,7 @@ async def add_many_to_load(request: Request) -> Response:
     except NotFound as missing:
         if isinstance(missing.id, LoadId):
             raise _load_not_found(id) from None
-        return _refused(request, staff, id, problem=missing.message, all_types=all_types)
+        return _refused(request, staff, id, problem=missing.message, all_types=all_types, ticked=ticked)
     except FiringTypeMismatch as mismatch:
         studio = console.studio()
         problem = MIXED_TYPES.format(
@@ -742,9 +748,9 @@ async def add_many_to_load(request: Request) -> Response:
             drop_off=item_name(studio, CatalogList.FIRING_TYPES, mismatch.drop_off_firing_type),
             load=item_name(studio, CatalogList.FIRING_TYPES, mismatch.load_firing_type),
         )
-        return _refused(request, staff, id, problem=problem, status=409, all_types=all_types)
+        return _refused(request, staff, id, problem=problem, status=409, all_types=all_types, ticked=ticked)
     except (AlreadyInLoad, NotWaiting, LoadFull, LoadNotLoading) as refused:
-        return _refused(request, staff, id, problem=refused.message, all_types=all_types)
+        return _refused(request, staff, id, problem=refused.message, all_types=all_types, ticked=ticked)
     except Conflict as conflict:
         return _conflicted(request, staff, id, conflict)
     except CommitOutcomeUnknown:

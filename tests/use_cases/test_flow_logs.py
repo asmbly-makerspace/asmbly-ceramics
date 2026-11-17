@@ -23,7 +23,7 @@ from tests.domain.builders import (
     a_sending_address,
 )
 from tests.use_cases.conftest import DEVICE, SOURCE_ADDRESS, World
-from tests.use_cases.flows import STAFF_EMAIL, STAFF_MEMBER, dropped_off, fired, send_all
+from tests.use_cases.flows import STAFF_EMAIL, STAFF_MEMBER, dropped_off, fired, loaded, send_all
 from tests.use_cases.test_submit import a_device, a_token
 
 
@@ -35,6 +35,8 @@ def test_a_whole_flow_logs_no_personal_details(world: World, caplog: pytest.LogC
     world.reject(RejectRequest(first, ItemId("other"), TEST_MESSAGE, version=1, staff=STAFF_MEMBER))
     world.undo(UndoRequest(first, version=2, staff=STAFF_MEMBER))
     load = fired(world, first, second)
+    third = dropped_off(world, 3)
+    world.add_many_to_load(loaded(world), [third], staff=STAFF_MEMBER)  # "Add selected"
     world.view_load(load)
     world.mailer.fail_with = "MessageRejected"
     world.send_email(first, EmailKind.RECEIVED, "")
