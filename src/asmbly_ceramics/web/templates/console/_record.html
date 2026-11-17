@@ -1,50 +1,61 @@
+{# The firing record (#42): a readout of the saved record, and the form as a log sheet,
+   one row per field, behind "Edit firing record". The form shows without a tap when
+   nothing is recorded or a save was refused. #}
+{% macro described(name, hint=False) %}{% if name in record.errors or hint %} aria-describedby="{% if name in record.errors %}rec-{{ name }}-error{% endif %}{% if name in record.errors and hint %} {% endif %}{% if hint %}rec-{{ name }}-hint{% endif %}"{% endif %}{% endmacro %}
+{% macro after(name, hint=False) %}
+  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  {% if hint %}<p class="hint" id="rec-{{ name }}-hint">Suggested from {{ view.kiln }}'s firing count. Change it if it's wrong.</p>{% endif %}
+{% endmacro %}
 {% macro whole(name, unit) %}
 {% set low, high = record.whole[name] %}
-<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+{% set hint = name in record.suggested %}
+<div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
-  {% if name in record.suggested %}<p class="hint" id="rec-{{ name }}-hint">Suggested from {{ view.kiln }}'s firing count. Change it if it's wrong.</p>{% endif %}
   <div class="unit-row">
-    <input type="number" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}" inputmode="numeric" min="{{ low }}" max="{{ high }}" step="1"{% if name in record.errors or name in record.suggested %} aria-describedby="{% if name in record.errors %}rec-{{ name }}-error{% endif %}{% if name in record.errors and name in record.suggested %} {% endif %}{% if name in record.suggested %}rec-{{ name }}-hint{% endif %}"{% endif %}>
+    <input type="number" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}" inputmode="numeric" min="{{ low }}" max="{{ high }}" step="1"{{ described(name, hint) }}>
     {% if unit %}<span class="unit">{{ unit }}</span>{% endif %}
   </div>
+  {{ after(name, hint) }}
 </div>
 {% endmacro %}
 {% macro text(name, unit, length, mode, placeholder) %}
-<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+<div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
-  <div class="unit-row">
+  <div class="unit-row unit-row-wide">
     {% if unit == "$" %}<span class="unit">$</span>{% endif %}
-    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}"{% if mode %} inputmode="{{ mode }}"{% endif %} maxlength="{{ length }}" placeholder="{{ placeholder }}" autocomplete="off"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
+    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}"{% if mode %} inputmode="{{ mode }}"{% endif %} maxlength="{{ length }}" placeholder="{{ placeholder }}" autocomplete="off"{{ described(name) }}>
     {% if unit != "$" %}<span class="unit">{{ unit }}</span>{% endif %}
   </div>
+  {{ after(name) }}
 </div>
 {% endmacro %}
-{% macro select(name, options) %}
-<div class="field{% if name in record.errors %} field-invalid{% endif %}">
-  <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
-  <select id="rec-{{ name }}" name="{{ name }}"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
-    <option value="">—</option>
+{% macro choose(name, options) %}
+{# One tap per choice; "—" leaves it not recorded. The first button carries the field's ID,
+   so the error summary's link lands on it. #}
+<div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}" role="radiogroup" aria-labelledby="rec-{{ name }}-label"{{ described(name) }}>
+  <span class="sheet-label" id="rec-{{ name }}-label">{{ record.labels[name] }}</span>
+  <div class="segmented">
+    <input type="radio" id="rec-{{ name }}" name="{{ name }}" value=""{% if not record.fields[name] %} checked{% endif %}><label for="rec-{{ name }}">—<span class="visually-hidden"> not recorded</span></label>
     {% for value, shown in options %}
-    <option value="{{ value }}"{% if record.fields[name] == value %} selected{% endif %}>{{ shown }}</option>
+    <input type="radio" id="rec-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if record.fields[name] == value %} checked{% endif %}><label for="rec-{{ name }}-{{ loop.index }}">{{ shown }}</label>
     {% endfor %}
-  </select>
+  </div>
+  {{ after(name) }}
 </div>
 {% endmacro %}
 {% macro witness(name) %}
 {% set ticked = name in record.no_cone %}
-<div class="field{% if name in record.errors %} field-invalid{% endif %}">
+<div class="cone-cell{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
+  {{ after(name) }}
   <div class="unit-row">
-    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ '' if ticked else record.fields[name] }}" inputmode="numeric" maxlength="{{ record.cone_reading_max }}" autocomplete="off"{% if name in record.errors %} aria-describedby="rec-{{ name }}-error"{% endif %}>
+    <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ '' if ticked else record.fields[name] }}" inputmode="numeric" maxlength="{{ record.cone_reading_max }}" autocomplete="off"{{ described(name) }}>
     <span class="unit">% bent</span>
   </div>
   <label class="choice no-cone" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
 </div>
 {% endmacro %}
+{% macro shown(name) %}{% if name in record.shown %}{{ record.shown[name]|capitalize if name == "speed" else record.shown[name] }}{% else %}—<span class="visually-hidden">not recorded</span>{% endif %}{% endmacro %}
 <section class="panel" id="record" aria-labelledby="record-title">
   <h3 id="record-title">Firing record</h3>
   {% if record.problem %}
@@ -58,6 +69,33 @@
     </ul>
     {% endif %}
   </div>
+  {% endif %}
+  {% if record.saved %}
+  <div class="readout">
+    <dl class="readout-tiles">
+      {% for name in ("cone", "speed", "firing_time", "max_temp_f", "cost", "percent_full") %}
+      <div class="readout-tile"><dt>{{ record.labels[name] }}</dt><dd>{{ shown(name) }}</dd></div>
+      {% endfor %}
+    </dl>
+    {% set extras = ("preheat_hours", "hold_minutes", "board_temp_f", "firing_number", "all_time_number") | select("in", record.shown) | list %}
+    {% if extras %}
+    <dl class="readout-extras">
+      {% for name in extras %}
+      <div><dt>{{ record.labels[name] }}</dt><dd>{{ shown(name) }}</dd></div>
+      {% endfor %}
+    </dl>
+    {% endif %}
+    <ul class="readout-cones">
+      {% for name in record.witness %}
+      <li>
+        <span>{{ record.labels[name] }}: <strong>{{ record.shown.get(name, "not recorded") }}</strong></span>
+        {% if name in record.bends %}<progress max="100" value="{{ record.bends[name] }}" aria-hidden="true"></progress>{% else %}<span class="readout-track" aria-hidden="true"></span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="hint">Nothing is recorded yet.</p>
   {% endif %}
   {% if record.stored is not none %}
   <div class="record-now" id="record-now">
@@ -74,38 +112,41 @@
     <p class="hint">The form below still holds what you typed. Saving it replaces the whole record above.</p>
   </div>
   {% endif %}
-  <p class="hint">Every field is optional. Saving changes only the record. Drop-offs and emails aren't touched.</p>
+  {% if record.saved %}<details class="record-edit"{% if record.open %} open{% endif %}>
+  <summary>Edit firing record</summary>{% endif %}
   <form method="post" action="/console/loads/{{ load.id }}/record">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="version" value="{{ load.version }}">
-    <div class="record-groups">
-      <fieldset class="record-group">
+    <p class="hint">Every field is optional. Saving changes only the record. Drop-offs and emails aren't touched.</p>
+    <div class="sheet">
+      <fieldset class="sheet-group">
         <legend>Kiln</legend>
         {{ whole("percent_full", "%") }}
         {{ whole("firing_number", "") }}
         {{ whole("all_time_number", "") }}
       </fieldset>
-      <fieldset class="record-group">
+      <fieldset class="sheet-group">
         <legend>Program</legend>
-        {{ select("cone", record.cone_options) }}
-        {{ select("speed", record.speed_options) }}
+        {{ choose("cone", record.cone_options) }}
+        {{ choose("speed", record.speed_options) }}
         {{ whole("preheat_hours", "hours") }}
         {{ whole("hold_minutes", "min") }}
       </fieldset>
-      <fieldset class="record-group">
+      <fieldset class="sheet-group">
         <legend>Result</legend>
         {{ text("firing_time", "h:mm", record.firing_time_max, "", "e.g. 11:38") }}
         {{ text("cost", "$", record.cost_max, "decimal", "e.g. 8.19") }}
         {{ whole("max_temp_f", "°F") }}
         {{ whole("board_temp_f", "°F") }}
       </fieldset>
-      <fieldset class="record-group record-group-wide">
+      <fieldset class="sheet-group sheet-cones">
         <legend>Witness cones</legend>
-        <div class="witness-row">
+        <div class="cone-cells">
           {% for name in record.witness %}{{ witness(name) }}{% endfor %}
         </div>
       </fieldset>
     </div>
     <button type="submit">Save firing record</button>
   </form>
+  {% if record.saved %}</details>{% endif %}
 </section>

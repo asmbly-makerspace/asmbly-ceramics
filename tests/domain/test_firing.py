@@ -17,10 +17,12 @@ from asmbly_ceramics.domain.firing import (
     Program,
     Speed,
     changed_fields,
+    cone_bends,
     is_no_cone,
     read_firing_record,
     read_program,
     record_changes,
+    record_shown,
     record_summary,
     record_values,
 )
@@ -227,6 +229,23 @@ def test_record_summary_lists_recorded_fields_as_shown() -> None:
     assert record_summary(record, NAMES.__getitem__) == (("Cone", "^6"), ("Max temp", "2,236 °F"))
     assert record_summary(EMPTY_RECORD, NAMES.__getitem__) == ()
     assert len(record_summary(FULL_RECORD, NAMES.__getitem__)) == len(RECORD_FIELDS)
+
+
+def test_record_shown_keys_each_recorded_field_by_name() -> None:
+    record = replace(EMPTY_RECORD, cost_cents=819, cone_bottom=NO_CONE, program=Program(cone=CONE_6))
+    assert record_shown(record, NAMES.__getitem__) == {
+        "cone": "^6",
+        "cost": "$8.19",
+        "cone_bottom": "no cone",
+    }
+    assert record_shown(EMPTY_RECORD, NAMES.__getitem__) == {}
+    assert list(record_shown(FULL_RECORD, NAMES.__getitem__)) == list(RECORD_FIELDS)
+
+
+def test_cone_bends_leaves_out_no_cone_and_not_recorded() -> None:
+    record = replace(EMPTY_RECORD, cone_top=90, cone_center=NO_CONE)
+    assert cone_bends(record) == {"cone_top": 90}
+    assert cone_bends(EMPTY_RECORD) == {}
 
 
 # read_program: a firing type's default program (#42)

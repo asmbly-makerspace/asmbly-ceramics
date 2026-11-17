@@ -103,6 +103,10 @@
   --field-medium: 30rem;
   --form-col-min: 12rem;
   --record-col: 18rem; /* a firing record group's narrowest column (#42) */
+  --sheet-control: 9rem; /* a firing record number box with its unit */
+  --sheet-control-wide: 10rem; /* a witness cone's box, with "% bent" */
+  --tile-min: 8.5rem; /* six readout tiles in one row on a laptop */
+  --readout-bar: 0.5rem;
   --settings-col: 26rem;
   --photo-min: 18rem;
   --none: 0;
@@ -538,28 +542,58 @@ details.panel[open] > summary { margin-bottom: var(--space-4); }
 .step-correct { color: var(--text); font-weight: normal; }
 .step-correct form { margin-top: var(--space-2); padding: var(--space-3); color: var(--text); background: var(--surface); border-radius: var(--radius); }
 .steps li[aria-current="step"] .step-correct summary { color: var(--on-accent); }
-/* The firing record: the kiln, program and result groups as cards side by side on a wide
-   screen, the witness cones a full-width card below with the three cones in a row; one
-   column on a phone. A field's unit is attached to its box, so every box lines up. */
-.record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-4); margin: var(--space-4) var(--none); }
-.record-group { margin: var(--none); padding: var(--space-4); min-width: var(--none); background: var(--canvas); border: var(--border-width) solid var(--line-soft); border-radius: var(--radius-card); }
-.record-group-wide { grid-column: 1 / -1; }
-.record-group legend { float: left; width: var(--full); margin-bottom: var(--space-3); padding: var(--none); font-size: var(--font-size-label); font-weight: var(--weight-strong); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
-.record-group legend + * { clear: both; }
-.console .record-group .field { margin-bottom: var(--space-3); }
-.console .record-group .field:last-child { margin-bottom: var(--none); }
-.record-group .field > label:first-child { margin-bottom: var(--space-1); font-size: var(--font-size-small); }
-.record-group .unit-row { gap: var(--none); background: var(--field-bg); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
-.record-group .unit-row:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
-.record-group .unit-row input[type] { border: var(--none); background: transparent; outline: none; }
-.record-group .unit-row .unit { align-self: stretch; display: flex; align-items: center; padding: var(--none) var(--space-3); font-size: var(--font-size-small); background: var(--canvas); }
-.record-group .unit-row .unit:last-child { border-left: var(--border-width) solid var(--line-soft); border-radius: var(--none) var(--radius) var(--radius) var(--none); }
-.record-group .unit-row .unit:first-child { border-right: var(--border-width) solid var(--line-soft); border-radius: var(--radius) var(--none) var(--none) var(--radius); }
-.record-group .field-invalid .unit-row { border: var(--border-width-accent) solid var(--error-edge); }
-.witness-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); }
-.console .witness-row .field { margin-bottom: var(--none); }
-.record-group .no-cone { display: flex; margin: var(--none); font-size: var(--font-size-small); font-weight: var(--weight-normal); gap: var(--space-2); }
-.record-group .no-cone input { width: var(--space-4); height: var(--space-4); }
+/* The firing record (#42). The readout: six tiles, a line of the rest, a bar per witness
+   cone. The form: a log sheet, a label on the left of each row and a small box (its unit
+   attached) or one-tap choices on the right; three groups side by side on a wide screen,
+   the witness cones in a row below; one column on a phone. */
+.readout { margin: var(--space-4) var(--none); }
+.readout-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--tile-min)), 1fr)); gap: var(--space-3); margin: var(--none) var(--none) var(--space-4); }
+.readout-tile { padding: var(--space-3) var(--space-4); background: var(--canvas); border-radius: var(--radius-card); }
+.readout-tile dt, .sheet-group legend { font-size: var(--font-size-label); font-weight: var(--weight-strong); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+.readout-tile dd { margin: var(--none); font-family: var(--font-heading); font-size: var(--console-title); font-weight: var(--weight-heading); line-height: var(--line-height-heading); overflow-wrap: anywhere; }
+.readout-extras { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: var(--none); padding: var(--space-3) var(--none); border-top: var(--border-width) solid var(--line-soft); border-bottom: var(--border-width) solid var(--line-soft); font-size: var(--font-size-small); }
+.readout-extras div { display: flex; gap: var(--space-1); }
+.readout-extras dt { color: var(--muted); }
+.readout-extras dt::after { content: ":"; }
+.readout-extras dd { margin: var(--none); font-weight: var(--weight-strong); }
+.readout-cones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); list-style: none; margin: var(--space-4) var(--none) var(--none); padding: var(--none); }
+.readout-cones li { display: flex; flex-direction: column; gap: var(--space-2); }
+.readout-cones progress, .readout-track { display: block; width: var(--full); height: var(--readout-bar); border: var(--none); border-radius: var(--radius-pill); background: var(--line-soft); overflow: hidden; appearance: none; }
+.readout-cones progress::-webkit-progress-bar { background: var(--line-soft); }
+.readout-cones progress::-webkit-progress-value { background: var(--accent-strong); }
+.readout-cones progress::-moz-progress-bar { background: var(--accent-strong); }
+.record-edit { margin-top: var(--space-4); }
+.record-edit > summary { display: inline-flex; align-items: center; padding: var(--none) var(--space-4); color: var(--accent-strong); background: var(--surface); border: var(--border-width) solid var(--control-edge); border-radius: var(--radius); }
+.record-edit[open] > summary { margin-bottom: var(--space-4); }
+.sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-5) var(--space-6); margin: var(--space-4) var(--none) var(--space-5); }
+.sheet-group { margin: var(--none); padding: var(--none); border: var(--none); min-width: var(--none); }
+.sheet-group legend { float: left; width: var(--full); padding: var(--none) var(--none) var(--space-2); border-bottom: var(--border-width-accent) solid var(--ceramics-20); }
+.sheet-group legend + * { clear: both; }
+.sheet-cones { grid-column: 1 / -1; }
+.sheet-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--none); border-bottom: var(--border-width) solid var(--line-soft); }
+.sheet-row > label, .sheet-label { flex: 1 1 auto; font-weight: var(--weight-normal); }
+.sheet-row > .field-error, .sheet-row > .hint { flex-basis: var(--full); margin: var(--none); }
+.sheet-row .unit-row, .cone-cell .unit-row { gap: var(--none); background: var(--field-bg); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
+.sheet-row .unit-row { flex: none; width: var(--sheet-control); }
+.sheet-row .unit-row-wide { width: var(--sheet-control-wide); }
+.cone-cell .unit-row { max-width: var(--sheet-control-wide); }
+.sheet-row .unit-row:focus-within, .cone-cell .unit-row:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.sheet-row .unit-row input[type], .cone-cell .unit-row input[type] { border: var(--none); background: transparent; outline: none; text-align: right; }
+.sheet-row .unit-row .unit, .cone-cell .unit-row .unit { align-self: stretch; display: flex; align-items: center; padding: var(--none) var(--space-2); font-size: var(--font-size-small); background: var(--canvas); }
+.sheet-row .unit-row .unit:last-child, .cone-cell .unit-row .unit:last-child { border-left: var(--border-width) solid var(--line-soft); border-radius: var(--none) var(--radius) var(--radius) var(--none); }
+.sheet-row .unit-row .unit:first-child { border-right: var(--border-width) solid var(--line-soft); border-radius: var(--radius) var(--none) var(--none) var(--radius); }
+.sheet-row.field-invalid .unit-row, .cone-cell.field-invalid .unit-row { border: var(--border-width-accent) solid var(--error-edge); }
+.segmented { display: inline-flex; flex-wrap: wrap; max-width: var(--full); border: var(--border-width) solid var(--control-edge); border-radius: var(--radius); overflow: hidden; }
+.segmented input { position: absolute; width: var(--border-width); height: var(--border-width); opacity: var(--none); margin: var(--none); }
+.segmented label { display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: var(--none) var(--space-3); cursor: pointer; background: var(--field-bg); }
+.segmented label + input + label { border-left: var(--border-width) solid var(--line-soft); }
+.segmented input:checked + label { color: var(--on-accent); background: var(--accent-strong); font-weight: var(--weight-strong); }
+.segmented input:focus-visible + label { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+.sheet-row.field-invalid .segmented { border: var(--border-width-accent) solid var(--error-edge); }
+.cone-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); padding-top: var(--space-3); }
+.cone-cell > label:first-child { display: block; margin-bottom: var(--space-1); }
+.cone-cell .no-cone { font-size: var(--font-size-small); gap: var(--space-2); }
+.cone-cell .no-cone input { width: var(--space-4); height: var(--space-4); }
 .unit-row { display: flex; align-items: center; gap: var(--space-2); }
 .unit-row input { flex: 1; min-width: var(--none); }
 .unit { flex: none; color: var(--muted); }

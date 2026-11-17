@@ -47,6 +47,7 @@ from asmbly_ceramics.domain.errors import (
 from asmbly_ceramics.domain.firing import (
     CONE_READING_TEXT_MAX,
     COST_TEXT_MAX,
+    EMPTY_RECORD,
     FIRING_TIME_TEXT_MAX,
     NO_CONE,
     RECORD_FIELDS,
@@ -54,7 +55,9 @@ from asmbly_ceramics.domain.firing import (
     WHOLE_RANGES,
     WITNESS_CONES,
     Speed,
+    cone_bends,
     is_no_cone,
+    record_shown,
     record_summary,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId, is_item_id
@@ -353,14 +356,20 @@ def _step_rows(view: LoadView, refused: StepForm | None) -> list[dict[str, Any]]
 
 
 def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) -> dict[str, Any]:
-    """The record form: the values typed (after a refusal) or stored, the numbers
+    """The readout of the saved record (its values as shown and its cones' bends) and the
+    record form: the values typed (after a refusal) or stored, the numbers
     suggested while the record has none, and every bound from `domain.limits`. After a
     `Conflict`, also the record as it is stored now (`stored`), so the next save, sent
     with the load's new version, replaces it only once staff have seen it."""
     values = dict(refused.values if refused else view.record_fields)
+
+    def cone_name(id: ItemId) -> str:
+        return item_name(studio, CatalogList.CONES, id)
+
     stored: tuple[tuple[str, str], ...] | None = None
     if refused is not None and refused.changed:
-        stored = record_summary(view.load.record, lambda id: item_name(studio, CatalogList.CONES, id))
+        stored = record_summary(view.load.record, cone_name)
+    saved = view.load.record != EMPTY_RECORD
     suggested: set[str] = set()
     if refused is None:
         for name, number in zip(("firing_number", "all_time_number"), view.suggested, strict=True):
@@ -373,6 +382,10 @@ def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) 
         "errors": refused.errors if refused else {},
         "problem": refused.problem if refused else None,
         "stored": stored,
+        "saved": saved,  # the readout shows, with the form behind "Edit firing record"
+        "open": refused is not None or not saved,  # the form shows without a tap
+        "shown": record_shown(view.load.record, cone_name),
+        "bends": cone_bends(view.load.record),
         "labels": RECORD_LABELS,
         "suggested": suggested,
         "whole": WHOLE_RANGES,

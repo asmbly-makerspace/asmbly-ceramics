@@ -1046,8 +1046,55 @@ def test_record_saved_redirects_and_shows(staff: Console) -> None:
     assert "Firing record saved." in page
     assert 'name="percent_full" value="80"' in page
     assert 'name="cost" value="8.19"' in page
-    assert f'<option value="{CONE_6}" selected>^6</option>' in page
+    assert re.search(rf'<input type="radio" id="rec-cone-\d+" name="cone" value="{CONE_6}" checked>', page)
+    assert '<input type="radio" id="rec-speed-1" name="speed" value="slow" checked>' in page
     assert "Firing record: % full: 80%" in page  # the history line
+
+
+def test_a_saved_record_shows_as_a_readout_with_the_form_behind_edit(staff: Console) -> None:
+    start(staff)
+    fields = {"cone": CONE_6, "max_temp_f": "2236", "cost": "8.19", "cone_top": "90", "cone_bottom_none": "1"}
+    assert save_record(staff, fields).status_code == 303
+
+    page = text(staff.get("/console/loads/L-1"))
+
+    assert "<dt>Cone</dt><dd>^6</dd>" in page
+    assert "<dt>Max temp</dt><dd>2,236 °F</dd>" in page
+    assert "<dt>Cost</dt><dd>$8.19</dd>" in page
+    assert "<dt>Speed</dt><dd>Slow</dd>" in page  # the firing type's default program
+    assert '<dt>Firing time</dt><dd>—<span class="visually-hidden">not recorded</span></dd>' in page
+    assert '<progress max="100" value="90" aria-hidden="true">' in page
+    assert "Top cone: <strong>90%</strong>" in page
+    assert "Bottom cone: <strong>no cone</strong>" in page
+    assert "Center cone: <strong>not recorded</strong>" in page
+    assert '<details class="record-edit">' in page  # closed: one tap opens the form
+    assert "<summary>Edit firing record</summary>" in page
+
+
+def test_an_empty_record_shows_the_form_without_a_tap(staff: Console) -> None:
+    start(staff)
+    assert save_record(staff, dict.fromkeys(RECORD_FIELDS, "")).status_code == 303
+
+    page = text(staff.get("/console/loads/L-1"))
+
+    assert "Nothing is recorded yet." in page
+    assert "record-edit" not in page
+    assert 'class="readout"' not in page
+    assert '<input type="radio" id="rec-cone" name="cone" value="" checked>' in page
+
+
+def test_a_refused_record_opens_the_form(staff: Console) -> None:
+    start(staff)
+    page = text(save_record(staff, {"cost": "lots"}))
+    assert '<details class="record-edit" open>' in page
+
+
+def test_the_dash_choice_clears_the_cone_and_speed(staff: Console) -> None:
+    start(staff)
+    assert save_record(staff, {"cone": CONE_6, "speed": "fast"}).status_code == 303
+    assert save_record(staff, {"cone": "", "speed": ""}).status_code == 303
+    program = load_of(staff).record.program
+    assert (program.cone, program.speed) == (None, None)
 
 
 def test_record_invalid_fields_shown_and_kept(staff: Console) -> None:
