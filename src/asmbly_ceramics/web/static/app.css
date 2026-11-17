@@ -99,6 +99,7 @@
   --font-size-label: 0.75rem;
   --tracking-label: 0.06em;
   --font-size-stat: 2rem;
+  --font-size-stat-inset: 1.625rem; /* a card inside a panel */
   --radius-card: 0.75rem;
   --radius-pill: 62rem;
   --tab-bar: 3px;
@@ -107,7 +108,7 @@
   --form-col-min: 12rem;
   --record-col: 18rem; /* a firing record group's narrowest column (#42) */
   --field-joined-wide: 10rem; /* a joined unit box whose example text needs room ("e.g. 11:38") */
-  --card-min-inset: 8.5rem; /* a card inside a panel: the firing record's six tiles in one row */
+  --card-min-inset: 8.25rem; /* a card inside a panel: the firing record's six tiles in one row */
   --settings-col: 26rem;
   --photo-min: 18rem;
   --none: 0;
@@ -342,7 +343,6 @@ a { color: var(--accent-strong); }
 .card { padding: var(--space-4) var(--space-5); }
 .page-console .card h3, .card dt, .sheet-group legend {
   font-size: var(--font-size-small);
-  font-weight: var(--weight-strong);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--muted);
@@ -353,8 +353,9 @@ a { color: var(--accent-strong); }
 /* Cards inside a panel (the firing record's readout): on the canvas, no edge, smaller. */
 .cards-inset { grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--card-min-inset)), 1fr)); gap: var(--space-3); margin: var(--none) var(--none) var(--space-4); }
 .cards-inset .card { padding: var(--space-3) var(--space-4); background: var(--canvas); border: var(--none); }
+.card dt, .sheet-group legend { font-weight: var(--weight-strong); }
 .card dd { margin: var(--none); }
-.cards-inset .card-number { margin: var(--none); font-size: var(--console-title); overflow-wrap: anywhere; }
+.cards-inset .card-number { margin: var(--none); font-size: var(--font-size-stat-inset); overflow-wrap: anywhere; }
 
 /* Search and the waiting list's filter. */
 .search { margin: var(--none) var(--none) var(--space-5); max-width: var(--field-medium); }
@@ -557,7 +558,8 @@ details.panel[open] > summary, .record-edit[open] > summary { margin-bottom: var
 .unit-row-joined { flex: none; width: var(--field-narrow); max-width: var(--full); gap: var(--none); background: var(--field-bg); border: var(--border-width) solid var(--line); border-radius: var(--radius); }
 .unit-row-wide { width: var(--field-joined-wide); }
 .unit-row-joined:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
-/* input[type] outranks `.field-invalid input[type=…]`: the box carries the error edge. */
+/* input[type] ties `.field-invalid input[type=…]` (0,2,1) and wins by coming later in the
+   file: keep this rule after that one, so the box, not the input, carries the error edge. */
 .unit-row-joined input[type] { border: var(--none); background: transparent; outline: none; text-align: right; }
 .unit-row-joined .unit { align-self: stretch; display: flex; align-items: center; padding: var(--none) var(--space-2); font-size: var(--font-size-small); background: var(--canvas); }
 .unit-row-joined .unit:last-child { border-left: var(--border-width) solid var(--line-soft); border-radius: var(--none) var(--radius) var(--radius) var(--none); }
@@ -571,18 +573,18 @@ details.panel[open] > summary, .record-edit[open] > summary { margin-bottom: var
 .readout { margin: var(--space-4) var(--none); }
 .readout-line { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: var(--none); padding: var(--space-3) var(--none); border-top: var(--border-width) solid var(--line-soft); border-bottom: var(--border-width) solid var(--line-soft); font-size: var(--font-size-small); }
 .readout-line div { display: flex; gap: var(--space-1); }
-.readout-line dt { color: var(--muted); }
+.readout-line dt, .readout-cones dt { color: var(--muted); }
 .readout-line dt::after { content: ":"; }
 .readout-line dd { margin: var(--none); font-weight: var(--weight-strong); }
 .readout-cones, .cone-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--form-col-min)), 1fr)); gap: var(--space-3) var(--space-5); }
 .readout-cones { margin: var(--space-4) var(--none) var(--none); }
-.readout-cones dt { color: var(--muted); }
 .readout-cones dd { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--none); font-weight: var(--weight-strong); }
 .readout-cones meter, .readout-track { display: block; width: var(--full); height: var(--space-2); border: var(--none); border-radius: var(--radius-pill); background: var(--line-soft); overflow: hidden; appearance: none; }
 .readout-cones meter::-webkit-meter-bar { height: var(--space-2); background: var(--line-soft); border: var(--none); }
 .readout-cones meter::-webkit-meter-optimum-value { background: var(--accent-strong); }
 .readout-cones meter::-moz-meter-bar { background: var(--accent-strong); }
 .record-edit { margin-top: var(--space-4); }
+.record-edit > summary::-webkit-details-marker { display: none; }
 .record-edit > summary::after { content: var(--glyph-closed); margin-left: var(--space-2); }
 .record-edit[open] > summary::after { content: var(--glyph-open); }
 .sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--full), var(--record-col)), 1fr)); gap: var(--space-5) var(--space-6); margin: var(--space-4) var(--none) var(--space-5); }
@@ -597,7 +599,7 @@ details.panel[open] > summary, .record-edit[open] > summary { margin-bottom: var
 /* One-tap choices: native radios (visually hidden, still focusable) with joined labels;
    the gap over the hairline background draws the dividers, also when a long list wraps. */
 .segmented { display: inline-flex; flex-wrap: wrap; gap: var(--border-width); max-width: var(--full); background: var(--line-soft); border: var(--border-width) solid var(--control-edge); border-radius: var(--radius); overflow: hidden; }
-.segmented label { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: var(--none) var(--space-3); cursor: pointer; background: var(--field-bg); }
+.segmented label { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; text-align: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: var(--none) var(--space-3); cursor: pointer; background: var(--field-bg); }
 .segmented input:checked + label { color: var(--on-accent); background: var(--accent-strong); font-weight: var(--weight-strong); }
 .segmented input:focus-visible + label { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
 .segmented input:checked:focus-visible + label { outline-color: var(--on-accent); }

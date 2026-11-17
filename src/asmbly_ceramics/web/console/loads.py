@@ -363,7 +363,8 @@ READOUT_LINE = tuple(f for f in RECORD_FIELDS if f not in READOUT_TILES and f no
 def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) -> dict[str, Any]:
     """The readout of the saved record and the record form. The form stays open while the
     load is loading or firing; once it is fired, a recorded firing shows as the readout with
-    the form behind "Edit firing record" (opened again by a refused save). After a
+    the form behind "Edit firing record" (opened again by a refused save), unless a
+    suggested firing number is still waiting to be saved. After a
     `Conflict` (`changed`), the readout shows the record as it is stored now, whatever the
     state, so the next save, sent with the load's new version, replaces it only once staff
     have seen it. The form holds the values typed (after a refusal) or stored, the numbers
@@ -375,13 +376,17 @@ def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) 
 
     changed = refused is not None and refused.changed
     recorded = view.load.record != EMPTY_RECORD
-    behind_edit = recorded and view.load.status is LoadStatus.FIRED
     suggested: set[str] = set()
     if refused is None:
         for name, number in zip(("firing_number", "all_time_number"), view.suggested, strict=True):
             if number is not None and not values.get(name):
                 values[name] = str(number)
                 suggested.add(name)
+    # A suggested firing number is not saved yet: the form stays open until staff save it.
+    behind_edit = recorded and view.load.status is LoadStatus.FIRED and not suggested
+    shown = record_shown(view.load.record, cone_name)
+    if "speed" in shown:
+        shown["speed"] = shown["speed"].capitalize()  # as the speed choices show it
     return {
         "fields": values,
         "no_cone": {name for name in WITNESS_CONES if is_no_cone(values.get(name, ""))},
@@ -391,9 +396,9 @@ def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) 
         "readout": recorded and (behind_edit or changed),
         "behind_edit": behind_edit,  # the form is behind "Edit firing record"
         "open": refused is not None,  # ... and opened, to show what was typed
-        "shown": record_shown(view.load.record, cone_name),
+        "shown": shown,
         "bends": cone_bends(view.load.record),
-        "bend_max": CONE_READING_RANGE[1],
+        "bend_range": CONE_READING_RANGE,
         "tiles": READOUT_TILES,
         "line": READOUT_LINE,
         "labels": RECORD_LABELS,

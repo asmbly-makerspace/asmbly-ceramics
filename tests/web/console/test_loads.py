@@ -1116,7 +1116,8 @@ def test_a_fired_load_shows_its_record_as_a_readout_with_the_form_behind_edit(st
     assert '<dt>Speed</dt><dd class="card-number">Slow</dd>' in readout  # the default program
     not_recorded = '—<span class="visually-hidden"> not recorded</span>'
     assert f'<dt>Firing time</dt><dd class="card-number">{not_recorded}</dd>' in readout
-    assert f'<meter min="0" max="{CONE_READING_RANGE[1]}" value="90" aria-hidden="true">' in readout
+    low, high = CONE_READING_RANGE
+    assert f'<meter min="{low}" max="{high}" value="90" aria-hidden="true">' in readout
     assert "<dt>Bottom cone</dt>\n        <dd>no cone<span" in readout
     assert f"<dt>Center cone</dt>\n        <dd>{not_recorded}<span" in readout
     assert '<details class="record-edit">' in page  # closed: one tap opens the form
@@ -1141,6 +1142,65 @@ def test_a_refused_save_opens_the_form_behind_edit(staff: Console) -> None:
     fired_with(staff, {"cost": "8.19"})
     page = text(save_record(staff, {"cost": "lots"}))
     assert '<details class="record-edit" open>' in page
+
+
+def test_the_form_stays_open_while_firing(staff: Console) -> None:
+    staff.drop_off(1)
+    start(staff)
+    add(staff, "AC-1")
+    v = str(load_of(staff).version)
+    assert staff.post("/console/loads/L-1/start-firing", {"version": v}).status_code == 303
+    assert load_of(staff).status is LoadStatus.FIRING
+    page = text(staff.get("/console/loads/L-1"))
+    assert 'class="readout"' not in page
+    assert "record-edit" not in page
+
+
+def test_a_conflict_on_a_fired_load_shows_the_stored_readout_once_and_opens_the_form(staff: Console) -> None:
+    fired_with(staff, {"max_temp_f": "2236"})
+    page = text(save_record(staff, {"percent_full": "70"}, version="99"))
+    stored_now = page[page.index('id="record-now"') : page.index("The form below still holds")]
+    assert '<dt>Max temp</dt><dd class="card-number">2,236 °F</dd>' in stored_now
+    assert page.count('class="readout"') == 1
+    assert '<details class="record-edit" open>' in page
+    assert 'name="percent_full" value="70"' in page
+
+
+def test_a_cone_not_in_the_list_checks_no_choice_and_marks_the_group(staff: Console) -> None:
+    start(staff)
+    page = text(save_record(staff, {"cone": "item-99"}))
+    cone_inputs = re.findall(r'<input type="radio"[^>]* name="cone"[^>]*>', page)
+    assert cone_inputs
+    assert not any(" checked" in tag for tag in cone_inputs)
+    assert re.search(
+        r'role="radiogroup" aria-labelledby="rec-cone-label" aria-describedby="rec-cone-error"', page
+    )
+
+
+def test_a_suggested_firing_number_keeps_the_fired_form_open_until_saved(staff: Console) -> None:
+    start(staff)
+    empty = staff.post(
+        "/console/loads/L-1/edit", edit_fields(staff, "athena", "bisque", "2026-11-13") | {"test": "1"}
+    )
+    assert empty.status_code == 303
+    assert save_record(staff, {"firing_number": "41", "all_time_number": "300"}).status_code == 303
+    fire(staff)
+    staff.world.clock.advance(timedelta(hours=1))
+    staff.drop_off(1)
+    start(staff)  # L-2 on the same kiln: its numbers are suggested, not saved
+    add(staff, "AC-1", load=LoadId(2))
+    fire(staff, LoadId(2))
+
+    page = text(staff.get("/console/loads/L-2"))
+
+    assert 'name="firing_number" value="42"' in page
+    assert "Suggested from Athena's firing count." in page
+    assert "record-edit" not in page  # open, so the suggestion is seen and saved
+    assert (
+        save_record(staff, {"firing_number": "42", "all_time_number": "301"}, load=LoadId(2)).status_code
+        == 303
+    )
+    assert '<details class="record-edit">' in text(staff.get("/console/loads/L-2"))
 
 
 def test_the_dash_choice_clears_the_cone_and_speed(staff: Console) -> None:

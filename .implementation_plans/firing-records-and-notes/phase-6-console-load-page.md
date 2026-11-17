@@ -78,7 +78,7 @@ parsed as the other routes do.
 Shown on every live load (loading, firing, fired), as a log sheet: one row per field, its
 label on the left and its control on the right, in the design's four groups: Kiln
 (% full, firing #, all time #, with the suggestion as the field's value and a hint "Suggested
-from Helios's last firing" when `view.suggested` is used), Program (cone choices from
+from Helios's firing count. Change it if it's wrong." when `view.suggested` is used), Program (cone choices from
 `view.cones`, speed choices, preheat, hold), Result (firing time, cost, max temp, board
 temp), Witness cones (top, center, bottom, each a number field and a "No cone" checkbox
 that sends `none`).
@@ -87,7 +87,8 @@ The form is open while the load is loading or firing. Once the load is fired and
 holds anything, the record shows as a readout (the cone, speed, firing time, max temp, cost
 and % full as inset cards; every other recorded field on a line below; each witness cone's
 reading with a bar drawn from `CONE_READING_RANGE`), and the form sits behind an "Edit
-firing record" disclosure, opened again by a refused save. After a `Conflict`, the readout
+firing record" disclosure, opened again by a refused save. A suggested firing number not
+yet saved keeps the form open, so it is seen and saved. After a `Conflict`, the readout
 shows the record as it is stored now, whatever the load's state.
 
 - Field names are `RECORD_FIELDS`. The whole-number fields have `inputmode="numeric"`,
@@ -174,6 +175,16 @@ The record's groups stack to one column below 40rem (the design's
   `domain/limits.py`).
 - `test_record_full_form_accepted` (all 19 fields posted at once save, not a 400);
   `test_record_no_cone_checkbox` (a checked box saves `none`, and the form shows it).
+- The readout and the form's states: `test_the_form_stays_open_until_the_load_is_fired`,
+  `test_the_form_stays_open_while_firing`,
+  `test_a_fired_load_shows_its_record_as_a_readout_with_the_form_behind_edit`,
+  `test_the_readout_shows_every_recorded_field`,
+  `test_a_fired_load_with_nothing_recorded_shows_the_form`,
+  `test_a_refused_save_opens_the_form_behind_edit`,
+  `test_a_conflict_on_a_fired_load_shows_the_stored_readout_once_and_opens_the_form`,
+  `test_a_cone_not_in_the_list_checks_no_choice_and_marks_the_group`,
+  `test_a_suggested_firing_number_keeps_the_fired_form_open_until_saved`,
+  `test_the_dash_choice_clears_the_cone_and_speed`.
 - `test_empty_test_load_fire_confirm_says_no_one_emailed`.
 
 `tests/web/console/test_privacy.py`: the record and history pages hold no drop-off's
@@ -201,7 +212,8 @@ addresses hold no value typed.
 - [ ] `uv run pytest --cov`
 - [ ] No `|safe` on anything staff typed; the CSP and headers are unchanged.
 - After the merge, on stage and on a phone: start a test load with no drop-offs, start
-  firing, mark it fired (no email), fill in the record with the design's values, correct
+  firing, mark it fired (no email), fill in the record with the design's values (after a
+  save the readout shows; "Edit firing record" opens the form again), correct
   the fired time, and read the history.
 
 ## Rollout

@@ -53,10 +53,10 @@
     <span class="unit">% bent</span>
   </div>
   {{ after(name) }}
-  <label class="choice choice-small" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
+  <label class="choice choice-small" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone<span class="visually-hidden"> at the {{ record.labels[name]|lower }}</span></span></label>
 </div>
 {% endmacro %}
-{% macro shown(name) %}{% if name in record.shown %}{{ record.shown[name]|capitalize if name == "speed" else record.shown[name] }}{% else %}—<span class="visually-hidden"> not recorded</span>{% endif %}{% endmacro %}
+{% macro shown(name) %}{% if name in record.shown %}{{ record.shown[name] }}{% else %}—<span class="visually-hidden"> not recorded</span>{% endif %}{% endmacro %}
 <section class="panel" id="record" aria-labelledby="record-title">
   <h3 id="record-title">Firing record</h3>
   {% if record.problem %}
@@ -95,7 +95,7 @@
       {% for name in record.witness %}
       <div>
         <dt>{{ record.labels[name] }}</dt>
-        <dd>{{ shown(name) }}{% if name in record.bends %}<meter min="0" max="{{ record.bend_max }}" value="{{ record.bends[name] }}" aria-hidden="true"></meter>{% else %}<span class="readout-track" aria-hidden="true"></span>{% endif %}</dd>
+        <dd>{{ shown(name) }}{% if name in record.bends %}{% set low, high = record.bend_range %}<meter min="{{ low }}" max="{{ high }}" value="{{ record.bends[name] }}" aria-hidden="true"></meter>{% else %}<span class="readout-track" aria-hidden="true"></span>{% endif %}</dd>
       </div>
       {% endfor %}
     </dl>
