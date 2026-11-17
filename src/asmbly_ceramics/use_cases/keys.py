@@ -1,7 +1,8 @@
 """Keyed hashes of the raw values the public form sends (decision 0002).
 
 The use cases get the raw device cookie, source address and submission token from the
-page and hash them here, so no raw value reaches `Records`, `RateLimiter` or a log.
+page, and the recipient's email address once the form's fields have passed, and hash
+them here, so no raw value reaches `Records`, `RateLimiter` or a log.
 Every output starts with its purpose's prefix, and the prefix is part of the HMAC's
 input too, so one raw value hashed for two purposes gives two unrelated digests.
 """
@@ -11,12 +12,14 @@ import hmac
 import ipaddress
 import re
 
+from asmbly_ceramics.domain.dropoff import normalized_recipient
 from asmbly_ceramics.ports.secrets import SecretName, Secrets
 
 HASH_KEY_MIN_BYTES = 32
 IPV6_NETWORK_PREFIX = 64  # one IPv6 caller usually holds a whole /64
 _FORM_TOKEN = re.compile(r"[A-Za-z0-9_-]{22,64}", flags=re.ASCII)
 SUBMISSION_PREFIX = "submission#"
+RECIPIENT_PREFIX = "recipient#"
 _SUBMISSION_HASH = re.compile(re.escape(SUBMISSION_PREFIX) + r"[0-9a-f]{64}", flags=re.ASCII)
 
 
@@ -66,6 +69,11 @@ class KeyHasher:
 
     def submission(self, token: str) -> str:
         return self._hash(SUBMISSION_PREFIX, token)
+
+    def recipient(self, address: str) -> str:
+        """The recipient limit's key (#18): an HMAC of `normalized_recipient(address)`
+        under its own prefix. Never logged, never stored but by the limiter."""
+        return self._hash(RECIPIENT_PREFIX, normalized_recipient(address))
 
     def _hash(self, prefix: str, value: str) -> str:
         digest = hmac.new(self._load_key(), (prefix + value).encode(), hashlib.sha256).hexdigest()

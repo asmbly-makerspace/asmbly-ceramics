@@ -49,6 +49,7 @@ class RateLimit:
 
 DEVICE_LIMIT = RateLimit(limit=10, window=timedelta(minutes=10))
 ADDRESS_LIMIT = RateLimit(limit=30, window=timedelta(minutes=10))
+RECIPIENT_LIMIT = RateLimit(limit=3, window=timedelta(days=1))  # drop-offs per recipient address (#18)
 SLOT_DEVICE_LIMIT = RateLimit(limit=20, window=timedelta(minutes=10))  # requests for upload slots
 SLOT_ADDRESS_LIMIT = RateLimit(limit=60, window=timedelta(minutes=10))
 UPLOAD_SLOT_LIFETIME = timedelta(minutes=15)

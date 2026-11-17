@@ -1,5 +1,5 @@
-"""Counting submissions per device and address (#2: 10 per device in 10 minutes), and the
-form's daily cap on received emails (#30)."""
+"""Counting submissions per device and address (#2: 10 per device in 10 minutes), per
+recipient address (#18: 3 in 24 hours), and the form's daily cap on received emails (#30)."""
 
 from datetime import datetime
 from typing import Protocol

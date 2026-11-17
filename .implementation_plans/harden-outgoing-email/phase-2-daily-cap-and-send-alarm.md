@@ -406,8 +406,9 @@ counted. The cap's own refusals reach the maintainers through the existing
 After the merge, on stage:
 
 - Settings › Emails shows "Received emails a day, at most: 300". Set it to 1 and save;
-  the history shows "300 → 1". Drop off once with made-up details (taken), then again
-  from another made-up address: the second shows the friendly sentence. The form's log
+  the history shows "300 → 1". Drop off once to the tester's own inbox, with a made-up
+  name (taken; the received email arrives there), then again to the same inbox: the
+  second shows the friendly sentence. The form's log
   shows `drop_off_refused` with `reason=daily_cap`, and the `logged-errors` alarm goes off
   (its email says stage). Set it back to 300.
 - `aws cloudwatch describe-alarms --alarm-names asmbly-ceramics-stage-email-volume

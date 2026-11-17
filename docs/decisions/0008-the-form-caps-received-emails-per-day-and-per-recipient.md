@@ -109,13 +109,64 @@ make a new bucket each time).
 
 **Consequence, accepted:** the keyed hash of an address is kept until its item's `ttl`,
 about two days after the last hit, and DynamoDB deletes an expired item within a few days
-of it; the drop-off itself keeps the address longer, until it closes (#7). Someone
-who knows a person's address can block it from the form for a day by making three
-drop-offs with it, which also sends that person three emails; the person can still drop
-off through staff. Two people who share an address share its three. Normalization merges
+of it. A taken drop-off keeps the address itself until it closes (#7), but not always
+longer than the hash: a drop-off staff delete loses its contact at once, and a refused
+submission stores no drop-off at all, so for those the address's keyed hash outlives
+every other trace of it by about two days plus DynamoDB's TTL lag. The hash is useless
+without the form's `hash-key`.
+
+**Consequence, accepted:** refused hits count, as for every limit here (the
+`RateLimiter` contract), so someone who knows a person's address can block it from the
+form for as long as they keep going, not only for a day: three drop-offs with it, which
+also send that person three emails, then three more submissions to it, each complete and
+valid and from a device and network the other limits allow, before each 24 hours ends.
+The refused ones send no email and store no drop-off; each logs only
+`drop_off_refused` with `reason=recipient_limit` at INFO, which no alarm watches. The
+person can still drop off through staff, who take it by hand. Nothing in the console
+lifts the limit: it lifts once 24 hours pass with fewer than three submissions to the
+address. Rotating the `hash-key` resets the hashed counts (the recipient's among them)
+only as each of the form's instances is replaced (a cold start, or a deploy that changes
+the form function): each instance reads the key
+once and keeps it, so until then a warm one counts under the old key and counts split
+between the two. It never resets the daily cap, whose key is fixed. It has the side
+effects the bootstrap runbook lists. The limiter isn't changed for it;
+`tests/use_cases/test_submit.py` shows an address still refused after seven days of
+three refused submissions a day. Two people who share an address share its three. Normalization merges
 some addresses that a mail server would treat as different (case in the local part, a
 `+` that isn't a tag); that only makes the limit stricter. Other providers' aliasing
 (dots elsewhere, other tag characters) isn't folded; the daily cap backs it.
+
+**Consequence, accepted:** the recipient is counted before the daily cap and before the
+drop-off gets its ID, so its hit stays spent when nothing is then stored: the cap refuses,
+the cap can't be counted (it fails closed), or taking the ID, keeping the photos or the
+commit fails. The page answers "try again" (or the cap's refusal) and a retry with the
+same submission token counts the recipient again, so three such failures in 24 hours use
+up the address's three with no drop-off taken. The faults are rare (the cap's
+contention consequence above, an AWS fault) and log their own lines; staff take the
+drop-off by hand. The cap's refusal is not rare in a flood: while the cap is reached it
+refuses every attempt, so someone who tries three times then has used up their own
+address's three and stays refused by the recipient limit after the cap reopens, until
+24 hours pass with fewer than three attempts to it. Counting the recipient after the commit would let a race exceed the
+limit.
+
+**Consequence, accepted:** a double tap whose two requests race both pass the repeated
+token check and both count the recipient, so it uses two of the address's three (and two
+of the cap's slots, as the cap's section says). When the recipient refuses the loser,
+the submit answers it with the winner's drop-off if it is stored. If the winner hasn't
+committed yet when the loser is refused at the recipient's third slot, the loser's page
+says it can't take this drop-off while the winner's drop-off is stored and emailed; that
+is rare, since `upload.js`'s busy guard stops most double taps on the page.
+
+**Consequence, accepted:** while the daily cap isn't reached, a refusal for an address
+tells a caller who already knows that address that it was given three times in the last
+24 hours (by anyone, that caller included). Learning it takes a complete, valid drop-off
+with photos from a device and network the other limits allow, and a drop-off that is
+taken instead emails that address, so probing is noisy. The page shows nothing more:
+the refusal is the cap's, word for word and with the same status, so while the cap is
+reached the page can't tell a caller which of the two refused. The timing may differ
+slightly: a recipient refusal skips the cap's count, so it answers sooner by the cap's
+count: one table read and one conditional write (more if that write loses a race). No dummy count is made to hide it; what it could tell is what the page
+already tells while the cap isn't reached.
 
 **Revisit if:** real drop-offs are refused by it (a household or a class sharing one
 address), or the studio starts checking addresses some other way.
@@ -130,8 +181,9 @@ an address or a hash, the same sentence for both, and nothing that differs with 
 address typed. The device and source-address limits keep their own message.
 
 **Why:** the person can't fix either refusal by changing the form, so the useful thing
-to say is where to go. One sentence for both keeps a caller from learning whether an
-address was used before, or that the studio is under a flood.
+to say is where to go. One sentence for both keeps a caller from learning which of the
+two refused, or that the studio is under a flood; it can't hide that a refusal happened
+(the recipient section's last consequence says what that tells a caller).
 
 **Consequence, accepted:** a real person refused doesn't learn why; staff take the
 drop-off by hand and the logs (by reason, never the address) tell the maintainers.
@@ -194,3 +246,33 @@ the in-memory fakes and the template:**
 
 Not seen yet: the alarm and the setting in AWS (the stage check after the merge), and the
 DynamoDB rate limiter under the fixed key, which only its existing stub tests cover.
+
+**The limit per recipient (phase 3, 17 November 2026), seen in tests only, against the
+in-memory fakes:**
+
+- `normalized_recipient` strips and lowercases, drops a plus tag (but keeps a local part
+  that starts with `+`), folds Gmail's dots and `googlemail.com` into `gmail.com`, keeps
+  dots for other domains (Gmail's label under another parent included), and refuses an invalid address with a message that never holds
+  it (`tests/domain/test_dropoff.py`). `KeyHasher.recipient` gives one `recipient#` hash
+  for one normalized address, a digest unrelated to the other purposes', holding no part
+  of the address (`tests/use_cases/test_keys.py`).
+- The fourth drop-off to one address in 24 hours, from a fourth device and source
+  address, raises `DropOffNotTaken`: no drop-off, email or submission stored, no photo
+  kept, no ID taken, one `drop_off_refused` with `reason=recipient_limit` at INFO. The
+  address in another case or with a plus tag counts as the same recipient; the window
+  rolls; another address isn't affected; a refused recipient isn't counted against the
+  cap; a refused field and a repeated token aren't counted for the recipient; a double
+  tap racing for the recipient's last slot answers the loser with the winner's drop-off;
+  a recipient that can't be counted raises `RecordsUnavailable` after a WARNING line,
+  with nothing stored and the cap not counted; a recipient counted before a cap that
+  can't be counted stays counted, so three such failures leave the address refused with
+  nothing stored; three refused submissions a day keep an address refused after seven
+  days. No log line holds the address, its
+  normalized form or a `recipient#` hash, and the limiter sees only the hash
+  (`tests/use_cases/test_submit.py`).
+- The public page answers a recipient refusal with 429 and a body identical to a cap
+  refusal's for an address never used, echoing nothing typed (`tests/web/test_submit.py`).
+
+Not seen yet: the limit on stage (the check after the merge: a fourth drop-off to the
+tester's own inbox, spelled four ways the limit folds, refused, three received emails
+there; never a made-up address, which would only bounce on the shared sending identity).

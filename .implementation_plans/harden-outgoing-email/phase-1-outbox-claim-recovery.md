@@ -213,8 +213,8 @@ only after `dropped_off`. `conftest.py` isn't changed.
 - [ ] No log record in the new tests holds `TEST_EMAIL` or the photos' bytes
       (`tests/use_cases/test_no_personal_details_logged.py` style assertion in each test).
 
-After the merge: nothing to see unless a claim times out. On stage, drop off with
-made-up details; the received email arrives once, and the mailer's log shows
+After the merge: nothing to see unless a claim times out. On stage, drop off with a
+made-up name to the tester's own inbox; the received email arrives there once, and the mailer's log shows
 `email_sent` for that ID and no `email_claim_unknown`.
 
 ## Rollout

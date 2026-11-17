@@ -14,7 +14,13 @@ from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus
 from asmbly_ceramics.domain.errors import DropOffNotTaken, TooManySubmissions
 from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, PHOTO_MAX_BYTES, RateLimit
+from asmbly_ceramics.domain.limits import (
+    ADDRESS_LIMIT,
+    DEVICE_LIMIT,
+    PHOTO_MAX_BYTES,
+    RECIPIENT_LIMIT,
+    RateLimit,
+)
 from asmbly_ceramics.domain.photos import PhotoRefusal
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import IdsUnavailable, RecordsUnavailable
@@ -23,7 +29,7 @@ from asmbly_ceramics.ports.records import Conflict, Submission
 from asmbly_ceramics.use_cases.limits import RECEIVED_CAP_KEY
 from asmbly_ceramics.web.fields import MESSAGES, PHOTO_MESSAGES, field_messages, message_for
 from asmbly_ceramics.web.security import RECEIVED_COOKIE, sign
-from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS
+from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS, an_address
 from tests.web.conftest import ADDRESS, COOKIE_KEY, PHOTO, SAME_ORIGIN, SITE, Site, set_cap
 
 NAME = MESSAGES["name.required"]
@@ -243,6 +249,42 @@ def test_a_drop_off_past_the_daily_cap_shows_the_friendly_refusal(
         assert secret not in logged
 
 
+def test_a_fourth_drop_off_to_one_recipient_shows_the_same_friendly_refusal(
+    site: Site, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    recipient = an_address("Made.Up.Recipient")
+    for _ in range(RECIPIENT_LIMIT.limit):
+        site.client.cookies.clear()
+        assert site.submit(site.details(email=recipient)).status_code == 303
+    site.client.cookies.clear()
+    fields = site.details(email=an_address("made.up.recipient+kiln"))
+
+    by_recipient = site.submit(fields)
+
+    assert by_recipient.status_code == 429
+    shown = html.unescape(re.sub(r"<[^>]+>", " ", by_recipient.text))
+    assert DropOffNotTaken().message in shown
+    for word in ("cap", "limit", "hash", "recipient", "too many", "already"):
+        assert word not in shown.lower()
+    for typed in (TEST_NAME, TEST_PHONE, recipient, "made.up.recipient", str(fields["email"])):
+        assert typed not in by_recipient.text
+    assert len(all_drop_offs(site)) == RECIPIENT_LIMIT.limit
+
+    # A refusal by the daily cap, for an address never used, reads exactly the same.
+    set_cap(site, RECIPIENT_LIMIT.limit)
+    site.client.cookies.clear()
+    by_cap = site.submit(site.details(email=an_address("someone.else")))
+    assert by_cap.status_code == by_recipient.status_code
+    assert by_cap.text == by_recipient.text
+    assert by_cap.headers.get("content-type") == by_recipient.headers.get("content-type")
+    reasons = [r.__dict__.get("reason") for r in caplog.records if r.getMessage() == "drop_off_refused"]
+    assert reasons == ["recipient_limit", "daily_cap"]
+    logged = repr([vars(r) for r in caplog.records])
+    for secret in (TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS, recipient, "made.up.recipient", "recipient#"):
+        assert secret not in logged
+
+
 def test_the_form_says_try_again_when_the_cap_can_t_be_counted(site: Site) -> None:
     counted = site.world.limiter.hit
 
@@ -452,13 +494,16 @@ def test_every_message_key_has_a_message() -> None:
 
 
 def test_the_domain_raises_only_keys_the_page_knows() -> None:
-    """Every message key in the domain's source has a message here."""
+    """Every quoted word.word in the domain's source, less Gmail's two domains, has a message here."""
     import pathlib
 
     import asmbly_ceramics.domain.dropoff as dropoff
 
     source = pathlib.Path(dropoff.__file__).read_text()
-    for key in re.findall(r'"([a-z_]+\.[a-z_]+)"', source):
+    # Every quoted word.word, wherever it is, less Gmail's two domains (normalized_recipient's).
+    keys = set(re.findall(r'"([a-z_]+\.[a-z_]+)"', source)) - {"gmail.com", "googlemail.com"}
+    assert "email.invalid" in keys  # the scan still finds the domain's keys
+    for key in keys:
         assert key in MESSAGES, key
 
 

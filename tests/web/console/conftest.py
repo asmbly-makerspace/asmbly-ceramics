@@ -23,7 +23,7 @@ from asmbly_ceramics.web.app import WebSettings, create_app
 from asmbly_ceramics.web.console import ConsoleServices
 from asmbly_ceramics.web.console.csrf import csrf_token
 from asmbly_ceramics.web.console.session import SESSION_COOKIE, seal_session
-from tests.domain.builders import STAFF, TEST_NAME
+from tests.domain.builders import STAFF, TEST_NAME, a_recipient
 from tests.use_cases.conftest import World
 from tests.use_cases.conftest import world as world  # the fakes and use cases
 from tests.use_cases.flows import STAFF_EMAIL
@@ -147,11 +147,12 @@ class Console:
         firing_type: str = "bisque",
         glaze_type: str | None = None,
     ) -> DropOffId:
-        """A drop-off made through the form, from its own made-up device."""
+        """A drop-off made through the form, from its own made-up device and recipient."""
         request = a_request(
             self.world,
             token=a_token(number),
             device=a_device(number),
+            email=a_recipient(number),
             name=name,
             firing_type=firing_type,
             glaze_type=glaze_type,

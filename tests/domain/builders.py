@@ -63,6 +63,14 @@ TEST_PHONE_DIGITS = "512" + "555" + "0100"
 TEST_MESSAGE = "Leave the base unglazed, then drop it off again."
 
 
+def a_recipient(number: int) -> str:
+    """The made-up person's address for their `number`th drop-off: `TEST_EMAIL` for the
+    first, then other recipients the recipient limit (#18) counts apart, each holding
+    `TEST_EMAIL` whole, so a check that `TEST_EMAIL` isn't logged or shown still catches
+    every one of them."""
+    return TEST_EMAIL if number == 1 else f"n{number}." + TEST_EMAIL
+
+
 class DetailsArgs(TypedDict, total=False):
     """`DropOffDetails.create`'s keyword arguments."""
 

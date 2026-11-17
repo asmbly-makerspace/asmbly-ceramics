@@ -1,11 +1,11 @@
 """Submitting a drop-off from the public form (#2).
 
 Everything in a `SubmitRequest` is hostile until checked here: the token and the device
-cookie by shape, then the rate limit, then every field and photo at once, then the daily
-cap on received emails (#30, decision 0008), counted only for a drop-off that would
-otherwise be stored. The raw token, cookie and source address are hashed (`KeyHasher`)
-before anything is read, counted, stored or logged. A repeated token answers with the
-drop-off it already made.
+cookie by shape, then the rate limit, then every field and photo at once, then the limit
+per recipient address (#18) and the daily cap on received emails (#30, decision 0008),
+counted only for a drop-off that would otherwise be stored. The raw token, cookie,
+source address and recipient address are hashed (`KeyHasher`) before anything is read,
+counted, stored or logged. A repeated token answers with the drop-off it already made.
 """
 
 import logging
@@ -27,7 +27,7 @@ from asmbly_ceramics.ports.photos import PhotosAlreadyKept, PhotoStore, UploadMi
 from asmbly_ceramics.ports.rate_limit import RateLimiter
 from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Put, Records, Submission
 from asmbly_ceramics.use_cases.keys import KeyHasher, is_form_token
-from asmbly_ceramics.use_cases.limits import check_limits, check_received_cap
+from asmbly_ceramics.use_cases.limits import check_limits, check_received_cap, check_recipient
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.received import ReceivedView, is_live, live_submission, received_view
 from asmbly_ceramics.use_cases.studio import CurrentStudio
@@ -138,12 +138,18 @@ class SubmitDropOff:
             _refused("invalid_details", fields=",".join(sorted(errors)))
             raise InvalidDetails(errors)
 
-        # 4b. The daily cap on received emails (#30, decision 0008), only for a drop-off
-        # that would otherwise be stored, so a refused field never counts. Outside the ID
-        # loop, so a retry with the next ID counts once. A double tap whose two requests
-        # race both pass step 1 and both count here (decision 0008 accepts it); when the
-        # other one took the last slot and stored the drop-off, it is this one's answer.
+        # 4b. The recipient's limit (#18), then the daily cap on received emails (#30),
+        # only for a drop-off that would otherwise be stored, so a refused field never
+        # counts. A refused recipient isn't counted against the cap, so one address being
+        # flooded can't use up the studio's day (decision 0008). Outside the ID loop, so a
+        # retry with the next ID counts once. A double tap whose two requests race both
+        # pass step 1 and both count here, two of the recipient's three and two of the
+        # cap's slots (decision 0008 accepts both); when the other one took the last slot
+        # and stored the drop-off, it is this one's answer. The recipient's hit stays
+        # spent when nothing is stored after it (the cap refuses or can't be counted, or a
+        # later step fails), as decision 0008 records. Both refusals give the same page.
         try:
+            self._check_recipient(details.contact.email, now)
             self._check_cap(studio, now)
         except DropOffNotTaken:
             winner = self._winner_or_none(token_hash, now)
@@ -242,6 +248,15 @@ class SubmitDropOff:
             device_limit=DEVICE_LIMIT,
             address_key=address_key,
             address_limit=ADDRESS_LIMIT,
+            now=now,
+            refused_event="drop_off_refused",
+        )
+
+    def _check_recipient(self, address: str, now: datetime) -> None:
+        # The key was read for the device's hash in step 2, so no key failure starts here.
+        check_recipient(
+            self._limiter,
+            recipient_key=self._hasher.recipient(address),
             now=now,
             refused_event="drop_off_refused",
         )

@@ -8,7 +8,7 @@ estimated_size: M
 
 # Phase 3: The form: a limit per recipient address
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 Finishes #18.
 
@@ -126,9 +126,17 @@ def check_recipient(limiter: RateLimiter, *, recipient_key: str, now: datetime, 
 # 4b. The recipient's limit (#18), then the daily cap (#30), only for a drop-off that
 # would otherwise be stored. A refused recipient isn't counted against the cap, so one
 # address being flooded can't use up the studio's day (decision 0008).
-self._check_recipient(details.contact.email, now)
-self._check_cap(studio, now)
+try:
+    self._check_recipient(details.contact.email, now)
+    self._check_cap(studio, now)
+except DropOffNotTaken:
+    ...  # phase 2's winner path, unchanged, for either refusal
 ```
+
+Both checks sit inside phase 2's `try/except DropOffNotTaken`, so a recipient refusal
+takes exactly the cap refusal's path: a double tap racing for the recipient's last slot
+answers the loser with the winner's drop-off, and otherwise the same error goes up
+(prep, 17 November 2026).
 
 `_check_recipient(self, address: str, now: datetime) -> None` hashes with
 `self._hasher.recipient(address)` (the key was read for the device hash in step 2, so a
@@ -157,6 +165,12 @@ refusal and echoes nothing typed.
   normalized (case, plus tags, Gmail's dots), and counts the daily cap only when the
   recipient is allowed (decision 0008)."
 - Decision 0008's last section: what this phase's tests show, with the date.
+- Decision 0008's recipient section gains an accepted consequence: while the cap isn't
+  reached, a refusal for an address tells a caller who already knows it that it was
+  given three times in the last 24 hours (by anyone, that caller included); learning it
+  takes a complete, valid drop-off with photos, which, if taken, emails that address.
+  The page can't tell a recipient refusal from a cap refusal. "What a refused submission
+  says" is corrected to match.
 
 ## Tests
 
@@ -187,9 +201,10 @@ address, its normalized form, or any `recipient#` hash):
 - `test_the_recipient_limit_is_a_rolling_24_hours`.
 - `test_another_recipient_isnt_affected`.
 - `test_a_refused_recipient_isnt_counted_against_the_cap`: with a cap of 4 and one
-  recipient refused twice, two other recipients are still taken
-  (`world.limiter.keys_hit` shows the cap's key only for allowed recipients).
+  recipient refused twice, one other recipient is still taken and the next refused by
+  the cap (`world.limiter.keys_hit` shows the cap's key only for allowed recipients).
 - `test_a_refused_field_or_a_repeated_token_isnt_counted_for_the_recipient`.
+- `test_a_double_tap_racing_for_the_recipients_last_slot_returns_the_winner`.
 - `test_submit_fails_closed_when_the_recipient_cant_be_counted`: `RecordsUnavailable`,
   nothing stored, a WARNING `limiter_unavailable` line.
 - `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter` (existing)
@@ -227,10 +242,14 @@ address, its normalized form, or any `recipient#` hash):
 - [ ] No log line, error or page holds an address, its normalized form or a
       `recipient#` hash.
 
-After the merge, on stage: drop off four times with one made-up `example.org` address
-(other made-up names, a different device for each, e.g. private windows); the fourth
-shows the friendly sentence; the form's log shows `drop_off_refused` with
-`reason=recipient_limit` and no address; only three received emails arrive.
+After the merge, on stage: drop off four times to the tester's own inbox, spelled a
+different way each time that the limit folds into one (as typed, with a `+` tag if your provider delivers it, in
+other letter case), with made-up names and a different device for each (e.g. private
+windows); the fourth shows the friendly sentence; the form's log shows
+`drop_off_refused` with `reason=recipient_limit` and no address; only three received
+emails arrive in that inbox. Never a made-up address here: nothing arrives at one, and
+each send would likely bounce on the shared `asmbly.org` sending identity this plan
+protects.
 
 ## Rollout
 
@@ -247,4 +266,33 @@ TTL, unread.
 
 ## Hand-off
 
-_Filled in when the phase is done._
+Built on branch `feat/harden-outgoing-email` on 17 November 2026; stays `[~] In progress`
+until the maintainer confirms the stage check after the merge (a fourth drop-off to the
+tester's own inbox, spelled four folded ways, refused with the friendly sentence,
+`drop_off_refused` with `reason=recipient_limit` and no address in the form's log, three
+received emails in that inbox), then
+sets it `[x] Complete` here and in the README.
+
+What later work can rely on:
+
+- `domain/dropoff.py`: `normalized_recipient(address)` (`ValueError`, with a fixed
+  message, for an address `is_valid_email` refuses). Gmail's domains are the quoted
+  `_GMAIL_DOMAINS` (`gmail.com`, `googlemail.com`), matched whole.
+  `tests/web/test_submit.py::test_the_domain_raises_only_keys_the_page_knows` reads every
+  quoted `word.word` in that module as a message key, less those two domains by name; a
+  new quoted `word.word` there that isn't a message key needs the same exception.
+- `domain/limits.py`: `RECIPIENT_LIMIT` (3 in 1 day).
+- `use_cases/keys.py`: `RECIPIENT_PREFIX = "recipient#"`, `KeyHasher.recipient(address)`.
+- `use_cases/limits.py`: `check_recipient(limiter, *, recipient_key, now, refused_event)`,
+  logging `reason=recipient_limit` (INFO) or `reason=limiter_unavailable` (WARNING).
+- `use_cases/submit.py`: step 4b calls `_check_recipient` then `_check_cap` inside one
+  `try/except DropOffNotTaken`, so either refusal takes phase 2's winner path.
+- Tests: `tests/domain/builders.py`'s `a_recipient(number)` (`TEST_EMAIL` for 1, then
+  addresses that hold `TEST_EMAIL` whole but count as other recipients); the shared
+  helpers that make many drop-offs (`tests/use_cases/flows.py`'s `dropped_off`,
+  `tests/web/conftest.py`'s `Site.details`, `tests/web/console/conftest.py`'s
+  `drop_off`, `tests/use_cases/test_submit.py`'s `from_a_new_device`) give each its own
+  recipient; `to_recipient` and `assert_recipient_not_logged` in `test_submit.py`.
+
+Deferred: `CLAUDE.md`'s "Limits from #2" sentence still names only #2's limits; this run
+leaves `CLAUDE.md` to the docs step.

@@ -15,7 +15,7 @@ import pytest
 from asmbly_ceramics.adapters.memory.images import NOT_IMAGE, TOO_LARGE, TOO_MANY_PIXELS, UNSUPPORTED_TYPE
 from asmbly_ceramics.adapters.memory.photos import MemoryPhotoStore
 from asmbly_ceramics.adapters.memory.records import MemoryRecords
-from asmbly_ceramics.domain.dropoff import DropOffState
+from asmbly_ceramics.domain.dropoff import DropOffState, normalized_recipient
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus
 from asmbly_ceramics.domain.errors import DropOffNotTaken, InvalidDetails, TooManySubmissions
 from asmbly_ceramics.domain.ids import DropOffId
@@ -24,6 +24,7 @@ from asmbly_ceramics.domain.limits import (
     DEVICE_LIMIT,
     PHOTO_MAX_BYTES,
     RECEIVED_CAP_WINDOW,
+    RECIPIENT_LIMIT,
     SUBMISSION_LIFETIME,
     RateLimit,
 )
@@ -49,7 +50,9 @@ from tests.domain.builders import (
     TEST_PHONE,
     TEST_PHONE_DIGITS,
     a_drop_off,
+    a_recipient,
     a_sending_address,
+    an_address,
 )
 from tests.use_cases.conftest import DEVICE, SOURCE_ADDRESS, World
 
@@ -266,8 +269,8 @@ def test_the_eleventh_submission_from_a_device_in_10_minutes_is_refused(
 ) -> None:
     caplog.set_level(logging.INFO, logger="asmbly_ceramics")
     for number in range(DEVICE_LIMIT.limit):
-        world.submit(a_request(world, token=a_token(number)))
-    request = a_request(world, token=a_token(99))
+        world.submit(a_request(world, token=a_token(number), email=a_recipient(number + 1)))
+    request = a_request(world, token=a_token(99), email=a_recipient(99))
     reads = list(world.photos.read_uploads)
     with pytest.raises(TooManySubmissions):
         world.submit(request)
@@ -280,15 +283,15 @@ def test_the_eleventh_submission_from_a_device_in_10_minutes_is_refused(
 
 def test_it_is_allowed_again_after_10_minutes(world: World) -> None:
     for number in range(DEVICE_LIMIT.limit):
-        world.submit(a_request(world, token=a_token(number)))
+        world.submit(a_request(world, token=a_token(number), email=a_recipient(number + 1)))
     world.clock.advance(DEVICE_LIMIT.window)
-    assert world.submit(a_request(world, token=a_token(99))).view.id == DropOffId(11)
+    assert world.submit(a_request(world, token=a_token(99), email=a_recipient(99))).view.id == DropOffId(11)
 
 
 def test_a_device_over_its_limit_isnt_counted_against_the_address(world: World) -> None:
     for number in range(DEVICE_LIMIT.limit + 5):
         with contextlib.suppress(TooManySubmissions):
-            world.submit(a_request(world, token=a_token(number)))
+            world.submit(a_request(world, token=a_token(number), email=a_recipient(number + 1)))
     address_key = world.hasher.address(SOURCE_ADDRESS)
     assert world.limiter.keys_hit.count(address_key) == DEVICE_LIMIT.limit
 
@@ -298,9 +301,11 @@ def test_the_thirty_first_from_one_address_is_refused_across_devices(
 ) -> None:
     caplog.set_level(logging.INFO, logger="asmbly_ceramics")
     for number in range(ADDRESS_LIMIT.limit):
-        world.submit(a_request(world, token=a_token(number), device=a_device(number)))
+        world.submit(
+            a_request(world, token=a_token(number), device=a_device(number), email=a_recipient(number + 1))
+        )
     with pytest.raises(TooManySubmissions):
-        world.submit(a_request(world, token=a_token(99), device=a_device(99)))
+        world.submit(a_request(world, token=a_token(99), device=a_device(99), email=a_recipient(99)))
     assert [e["reason"] for e in events(caplog, "drop_off_refused")] == ["address_limit"]
 
 
@@ -326,11 +331,15 @@ def test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter(world
     world.submit(a_request(world))
     assert world.limiter.keys_hit
     assert all(
-        key.startswith(("device#", "address#")) or key == RECEIVED_CAP_KEY for key in world.limiter.keys_hit
+        key.startswith(("device#", "address#", "recipient#")) or key == RECEIVED_CAP_KEY
+        for key in world.limiter.keys_hit
     )
+    assert sum(key.startswith("recipient#") for key in world.limiter.keys_hit) == 1
     stored = repr([dataclasses.asdict(change.item) for commit in world.records.commits for change in commit])
     for raw in (TOKEN, DEVICE, SOURCE_ADDRESS):
         assert raw not in stored
+        assert all(raw not in key for key in world.limiter.keys_hit)
+    for raw in (TEST_EMAIL, normalized_recipient(TEST_EMAIL)):
         assert all(raw not in key for key in world.limiter.keys_hit)
     [submission] = [c.item for c in submission_commits(world)[0] if isinstance(c.item, Submission)]
     assert submission.token_hash.startswith("submission#")
@@ -352,9 +361,13 @@ def set_cap(world: World, per_day: int) -> None:
 
 
 def from_a_new_device(world: World, number: int) -> SubmitRequest:
-    """A request no device or address limit refuses, so only the cap can."""
+    """A request no device, source address or recipient limit refuses, so only the cap can."""
     return a_request(
-        world, token=a_token(number), device=a_device(number), source_address=f"203.0.113.{number}"
+        world,
+        token=a_token(number),
+        device=a_device(number),
+        source_address=f"203.0.113.{number}",
+        email=a_recipient(number),
     )
 
 
@@ -544,9 +557,233 @@ def test_the_cap_is_counted_under_its_fixed_key(world: World) -> None:
     assert world.limiter.keys_hit == [
         world.hasher.device(DEVICE),
         world.hasher.address(SOURCE_ADDRESS),
+        world.hasher.recipient(TEST_EMAIL),
         RECEIVED_CAP_KEY,
     ]
     assert RECEIVED_CAP_KEY == "received-emails"
+
+
+# The limit per recipient address (#18, decision 0008)
+
+RECIPIENT = an_address("Made.Up.Recipient")
+
+
+def to_recipient(world: World, number: int, email: str = RECIPIENT) -> SubmitRequest:
+    """A request from its own device and source address to `email`, so only the
+    recipient limit can refuse it."""
+    return dataclasses.replace(from_a_new_device(world, number), email=email)
+
+
+def assert_recipient_not_logged(caplog: pytest.LogCaptureFixture, *addresses: str) -> None:
+    """No line holds an address, its normalized form, or any recipient's hash."""
+    logged = repr([vars(r) for r in caplog.records])
+    for address in addresses:
+        assert address not in logged
+        assert normalized_recipient(address) not in logged
+    assert "recipient#" not in logged
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_fourth_drop_off_to_one_recipient_in_a_day_is_refused(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    for number in range(1, RECIPIENT_LIMIT.limit + 1):
+        world.submit(to_recipient(world, number))
+
+    with pytest.raises(DropOffNotTaken):
+        world.submit(to_recipient(world, 4))
+
+    assert len(submission_commits(world)) == RECIPIENT_LIMIT.limit
+    assert world.records.drop_off(DropOffId(4)) is None
+    assert world.records.email(DropOffId(4), EmailKind.RECEIVED) is None
+    assert world.photos.kept_count(DropOffId(4)) == 0
+    assert world.ids.next_drop_off_id() == DropOffId(4)  # no number was taken
+    [event] = events(caplog, "drop_off_refused")
+    assert (event["reason"], event["levelno"]) == ("recipient_limit", logging.INFO)
+    assert set(event) & {"count", "limit", "key", "recipient"} == set()
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_the_recipient_limit_counts_the_normalized_address(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    same = (RECIPIENT, RECIPIENT.upper(), an_address("made.up.recipient+kiln"))
+    for number, email in enumerate(same, start=1):
+        world.submit(to_recipient(world, number, email))
+
+    with pytest.raises(DropOffNotTaken):
+        world.submit(to_recipient(world, 4, " " + an_address("MADE.up.recipient+glaze") + " "))
+    assert_recipient_not_logged(caplog, *same)
+
+
+def test_the_recipient_limit_is_a_rolling_24_hours(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    world.submit(to_recipient(world, 1))
+    world.clock.advance(timedelta(hours=1))
+    world.submit(to_recipient(world, 2))
+    world.submit(to_recipient(world, 3))
+    # 24 hours and a microsecond after the first: it has left the window, the others haven't.
+    world.clock.advance(RECIPIENT_LIMIT.window - timedelta(hours=1) + timedelta(microseconds=1))
+
+    assert world.submit(to_recipient(world, 4)).view.id == DropOffId(4)
+    with pytest.raises(DropOffNotTaken):
+        world.submit(to_recipient(world, 5))
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_another_recipient_isnt_affected(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    for number in range(1, RECIPIENT_LIMIT.limit + 1):
+        world.submit(to_recipient(world, number))
+    with pytest.raises(DropOffNotTaken):
+        world.submit(to_recipient(world, 4))
+
+    other = to_recipient(world, 5, an_address("made.up.recipient", "example.net"))
+    assert world.submit(other).view.id == DropOffId(4)
+    assert_recipient_not_logged(caplog, RECIPIENT, an_address("made.up.recipient", "example.net"))
+
+
+def test_a_refused_recipient_isnt_counted_against_the_cap(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(world, 4)
+    for number in range(1, RECIPIENT_LIMIT.limit + 1):
+        world.submit(to_recipient(world, number))
+    for number in (4, 5):
+        with pytest.raises(DropOffNotTaken):
+            world.submit(to_recipient(world, number))
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == RECIPIENT_LIMIT.limit
+
+    assert world.submit(to_recipient(world, 6, a_recipient(6))).view.id == DropOffId(4)
+    with pytest.raises(DropOffNotTaken):  # the cap's fifth: only allowed recipients counted
+        world.submit(to_recipient(world, 7, a_recipient(7)))
+    recipient_key = world.hasher.recipient(RECIPIENT)
+    hits = world.limiter.keys_hit
+    capped_after = [hits[i - 1] for i, key in enumerate(hits) if key == RECEIVED_CAP_KEY]
+    assert capped_after.count(recipient_key) == RECIPIENT_LIMIT.limit
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_a_refused_field_or_a_repeated_token_isnt_counted_for_the_recipient(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    recipient_key = world.hasher.recipient(RECIPIENT)
+    refused(world, dataclasses.replace(to_recipient(world, 1), name=" "))
+    refused(world, dataclasses.replace(to_recipient(world, 2), upload_slots=()))
+    refused(world, dataclasses.replace(to_recipient(world, 6), upload_slots=world.uploaded(PHOTO, NOT_IMAGE)))
+    assert recipient_key not in world.limiter.keys_hit
+
+    request = to_recipient(world, 3)
+    world.submit(request)
+    assert world.submit(request).repeated
+    assert world.limiter.keys_hit.count(recipient_key) == 1
+    world.submit(to_recipient(world, 4))
+    world.submit(to_recipient(world, 5))  # the third counted: nothing refused before it
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_a_double_tap_racing_for_the_recipients_last_slot_returns_the_winner(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    for number in (1, 2):
+        world.submit(to_recipient(world, number))
+    request = to_recipient(world, 3)
+    counted = world.limiter.hit
+    recipient_key = world.hasher.recipient(RECIPIENT)
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key == recipient_key:
+            assert counted(key, limit, now)  # the other request's hit, the last slot
+            winner = Submission(
+                world.hasher.submission(request.submission_token),
+                DropOffId(7),
+                3,
+                "Bisque",
+                None,
+                NOW,
+                NOW + SUBMISSION_LIFETIME,
+            )
+            world.records.commit([Put(winner)])
+        return counted(key, limit, now)
+
+    world.limiter.hit = hit  # type: ignore[method-assign]
+
+    result = world.submit(request)
+
+    assert (result.view.id, result.repeated) == (DropOffId(7), True)
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == 2  # not counted for the loser
+    assert [e["reason"] for e in events(caplog, "drop_off_refused")] == ["recipient_limit"]
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_submit_fails_closed_when_the_recipient_cant_be_counted(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    counted = world.limiter.hit
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key.startswith("recipient#"):
+            raise RecordsUnavailable("ProvisionedThroughputExceededException")
+        return counted(key, limit, now)
+
+    world.limiter.hit = hit  # type: ignore[method-assign]
+
+    with pytest.raises(RecordsUnavailable):
+        world.submit(to_recipient(world, 1))
+
+    assert_nothing_stored(world)
+    assert RECEIVED_CAP_KEY not in world.limiter.keys_hit
+    [event] = events(caplog, "drop_off_refused")
+    assert (event["reason"], event["error_code"], event["levelno"]) == (
+        "limiter_unavailable",
+        "ProvisionedThroughputExceededException",
+        logging.WARNING,
+    )
+    assert_recipient_not_logged(caplog, RECIPIENT)
+
+
+def test_a_recipients_hit_stays_spent_when_the_cap_cant_be_counted(world: World) -> None:
+    """Decision 0008: a recipient counted before a failure that stores nothing stays counted."""
+    counted = world.limiter.hit
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key == RECEIVED_CAP_KEY:
+            raise RecordsUnavailable("ProvisionedThroughputExceededException")
+        return counted(key, limit, now)
+
+    world.limiter.hit = hit  # type: ignore[method-assign]
+    for number in range(1, RECIPIENT_LIMIT.limit + 1):
+        with pytest.raises(RecordsUnavailable):
+            world.submit(to_recipient(world, number))
+    assert_nothing_stored(world)
+    assert world.limiter.keys_hit.count(world.hasher.recipient(RECIPIENT)) == RECIPIENT_LIMIT.limit
+
+    world.limiter.hit = counted  # type: ignore[method-assign]
+    with pytest.raises(DropOffNotTaken):  # the three were spent by the failed tries
+        world.submit(to_recipient(world, 4))
+    assert submission_commits(world) == []
+
+
+def test_refused_drop_offs_keep_a_recipient_refused_while_they_go_on(world: World) -> None:
+    """Decision 0008: refused hits count, so three a day keep an address refused."""
+    for number in range(1, RECIPIENT_LIMIT.limit + 1):
+        world.submit(to_recipient(world, number))
+    number = RECIPIENT_LIMIT.limit
+    for _ in range(7):
+        world.clock.advance(RECIPIENT_LIMIT.window - timedelta(minutes=1))
+        for _ in range(RECIPIENT_LIMIT.limit):
+            number += 1
+            with pytest.raises(DropOffNotTaken):
+                world.submit(to_recipient(world, number))
+    # A quiet day lets it through again.
+    world.clock.advance(RECIPIENT_LIMIT.window + timedelta(microseconds=1))
+    assert world.submit(to_recipient(world, number + 1)).view.id == DropOffId(RECIPIENT_LIMIT.limit + 1)
 
 
 # Fields and photos
@@ -1104,7 +1341,7 @@ def test_nothing_logged_by_submit_holds_personal_details(
         world.submit(a_request(world, token=a_token(3)))
     for number in range(DEVICE_LIMIT.limit):  # the limit
         try:
-            world.submit(a_request(world, token=a_token(10 + number)))
+            world.submit(a_request(world, token=a_token(10 + number), email=a_recipient(10 + number)))
         except TooManySubmissions:
             break
     else:
@@ -1127,3 +1364,4 @@ def test_nothing_logged_by_submit_holds_personal_details(
             assert value not in text
         assert "submission#" not in text
         assert "device#" not in text
+        assert "recipient#" not in text

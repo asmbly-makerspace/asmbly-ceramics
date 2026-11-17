@@ -11,6 +11,7 @@ from asmbly_ceramics.domain.dropoff import (
     can_be_deleted,
     delete_drop_off,
     new_drop_off,
+    normalized_recipient,
     reject,
     require_deletable,
     undo_rejection,
@@ -467,3 +468,36 @@ def test_delete_drop_off_needs_the_staff_username_and_an_aware_time() -> None:
         delete_drop_off(a_drop_off(1), "", NOW)
     with pytest.raises(ValueError, match="aware"):
         delete_drop_off(a_drop_off(1), "alex", NOW.replace(tzinfo=None))
+
+
+def test_normalized_recipient_lowercases_and_strips() -> None:
+    assert normalized_recipient("  " + an_address("Made.Up", "Example.ORG") + "\n") == an_address("made.up")
+
+
+def test_normalized_recipient_drops_a_plus_tag() -> None:
+    assert normalized_recipient(an_address("made.up+pots")) == an_address("made.up")
+    assert normalized_recipient(an_address("made.up+pots+more")) == an_address("made.up")
+
+
+def test_normalized_recipient_keeps_a_local_part_that_starts_with_plus() -> None:
+    assert normalized_recipient(an_address("+pots")) == an_address("+pots")
+
+
+def test_normalized_recipient_folds_gmail_dots_and_googlemail() -> None:
+    one = an_address("abcd", "gmail.com")  # under six characters: not a real mailbox there
+    assert normalized_recipient(an_address("Ab.Cd", "gmail.com")) == one
+    assert normalized_recipient(an_address("a.b.c.d+kiln", "GMAIL.com")) == one
+    assert normalized_recipient(an_address("ab.cd", "googlemail.com")) == one
+
+
+def test_normalized_recipient_keeps_dots_elsewhere() -> None:
+    assert normalized_recipient(an_address("made.up")) == an_address("made.up")
+    for domain in ("gmail.example.org", "googlemail.example.org", "mail.example.org"):
+        # Gmail's first label under another parent isn't Gmail.
+        assert normalized_recipient(an_address("ab.cd", domain)) == an_address("ab.cd", domain)
+
+
+@pytest.mark.parametrize("typed", ["", "made-up", an_address("made up"), an_address("a", "b") + "@c.org"])
+def test_normalized_recipient_refuses_an_invalid_address(typed: str) -> None:
+    with pytest.raises(ValueError, match=r"^not a valid email address$"):  # never the address
+        normalized_recipient(typed)

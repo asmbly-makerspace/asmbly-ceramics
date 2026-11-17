@@ -59,7 +59,7 @@
       "depends_on": [],
       "status": "done",
       "base_sha": "bfef521da1ba1ea375118c3b66289b5e17fbc222",
-      "squashed_sha": null,
+      "squashed_sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": null,
@@ -86,17 +86,22 @@
       "depends_on": [
         "2"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151",
       "squashed_sha": null,
-      "review_rounds": 0,
-      "cold_review": null,
+      "review_rounds": 3,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
-      "closes": [],
+      "closes": [
+        18
+      ],
       "refs": [],
-      "admin_actions": [],
-      "notes": ""
+      "admin_actions": [
+        "maintainer: after merge, stage check with own inbox (4th drop-off refused), then set phase 3 [x]",
+        "whoever talks to staff: 3 drop-offs per address per day"
+      ],
+      "notes": "cold review capped at 3 rounds; final BLOCK was a docs line, fixed, final-review re-reads it. Risk section must name: refused hits keep an address blocked indefinitely; a refusal tells a caller that an address was used 3 times in 24h; keyed hash outlives a deleted/refused drop-off by ~2 days+TTL."
     }
   ],
   "gate": {
@@ -199,6 +204,36 @@
       "topic": "refused hits count against the cap",
       "choice": "accepted as design, recorded in decision 0008",
       "reason": "availability trade-off consistent with device limiter; staff raise setting"
+    },
+    {
+      "ts": "2026-11-17T06:23:40Z",
+      "type": "squash",
+      "unit": "phase-2",
+      "sha": "fc68e4b7a0872395e9bc6c94622e9e8f36b27151"
+    },
+    {
+      "ts": "2026-11-17T06:23:40Z",
+      "type": "phase_start",
+      "phase": "phase-3-per-recipient-limit"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "phase_done",
+      "phase": "phase-3-per-recipient-limit"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "cold_review",
+      "phase": "phase-3",
+      "review_lead": "3 rounds; last: 1 docs BLOCK fixed",
+      "privacy": "CLEAR"
+    },
+    {
+      "ts": "2026-11-17T07:15:10Z",
+      "type": "decision",
+      "topic": "phase 3 review cap",
+      "choice": "stopped re-reviewing after 3 fix rounds; whole-branch final review covers it",
+      "reason": "remaining BLOCK was a one-line doc inconsistency"
     }
   ]
 }

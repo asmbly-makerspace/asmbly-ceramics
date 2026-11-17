@@ -1,11 +1,11 @@
-"""The public form's rate limits (#2) and its daily cap on received emails (#30), counted
-the one way every use case counts them."""
+"""The public form's rate limits (#2), its limit per recipient address (#18) and its daily
+cap on received emails (#30), counted the one way every use case counts them."""
 
 import logging
 from datetime import datetime
 
 from asmbly_ceramics.domain.errors import DropOffNotTaken, TooManySubmissions
-from asmbly_ceramics.domain.limits import RECEIVED_CAP_WINDOW, RateLimit
+from asmbly_ceramics.domain.limits import RECEIVED_CAP_WINDOW, RECIPIENT_LIMIT, RateLimit
 from asmbly_ceramics.ports.errors import RecordsUnavailable
 from asmbly_ceramics.ports.rate_limit import RateLimiter
 from asmbly_ceramics.use_cases.log import log_event
@@ -43,6 +43,21 @@ def check_limits(
     if not address_ok:
         log_event(refused_event, reason="address_limit")
         raise TooManySubmissions()
+
+
+def check_recipient(limiter: RateLimiter, *, recipient_key: str, now: datetime, refused_event: str) -> None:
+    """Counts one drop-off for the recipient (`RECIPIENT_LIMIT`, decision 0008); the key
+    is `KeyHasher.recipient`'s. `DropOffNotTaken` past it, logged as `refused_event` with
+    `reason=recipient_limit` and nothing else: never the key. `RecordsUnavailable` goes up
+    after a WARNING line (`reason=limiter_unavailable`): the limit fails closed."""
+    try:
+        allowed = limiter.hit(recipient_key, RECIPIENT_LIMIT, now)
+    except RecordsUnavailable as error:
+        log_event(refused_event, level=logging.WARNING, reason="limiter_unavailable", error_code=error.code)
+        raise
+    if not allowed:
+        log_event(refused_event, reason="recipient_limit")
+        raise DropOffNotTaken()
 
 
 def check_received_cap(limiter: RateLimiter, *, per_day: int, now: datetime, refused_event: str) -> None:

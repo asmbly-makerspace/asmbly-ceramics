@@ -108,7 +108,7 @@ The pull request that lands phase 1 says `Closes #22` and `Refs #21`; phase 2's 
 | --- | --- | --- | --- | --- |
 | [1](phase-1-outbox-claim-recovery.md) | The mailer: a claim whose outcome is unknown | app | S | [~] In progress |
 | [2](phase-2-daily-cap-and-send-alarm.md) | The form: a daily cap on received emails, and an alarm on the send volume | app, web, infra, docs | L | [~] In progress |
-| [3](phase-3-per-recipient-limit.md) | The form: a limit per recipient address | app, web, docs | M | [ ] Pending |
+| [3](phase-3-per-recipient-limit.md) | The form: a limit per recipient address | app, web, docs | M | [~] In progress |
 
 ## Dependencies
 
@@ -162,8 +162,9 @@ test, prod, its smoke test); none needs a by-hand step.
    CloudFormation deletes the filter and alarm, the `RATE#` item expires, and the reverted
    code's first settings save drops the attribute (it reads 300 again when re-applied).
 3. **Phase 3** changes the form's code only and writes `RATE#recipient#…` items. Check:
-   on stage, a fourth drop-off to one made-up address is refused, and only three received
-   emails arrive. Undo: revert; the items expire by TTL.
+   on stage, four drop-offs to the tester's own inbox, spelled the ways the limit folds
+   (as typed, with a `+` tag if their provider delivers it, in other letter case): the
+   fourth is refused, and only three received emails arrive in that inbox. Undo: revert; the items expire by TTL.
 
 Staff are told after the merge (Admin actions). A merge of this plan deploys to prod at
 once: the cap and the recipient limit apply to the prod form from then on.
