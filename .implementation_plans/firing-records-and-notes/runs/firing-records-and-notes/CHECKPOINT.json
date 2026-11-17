@@ -5,7 +5,7 @@
  "feature_branch": "feat/firing-records-and-notes",
  "worktree": null,
  "status": "in-progress",
- "stage": "docs",
+ "stage": "qa",
  "selected_phases": [
   "1",
   "2",
@@ -276,10 +276,10 @@
  "final_review": {
   "base_sha": "410d320",
   "result": "fixed",
-  "squashed_sha": null
+  "squashed_sha": "d1e93e2"
  },
  "docs": {
-  "base_sha": null,
+  "base_sha": "d1e93e2",
   "squashed_sha": null
  },
  "qa": {

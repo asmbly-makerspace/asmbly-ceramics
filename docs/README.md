@@ -22,6 +22,7 @@ number.
 | [0004](decisions/0004-the-form-role-and-the-photo-bucket-name.md) | Accepted: amends 0002: the form's role may delete photos under `dropoffs/` (the submit's cleanup) and put the studio's first settings; its `PutItem` on drop-offs and emails can't require a new item; the photo bucket is named with a random suffix, not the account ID |
 | [0006](decisions/0006-the-console-may-delete-a-drop-offs-photos.md) | Accepted: amends 0002: the console's role may delete photos under `dropoffs/`, so staff can delete a waiting drop-off made by mistake and its photos go at once |
 | [0005](decisions/0005-the-http-apis-are-the-bootstraps.md) | Proposed: amends 0003: the bootstrap creates the stage and prod HTTP APIs and the execution role changes only their routes, stages and mappings, by ID; reads and deletes CloudFormation makes before a create or in a rollback are allowed by name; the bootstrap template is uploaded to S3 |
+| [0007](decisions/0007-firing-notes-are-kept-with-their-load-and-are-not-personal-data.md) | Proposed: a firing note's text is kept with its load and the close never touches it, because a note is not personal data; the server refuses text shaped like an email address or a phone number |
 
 ## Runbooks
 
@@ -37,4 +38,6 @@ asks for it.
 
 How each story is built is in `.implementation_plans/`
 ([format](../.implementation_plans/readme.md)). Epic #1's plan is
-[drop-off-and-firing](../.implementation_plans/drop-off-and-firing/README.md).
+[drop-off-and-firing](../.implementation_plans/drop-off-and-firing/README.md). The firing
+record, the firing log and firing notes (#42, #17) are in
+[firing-records-and-notes](../.implementation_plans/firing-records-and-notes/README.md).
