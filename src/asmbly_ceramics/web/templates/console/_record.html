@@ -1,6 +1,7 @@
-{# The firing record (#42): a readout of the saved record, and the form as a log sheet,
-   one row per field, behind "Edit firing record". The form shows without a tap when
-   nothing is recorded or a save was refused. #}
+{# The firing record (#42): the form as a log sheet, one row per field, open while the
+   load is loading or firing; once it is fired, a recorded firing shows as a readout with
+   the form behind "Edit firing record". After a conflict the readout shows the record as
+   it is stored now. Errors and hints follow their control in every row and cell. #}
 {% macro described(name, hint=False) %}{% if name in record.errors or hint %} aria-describedby="{% if name in record.errors %}rec-{{ name }}-error{% endif %}{% if name in record.errors and hint %} {% endif %}{% if hint %}rec-{{ name }}-hint{% endif %}"{% endif %}{% endmacro %}
 {% macro after(name, hint=False) %}
   {% if name in record.errors %}<p class="field-error" id="rec-{{ name }}-error">{{ record.errors[name] }}</p>{% endif %}
@@ -11,7 +12,7 @@
 {% set hint = name in record.suggested %}
 <div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  <div class="unit-row">
+  <div class="unit-row unit-row-joined">
     <input type="number" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}" inputmode="numeric" min="{{ low }}" max="{{ high }}" step="1"{{ described(name, hint) }}>
     {% if unit %}<span class="unit">{{ unit }}</span>{% endif %}
   </div>
@@ -21,7 +22,7 @@
 {% macro text(name, unit, length, mode, placeholder) %}
 <div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  <div class="unit-row unit-row-wide">
+  <div class="unit-row unit-row-joined unit-row-wide">
     {% if unit == "$" %}<span class="unit">$</span>{% endif %}
     <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ record.fields[name] }}"{% if mode %} inputmode="{{ mode }}"{% endif %} maxlength="{{ length }}" placeholder="{{ placeholder }}" autocomplete="off"{{ described(name) }}>
     {% if unit != "$" %}<span class="unit">{{ unit }}</span>{% endif %}
@@ -35,9 +36,9 @@
 <div class="sheet-row{% if name in record.errors %} field-invalid{% endif %}" role="radiogroup" aria-labelledby="rec-{{ name }}-label"{{ described(name) }}>
   <span class="sheet-label" id="rec-{{ name }}-label">{{ record.labels[name] }}</span>
   <div class="segmented">
-    <input type="radio" id="rec-{{ name }}" name="{{ name }}" value=""{% if not record.fields[name] %} checked{% endif %}><label for="rec-{{ name }}">—<span class="visually-hidden"> not recorded</span></label>
+    <input type="radio" class="visually-hidden" id="rec-{{ name }}" name="{{ name }}" value=""{% if not record.fields[name] %} checked{% endif %}><label for="rec-{{ name }}">—<span class="visually-hidden"> not recorded</span></label>
     {% for value, shown in options %}
-    <input type="radio" id="rec-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if record.fields[name] == value %} checked{% endif %}><label for="rec-{{ name }}-{{ loop.index }}">{{ shown }}</label>
+    <input type="radio" class="visually-hidden" id="rec-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if record.fields[name] == value %} checked{% endif %}><label for="rec-{{ name }}-{{ loop.index }}">{{ shown }}</label>
     {% endfor %}
   </div>
   {{ after(name) }}
@@ -47,15 +48,15 @@
 {% set ticked = name in record.no_cone %}
 <div class="cone-cell{% if name in record.errors %} field-invalid{% endif %}">
   <label for="rec-{{ name }}">{{ record.labels[name] }}</label>
-  {{ after(name) }}
-  <div class="unit-row">
+  <div class="unit-row unit-row-joined">
     <input type="text" id="rec-{{ name }}" name="{{ name }}" value="{{ '' if ticked else record.fields[name] }}" inputmode="numeric" maxlength="{{ record.cone_reading_max }}" autocomplete="off"{{ described(name) }}>
     <span class="unit">% bent</span>
   </div>
-  <label class="choice no-cone" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
+  {{ after(name) }}
+  <label class="choice choice-small" for="rec-{{ name }}-none"><input type="checkbox" id="rec-{{ name }}-none" name="{{ name }}{{ record.no_cone_suffix }}" value="1"{% if ticked %} checked{% endif %}> <span>No cone</span></label>
 </div>
 {% endmacro %}
-{% macro shown(name) %}{% if name in record.shown %}{{ record.shown[name]|capitalize if name == "speed" else record.shown[name] }}{% else %}—<span class="visually-hidden">not recorded</span>{% endif %}{% endmacro %}
+{% macro shown(name) %}{% if name in record.shown %}{{ record.shown[name]|capitalize if name == "speed" else record.shown[name] }}{% else %}—<span class="visually-hidden"> not recorded</span>{% endif %}{% endmacro %}
 <section class="panel" id="record" aria-labelledby="record-title">
   <h3 id="record-title">Firing record</h3>
   {% if record.problem %}
@@ -70,50 +71,42 @@
     {% endif %}
   </div>
   {% endif %}
-  {% if record.saved %}
+  {% if record.changed %}
+  <div class="record-now" id="record-now">
+    <h4>The record as it is saved now</h4>
+    {% if not record.readout %}<p>Nothing is recorded.</p>{% endif %}
+  {% endif %}
+  {% if record.readout %}
   <div class="readout">
-    <dl class="readout-tiles">
-      {% for name in ("cone", "speed", "firing_time", "max_temp_f", "cost", "percent_full") %}
-      <div class="readout-tile"><dt>{{ record.labels[name] }}</dt><dd>{{ shown(name) }}</dd></div>
+    <dl class="cards cards-inset">
+      {% for name in record.tiles %}
+      <div class="card"><dt>{{ record.labels[name] }}</dt><dd class="card-number">{{ shown(name) }}</dd></div>
       {% endfor %}
     </dl>
-    {% set extras = ("preheat_hours", "hold_minutes", "board_temp_f", "firing_number", "all_time_number") | select("in", record.shown) | list %}
-    {% if extras %}
-    <dl class="readout-extras">
-      {% for name in extras %}
+    {% set line = record.line | select("in", record.shown) | list %}
+    {% if line %}
+    <dl class="readout-line">
+      {% for name in line %}
       <div><dt>{{ record.labels[name] }}</dt><dd>{{ shown(name) }}</dd></div>
       {% endfor %}
     </dl>
     {% endif %}
-    <ul class="readout-cones">
+    <dl class="readout-cones">
       {% for name in record.witness %}
-      <li>
-        <span>{{ record.labels[name] }}: <strong>{{ record.shown.get(name, "not recorded") }}</strong></span>
-        {% if name in record.bends %}<progress max="100" value="{{ record.bends[name] }}" aria-hidden="true"></progress>{% else %}<span class="readout-track" aria-hidden="true"></span>{% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% else %}
-  <p class="hint">Nothing is recorded yet.</p>
-  {% endif %}
-  {% if record.stored is not none %}
-  <div class="record-now" id="record-now">
-    <h4>The record as it is saved now</h4>
-    {% if record.stored %}
-    <dl class="summary">
-      {% for label, value in record.stored %}
-      <dt>{{ label }}</dt><dd>{{ value }}</dd>
+      <div>
+        <dt>{{ record.labels[name] }}</dt>
+        <dd>{{ shown(name) }}{% if name in record.bends %}<meter min="0" max="{{ record.bend_max }}" value="{{ record.bends[name] }}" aria-hidden="true"></meter>{% else %}<span class="readout-track" aria-hidden="true"></span>{% endif %}</dd>
+      </div>
       {% endfor %}
     </dl>
-    {% else %}
-    <p>Nothing is recorded.</p>
-    {% endif %}
+  </div>
+  {% endif %}
+  {% if record.changed %}
     <p class="hint">The form below still holds what you typed. Saving it replaces the whole record above.</p>
   </div>
   {% endif %}
-  {% if record.saved %}<details class="record-edit"{% if record.open %} open{% endif %}>
-  <summary>Edit firing record</summary>{% endif %}
+  {% if record.behind_edit %}<details class="record-edit"{% if record.open %} open{% endif %}>
+  <summary class="button button-quiet">Edit firing record</summary>{% endif %}
   <form method="post" action="/console/loads/{{ load.id }}/record">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="version" value="{{ load.version }}">
@@ -148,5 +141,5 @@
     </div>
     <button type="submit">Save firing record</button>
   </form>
-  {% if record.saved %}</details>{% endif %}
+  {% if record.behind_edit %}</details>{% endif %}
 </section>

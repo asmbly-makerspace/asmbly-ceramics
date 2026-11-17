@@ -23,7 +23,6 @@ from asmbly_ceramics.domain.firing import (
     read_program,
     record_changes,
     record_shown,
-    record_summary,
     record_values,
 )
 from asmbly_ceramics.domain.ids import ItemId
@@ -222,13 +221,6 @@ def test_record_changes_cleared_field() -> None:
 def test_record_changes_nothing_changed_is_empty() -> None:
     assert record_changes(FULL_RECORD, FULL_RECORD, NAMES.__getitem__) == ()
     assert record_changes(EMPTY_RECORD, EMPTY_RECORD, NAMES.__getitem__) == ()
-
-
-def test_record_summary_lists_recorded_fields_as_shown() -> None:
-    record = replace(EMPTY_RECORD, max_temp_f=2236, program=replace(EMPTY_RECORD.program, cone=CONE_6))
-    assert record_summary(record, NAMES.__getitem__) == (("Cone", "^6"), ("Max temp", "2,236 °F"))
-    assert record_summary(EMPTY_RECORD, NAMES.__getitem__) == ()
-    assert len(record_summary(FULL_RECORD, NAMES.__getitem__)) == len(RECORD_FIELDS)
 
 
 def test_record_shown_keys_each_recorded_field_by_name() -> None:

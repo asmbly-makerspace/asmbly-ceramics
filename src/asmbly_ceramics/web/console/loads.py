@@ -45,6 +45,7 @@ from asmbly_ceramics.domain.errors import (
     WrongLoadStatus,
 )
 from asmbly_ceramics.domain.firing import (
+    CONE_READING_RANGE,
     CONE_READING_TEXT_MAX,
     COST_TEXT_MAX,
     EMPTY_RECORD,
@@ -58,7 +59,6 @@ from asmbly_ceramics.domain.firing import (
     cone_bends,
     is_no_cone,
     record_shown,
-    record_summary,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
@@ -355,21 +355,27 @@ def _step_rows(view: LoadView, refused: StepForm | None) -> list[dict[str, Any]]
     return rows
 
 
+READOUT_TILES = ("cone", "speed", "firing_time", "max_temp_f", "cost", "percent_full")
+"""The readout's large tiles; every other field but the witness cones goes on its line below."""
+READOUT_LINE = tuple(f for f in RECORD_FIELDS if f not in READOUT_TILES and f not in WITNESS_CONES)
+
+
 def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) -> dict[str, Any]:
-    """The readout of the saved record (its values as shown and its cones' bends) and the
-    record form: the values typed (after a refusal) or stored, the numbers
-    suggested while the record has none, and every bound from `domain.limits`. After a
-    `Conflict`, also the record as it is stored now (`stored`), so the next save, sent
-    with the load's new version, replaces it only once staff have seen it."""
+    """The readout of the saved record and the record form. The form stays open while the
+    load is loading or firing; once it is fired, a recorded firing shows as the readout with
+    the form behind "Edit firing record" (opened again by a refused save). After a
+    `Conflict` (`changed`), the readout shows the record as it is stored now, whatever the
+    state, so the next save, sent with the load's new version, replaces it only once staff
+    have seen it. The form holds the values typed (after a refusal) or stored, the numbers
+    suggested while the record has none, and every bound from `domain.limits`."""
     values = dict(refused.values if refused else view.record_fields)
 
     def cone_name(id: ItemId) -> str:
         return item_name(studio, CatalogList.CONES, id)
 
-    stored: tuple[tuple[str, str], ...] | None = None
-    if refused is not None and refused.changed:
-        stored = record_summary(view.load.record, cone_name)
-    saved = view.load.record != EMPTY_RECORD
+    changed = refused is not None and refused.changed
+    recorded = view.load.record != EMPTY_RECORD
+    behind_edit = recorded and view.load.status is LoadStatus.FIRED
     suggested: set[str] = set()
     if refused is None:
         for name, number in zip(("firing_number", "all_time_number"), view.suggested, strict=True):
@@ -381,11 +387,15 @@ def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) 
         "no_cone": {name for name in WITNESS_CONES if is_no_cone(values.get(name, ""))},
         "errors": refused.errors if refused else {},
         "problem": refused.problem if refused else None,
-        "stored": stored,
-        "saved": saved,  # the readout shows, with the form behind "Edit firing record"
-        "open": refused is not None or not saved,  # the form shows without a tap
+        "changed": changed,
+        "readout": recorded and (behind_edit or changed),
+        "behind_edit": behind_edit,  # the form is behind "Edit firing record"
+        "open": refused is not None,  # ... and opened, to show what was typed
         "shown": record_shown(view.load.record, cone_name),
         "bends": cone_bends(view.load.record),
+        "bend_max": CONE_READING_RANGE[1],
+        "tiles": READOUT_TILES,
+        "line": READOUT_LINE,
         "labels": RECORD_LABELS,
         "suggested": suggested,
         "whole": WHOLE_RANGES,

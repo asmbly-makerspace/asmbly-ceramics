@@ -13,11 +13,13 @@ import pytest
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus
 from asmbly_ceramics.domain.firing import (
+    CONE_READING_RANGE,
     CONE_READING_TEXT_MAX,
     COST_TEXT_MAX,
     FIRING_TIME_TEXT_MAX,
     NO_CONE,
     RECORD_FIELDS,
+    RECORD_LABELS,
     WHOLE_RANGES,
     WITNESS_CONES,
     record_values,
@@ -1046,45 +1048,97 @@ def test_record_saved_redirects_and_shows(staff: Console) -> None:
     assert "Firing record saved." in page
     assert 'name="percent_full" value="80"' in page
     assert 'name="cost" value="8.19"' in page
-    assert re.search(rf'<input type="radio" id="rec-cone-\d+" name="cone" value="{CONE_6}" checked>', page)
-    assert '<input type="radio" id="rec-speed-1" name="speed" value="slow" checked>' in page
+    assert re.search(
+        rf'<input type="radio" class="visually-hidden" id="rec-cone-\d+" name="cone" '
+        rf'value="{CONE_6}" checked>',
+        page,
+    )
+    assert (
+        '<input type="radio" class="visually-hidden" id="rec-speed-1" name="speed" value="slow" checked>'
+        in page
+    )
     assert "Firing record: % full: 80%" in page  # the history line
 
 
-def test_a_saved_record_shows_as_a_readout_with_the_form_behind_edit(staff: Console) -> None:
-    start(staff)
-    fields = {"cone": CONE_6, "max_temp_f": "2236", "cost": "8.19", "cone_top": "90", "cone_bottom_none": "1"}
-    assert save_record(staff, fields).status_code == 303
+FULL_FIELDS = {
+    "percent_full": "80",
+    "firing_number": "142",
+    "all_time_number": "1318",
+    "cone": CONE_6,
+    "speed": "slow",
+    "preheat_hours": "8",
+    "hold_minutes": "10",
+    "firing_time": "11:38",
+    "cost": "8.19",
+    "max_temp_f": "2236",
+    "board_temp_f": "98",
+    "cone_top": "90",
+    "cone_center": "100",
+    "cone_bottom_none": "1",
+}
+
+
+def fired_with(console: Console, fields: dict[str, str]) -> str:
+    """A fired load with `fields` saved in its record: the load page's text."""
+    console.drop_off(1)
+    start(console)
+    add(console, "AC-1")
+    fire(console)
+    assert save_record(console, fields).status_code == 303
+    return text(console.get("/console/loads/L-1"))
+
+
+def readout_of(page: str) -> str:
+    return page[page.index('class="readout"') : page.index('<details class="record-edit"')]
+
+
+def test_the_form_stays_open_until_the_load_is_fired(staff: Console) -> None:
+    start(staff)  # the firing type's default program is recorded already
+    assert save_record(staff, {"max_temp_f": "2236"}).status_code == 303
 
     page = text(staff.get("/console/loads/L-1"))
 
-    assert "<dt>Cone</dt><dd>^6</dd>" in page
-    assert "<dt>Max temp</dt><dd>2,236 °F</dd>" in page
-    assert "<dt>Cost</dt><dd>$8.19</dd>" in page
-    assert "<dt>Speed</dt><dd>Slow</dd>" in page  # the firing type's default program
-    assert '<dt>Firing time</dt><dd>—<span class="visually-hidden">not recorded</span></dd>' in page
-    assert '<progress max="100" value="90" aria-hidden="true">' in page
-    assert "Top cone: <strong>90%</strong>" in page
-    assert "Bottom cone: <strong>no cone</strong>" in page
-    assert "Center cone: <strong>not recorded</strong>" in page
-    assert '<details class="record-edit">' in page  # closed: one tap opens the form
-    assert "<summary>Edit firing record</summary>" in page
-
-
-def test_an_empty_record_shows_the_form_without_a_tap(staff: Console) -> None:
-    start(staff)
-    assert save_record(staff, dict.fromkeys(RECORD_FIELDS, "")).status_code == 303
-
-    page = text(staff.get("/console/loads/L-1"))
-
-    assert "Nothing is recorded yet." in page
-    assert "record-edit" not in page
     assert 'class="readout"' not in page
-    assert '<input type="radio" id="rec-cone" name="cone" value="" checked>' in page
+    assert "record-edit" not in page
+    assert 'name="max_temp_f" value="2236"' in page
 
 
-def test_a_refused_record_opens_the_form(staff: Console) -> None:
-    start(staff)
+def test_a_fired_load_shows_its_record_as_a_readout_with_the_form_behind_edit(staff: Console) -> None:
+    page = fired_with(
+        staff,
+        {"cone": CONE_6, "max_temp_f": "2236", "cost": "8.19", "cone_top": "90", "cone_bottom_none": "1"},
+    )
+
+    readout = readout_of(page)
+    assert '<dt>Cone</dt><dd class="card-number">^6</dd>' in readout
+    assert '<dt>Max temp</dt><dd class="card-number">2,236 °F</dd>' in readout
+    assert '<dt>Cost</dt><dd class="card-number">$8.19</dd>' in readout
+    assert '<dt>Speed</dt><dd class="card-number">Slow</dd>' in readout  # the default program
+    not_recorded = '—<span class="visually-hidden"> not recorded</span>'
+    assert f'<dt>Firing time</dt><dd class="card-number">{not_recorded}</dd>' in readout
+    assert f'<meter min="0" max="{CONE_READING_RANGE[1]}" value="90" aria-hidden="true">' in readout
+    assert "<dt>Bottom cone</dt>\n        <dd>no cone<span" in readout
+    assert f"<dt>Center cone</dt>\n        <dd>{not_recorded}<span" in readout
+    assert '<details class="record-edit">' in page  # closed: one tap opens the form
+    assert '<summary class="button button-quiet">Edit firing record</summary>' in page
+
+
+def test_the_readout_shows_every_recorded_field(staff: Console) -> None:
+    readout = readout_of(fired_with(staff, FULL_FIELDS))
+    for name in RECORD_FIELDS:
+        assert f"<dt>{RECORD_LABELS[name]}</dt>" in readout, name
+    assert "<dt>All-time number</dt><dd>1,318</dd>" in readout  # the line under the tiles
+
+
+def test_a_fired_load_with_nothing_recorded_shows_the_form(staff: Console) -> None:
+    page = fired_with(staff, dict.fromkeys(RECORD_FIELDS, ""))
+    assert 'class="readout"' not in page
+    assert "record-edit" not in page
+    assert '<input type="radio" class="visually-hidden" id="rec-cone" name="cone" value="" checked>' in page
+
+
+def test_a_refused_save_opens_the_form_behind_edit(staff: Console) -> None:
+    fired_with(staff, {"cost": "8.19"})
     page = text(save_record(staff, {"cost": "lots"}))
     assert '<details class="record-edit" open>' in page
 
@@ -1161,9 +1215,12 @@ def test_record_conflict_shows_the_stored_record_beside_the_typed_one(staff: Con
 
     assert answer.status_code == 409
     page = text(answer)
-    assert "The record as it is saved now" in page
-    assert "<dt>Max temp</dt><dd>2,236 °F</dd>" in page
-    assert "<dt>Cone</dt><dd>^6</dd>" in page
+    stored_now = page[page.index('id="record-now"') : page.index("The form below still holds")]
+    assert "The record as it is saved now" in stored_now
+    assert '<dt>Max temp</dt><dd class="card-number">2,236 °F</dd>' in stored_now
+    assert '<dt>Cone</dt><dd class="card-number">^6</dd>' in stored_now
+    assert page.count('class="readout"') == 1  # shown once, as the record stored now
+    assert "record-edit" not in page  # loading: the form stays open
     assert 'name="percent_full" value="70"' in page  # what was typed stays in the form
     assert 'name="max_temp_f" value=""' in page  # the typed form didn't hold it
     assert f'name="version" value="{load_of(staff).version}"' in page
