@@ -18,7 +18,7 @@
     "sam": false,
     "aws_read": false
   },
-  "plan_sha": null,
+  "plan_sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3",
   "phases": [
     {
       "id": "phase-1-outbox-claim-recovery",
@@ -28,16 +28,22 @@
         "app"
       ],
       "depends_on": [],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3",
       "squashed_sha": null,
-      "review_rounds": 0,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
-      "closes": [],
-      "refs": [],
-      "admin_actions": [],
+      "closes": [
+        22
+      ],
+      "refs": [
+        21
+      ],
+      "admin_actions": [
+        "maintainer: after merge, confirm on stage a received email arrives once, then set phase 1 to [x]"
+      ],
       "notes": ""
     },
     {
@@ -60,7 +66,9 @@
       "parked_branch": null,
       "closes": [],
       "refs": [],
-      "admin_actions": [],
+      "admin_actions": [
+        "maintainer: after merge, tell staff about the new setting and limits; confirm stage checks"
+      ],
       "notes": ""
     },
     {
@@ -135,6 +143,29 @@
       "type": "decision",
       "topic": "frontmatter",
       "choice": "no epic or implements in the plan files"
+    },
+    {
+      "ts": "2026-11-17T05:29:25Z",
+      "type": "squash",
+      "unit": "plan",
+      "sha": "9decc569f5acbb4e5a26c063e402f921387e1ca3"
+    },
+    {
+      "ts": "2026-11-17T05:29:29Z",
+      "type": "phase_start",
+      "phase": "phase-1-outbox-claim-recovery"
+    },
+    {
+      "ts": "2026-11-17T05:48:39Z",
+      "type": "phase_done",
+      "phase": "phase-1-outbox-claim-recovery"
+    },
+    {
+      "ts": "2026-11-17T05:48:39Z",
+      "type": "cold_review",
+      "phase": "phase-1",
+      "review_lead": "APPROVED, 0 BLOCK, 4 WARN (test gaps, fixed)",
+      "privacy": "CLEAR"
     }
   ]
 }

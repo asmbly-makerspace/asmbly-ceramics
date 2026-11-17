@@ -13,6 +13,7 @@ from asmbly_ceramics.domain.email import (
     EmailStatus,
     cancel_unsent,
     claim,
+    holds_claim,
     is_email_occasion,
     is_history,
     is_rejection_occasion,
@@ -322,3 +323,43 @@ def test_needs_attention_counts_from_stuck_since() -> None:
     assert since is not None
     assert not needs_attention(requeued, since + STALE_SENDING_AFTER)
     assert needs_attention(requeued, since + STALE_SENDING_AFTER + timedelta(seconds=1))
+
+
+def stored(email: Email) -> Email:
+    """`email` as `Records` stores it: one version up."""
+    return replace(email, version=email.version + 1)
+
+
+def test_holds_claim_when_the_stored_email_is_this_claim() -> None:
+    claimed = claim(pending(), NOW)
+    assert holds_claim(stored(claimed), claimed)
+
+
+def test_holds_claim_is_false_for_a_pending_email() -> None:
+    assert not holds_claim(pending(), claim(pending(), NOW))
+
+
+def test_holds_claim_is_false_for_none() -> None:
+    assert not holds_claim(None, claim(pending(), NOW))
+
+
+def test_holds_claim_is_false_for_another_calls_claim() -> None:
+    claimed = claim(pending(), NOW)
+    other = claim(pending(), NOW + timedelta(microseconds=1))
+    assert not holds_claim(stored(other), claimed)
+
+
+def test_holds_claim_is_false_for_a_later_attempt() -> None:
+    claimed = claim(pending(), NOW)
+    again = claim(retry(mark_failed(claimed, "Throttling"), NOW), NOW)  # the same time, one more attempt
+    assert again.claimed_at == claimed.claimed_at
+    assert not holds_claim(stored(again), claimed)
+
+
+@pytest.mark.parametrize("finished", [sent, failed, cancelled])
+def test_holds_claim_is_false_for_a_sent_failed_or_cancelled_email(finished: Callable[[], Email]) -> None:
+    assert not holds_claim(stored(finished()), claim(pending(), NOW))
+
+
+def test_holds_claim_is_false_when_the_claim_isnt_a_claim() -> None:
+    assert not holds_claim(stored(sending()), pending())

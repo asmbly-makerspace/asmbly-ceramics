@@ -80,6 +80,7 @@ A rule like `DEVICE_LIMIT`, not a setting (decision 0008 says why).
 ```python
 _GMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
 
+
 def normalized_recipient(address: str) -> str:
     """What the recipient limit counts an address as (decision 0008): stripped and
     lowercased; anything from a `+` in the local part dropped when something comes before
@@ -99,6 +100,7 @@ when that is non-empty; for a Gmail domain, `local.replace(".", "")` and domain
 ```python
 RECIPIENT_PREFIX = "recipient#"
 
+
 def recipient(self, address: str) -> str:
     """The recipient limit's key: an HMAC of `normalized_recipient(address)` under its own
     prefix. Never logged, never stored but by the limiter."""
@@ -111,9 +113,7 @@ purposes, so the same address hashed for another purpose gives an unrelated dige
 **The count** (`use_cases/limits.py`):
 
 ```python
-def check_recipient(
-    limiter: RateLimiter, *, recipient_key: str, now: datetime, refused_event: str
-) -> None:
+def check_recipient(limiter: RateLimiter, *, recipient_key: str, now: datetime, refused_event: str) -> None:
     """Counts one drop-off for the recipient (`RECIPIENT_LIMIT`); `DropOffNotTaken` past it,
     logged as `refused_event` with `reason=recipient_limit` (INFO) and nothing else: never
     the key. `RecordsUnavailable` goes up after a WARNING line (`reason=limiter_unavailable`):

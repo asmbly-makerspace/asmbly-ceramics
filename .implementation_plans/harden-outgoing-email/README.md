@@ -106,7 +106,7 @@ The pull request that lands phase 1 says `Closes #22` and `Refs #21`; phase 2's 
 
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
-| [1](phase-1-outbox-claim-recovery.md) | The mailer: a claim whose outcome is unknown | app | S | [ ] Pending |
+| [1](phase-1-outbox-claim-recovery.md) | The mailer: a claim whose outcome is unknown | app | S | [~] In progress |
 | [2](phase-2-daily-cap-and-send-alarm.md) | The form: a daily cap on received emails, and an alarm on the send volume | app, web, infra, docs | L | [ ] Pending |
 | [3](phase-3-per-recipient-limit.md) | The form: a limit per recipient address | app, web, docs | M | [ ] Pending |
 

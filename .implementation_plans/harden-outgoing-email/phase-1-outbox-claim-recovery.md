@@ -8,7 +8,7 @@ estimated_size: S
 
 # Phase 1: The mailer: a claim whose outcome is unknown
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 Finishes #22. Finishes #21's part 2 (a lost claim response); #21 stays open for its parts
 1 and 3, which this plan doesn't touch.
@@ -229,4 +229,19 @@ None.
 
 ## Hand-off
 
-_Filled in when the phase is done._
+Built on branch `feat/harden-outgoing-email`; stays `[~] In progress` until the merge's
+deploy and the stage check under Rollout (a received email arrives once), confirmed by
+the maintainer, who then sets this phase's tracker row to `[x] Complete`.
+
+- `domain.email.holds_claim(stored, claimed) -> bool`: the one rule for "this re-read
+  email is my claim" (sending, same `claimed_at` and `attempts`; the version isn't
+  compared).
+- `SendPendingEmail._after_unknown_claim(claimed, unknown) -> Email | None`: logs
+  `email_claim_unknown` (WARNING; `kind`, `drop_off_id`, `error_code`, `outcome` one of
+  `held`, `not_held`, `unreadable`, `taken`). No port, fake, adapter, wiring or template
+  changed; nothing for phases 2 and 3 to rely on.
+- `tests/use_cases/test_emails.py::UnknownClaimRecords` and `on_unknown_claims(world)`:
+  a `MemoryRecords` whose armed claim lands (or not, or something else lands instead)
+  and then raises `CommitOutcomeUnknown`; `tests/entry/test_mailer.py` reuses it.
+- Deferred, as the plan says: a claim that lands only after the re-read still waits for
+  staff as a stuck email.

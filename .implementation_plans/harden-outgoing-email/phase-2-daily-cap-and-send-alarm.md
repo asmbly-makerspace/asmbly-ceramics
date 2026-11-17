@@ -96,6 +96,7 @@ None.
 ```python
 STARTING_RECEIVED_EMAILS_PER_DAY = 300  # decision 0008
 
+
 @dataclass(frozen=True, slots=True)
 class Studio:
     ...
@@ -135,9 +136,8 @@ RECEIVED_CAP_KEY = "received-emails"
 """The daily cap's one bucket per environment (its table). A fixed name that holds
 nothing personal, stored as `RATE#received-emails`; never a hash of anything."""
 
-def check_received_cap(
-    limiter: RateLimiter, *, per_day: int, now: datetime, refused_event: str
-) -> None:
+
+def check_received_cap(limiter: RateLimiter, *, per_day: int, now: datetime, refused_event: str) -> None:
     """Counts one received email against the studio's daily cap, in a rolling
     `RECEIVED_CAP_WINDOW`; `DropOffNotTaken` past it, logged as `refused_event` with
     `reason=daily_cap` at ERROR, so the logged-errors alarm tells the maintainers.

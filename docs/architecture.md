@@ -50,6 +50,9 @@ What the domain code settles, beyond the stories:
 - The settings history records that the sending address changed, never the address.
 - The form's rate limit counts hits in a rolling window, refused hits included, and
   fails closed.
+- The mailer re-reads an email whose claim's outcome is unknown and sends it when the
+  stored email holds that claim (`holds_claim`); a claim that lands only after the
+  re-read waits for staff, as a stuck email.
 - `PhotoStore.keep` stores all of a drop-off's photos or none. A caller whose commit
   fails after `keep` calls `delete_drop_off`.
 

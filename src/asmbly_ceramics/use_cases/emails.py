@@ -6,6 +6,13 @@ whose new image is `pending`. The stream delivers at least once, so the email is
 with a version check before anything is sent: only the claimer sends. The recipient is
 always the drop-off's own address, read by the same key as its photos.
 
+A claim whose commit raises `CommitOutcomeUnknown` may have landed (#22): the email is
+read again by its key and sent when the stored email holds this call's claim
+(`holds_claim`). Still pending, or unreadable, the error goes up so the stream tries
+again, nothing sent; held by anything else, the call has nothing to do. Each outcome
+logs `email_claim_unknown` (WARNING) with an outcome word. A claim that lands only after
+that re-read waits for staff, as a stuck email.
+
 Failures are stored and logged by code only. The alarm (phase 7) counts the ERROR line
 `event=email_failed` with `kind`, `drop_off_id` and `error_code`.
 """
@@ -20,6 +27,7 @@ from asmbly_ceramics.domain.email import (
     EmailKind,
     EmailStatus,
     claim,
+    holds_claim,
     is_history,
     mark_cancelled,
     mark_failed,
@@ -37,7 +45,7 @@ from asmbly_ceramics.ports.composer import ComposedEmail, Composer, cid, outgoin
 from asmbly_ceramics.ports.errors import Unavailable
 from asmbly_ceramics.ports.mailer import REFUSED_CODES, Mailer, OutgoingEmail, SendFailed
 from asmbly_ceramics.ports.photos import PhotoStore, UploadMissing
-from asmbly_ceramics.ports.records import Conflict, Records, Update
+from asmbly_ceramics.ports.records import CommitOutcomeUnknown, Conflict, Records, Update
 from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.use_cases.log import log_event
 from asmbly_ceramics.use_cases.studio import CurrentStudio, StudioNotSeeded
@@ -117,7 +125,8 @@ class SendPendingEmail:
     def __call__(self, drop_off_id: DropOffId, kind: EmailKind, occasion: str) -> EmailStatus | None:
         """What became of the email, or `None` when this call had nothing to do (it isn't
         pending, or another call claimed it). Errors before the claim (`RecordsUnavailable`)
-        are raised so the stream tries again: nothing was sent. After the claim nothing is
+        are raised so the stream tries again: nothing was sent. So is a claim whose outcome
+        is unknown and that the stored email doesn't hold. After the claim nothing is
         raised, so the stream never repeats a send that may have half happened."""
         email = self._records.email(drop_off_id, kind, occasion)
         if email is None or email.status is not EmailStatus.PENDING:
@@ -128,11 +137,40 @@ class SendPendingEmail:
             self._records.commit([Update(claimed)])
         except Conflict:
             return None
-        claimed = replace(claimed, version=claimed.version + 1)  # as `Records` stores it
+        except CommitOutcomeUnknown as unknown:
+            stored = self._after_unknown_claim(claimed, unknown)  # raises `unknown`, or None
+            if stored is None:
+                return None
+            claimed = stored  # holds this claim, at the version `Records` stored
+        else:
+            claimed = replace(claimed, version=claimed.version + 1)  # as `Records` stores it
         try:
             return self._send(claimed, now)
         except Exception as error:  # recorded by class name; the stream must not retry
             return self._fail(claimed, UNEXPECTED, error_code=type(error).__name__, unexpected=True)
+
+    def _after_unknown_claim(self, claimed: Email, unknown: CommitOutcomeUnknown) -> Email | None:
+        """After a claim whose commit outcome is unknown: the stored email when it holds
+        this claim; `None` when another call holds it or it is finished. Raises `unknown`,
+        nothing sent, when it is still pending or can't be read, so the stream retries."""
+        fields: dict[str, str] = {
+            "kind": claimed.kind.value,
+            "drop_off_id": str(claimed.drop_off_id),
+            "error_code": unknown.code,
+        }
+        try:
+            stored = self._records.email(claimed.drop_off_id, claimed.kind, claimed.occasion)
+        except Unavailable:
+            log_event("email_claim_unknown", level=logging.WARNING, outcome="unreadable", **fields)
+            raise unknown from None
+        if holds_claim(stored, claimed):
+            log_event("email_claim_unknown", level=logging.WARNING, outcome="held", **fields)
+            return stored
+        if stored is None or stored.status is EmailStatus.PENDING:
+            log_event("email_claim_unknown", level=logging.WARNING, outcome="not_held", **fields)
+            raise unknown from None
+        log_event("email_claim_unknown", level=logging.WARNING, outcome="taken", **fields)
+        return None
 
     def _send(self, email: Email, now: datetime) -> EmailStatus:
         try:

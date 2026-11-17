@@ -5,25 +5,27 @@ stored and logged.
 """
 
 import logging
+from collections.abc import Callable, Sequence
 from dataclasses import fields, replace
 from datetime import timedelta
 
 import pytest
 
+from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import Email, EmailKind, EmailStatus, claim
 from asmbly_ceramics.domain.errors import EmailNotRetryable, NotFound
 from asmbly_ceramics.domain.ids import DropOffId, ItemId
 from asmbly_ceramics.domain.limits import STALE_SENDING_AFTER, STUDIO_TZ
 from asmbly_ceramics.ports.errors import PhotosUnavailable, RecordsUnavailable
-from asmbly_ceramics.ports.records import Conflict, Update
+from asmbly_ceramics.ports.records import Change, CommitOutcomeUnknown, Conflict, Update
 from asmbly_ceramics.use_cases.emails import EmailNeedingAttention, SendPendingEmail, may_have_gone
 from asmbly_ceramics.use_cases.reject import RejectRequest, UndoRequest
 from asmbly_ceramics.use_cases.studio import CurrentStudio
-from tests.domain.builders import NOW, TEST_EMAIL, TEST_MESSAGE, a_sending_address
+from tests.domain.builders import NOW, TEST_EMAIL, TEST_MESSAGE, TEST_NAME, TEST_PHONE, a_sending_address
 from tests.use_cases.conftest import World
 from tests.use_cases.flows import STAFF_MEMBER, dropped_off, email_of, fired, pending, send_all
-from tests.use_cases.test_submit import PHOTO, PHOTO_2
+from tests.use_cases.test_submit import PHOTO, PHOTO_2, rebuilt
 
 AC_1 = DropOffId(1)
 
@@ -616,3 +618,221 @@ def test_an_email_of_a_missing_drop_off_is_shown_not_hidden(
     assert attention(world) == [("AC-1", EmailKind.RECEIVED, EmailStatus.FAILED, "MessageRejected")]
     [missing] = world.emails_needing_attention()
     assert missing.drop_off_found is False
+
+
+class UnknownClaimRecords(MemoryRecords):
+    """Once `armed`, a claim (a commit holding one sending email's `Update`) raises
+    `CommitOutcomeUnknown`: it `lands` first or not, or `instead` makes what lands in its
+    place (another call's claim, a finished email), and the table can be `unreadable`
+    afterwards, or the email read back as missing (`vanishes`). Every other commit passes
+    through."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.armed = False
+        self.lands = True
+        self.instead: Callable[[Email], Email] | None = None
+        self.unreadable = False
+        self.vanishes = False
+        self._vanished = False
+
+    def email(self, drop_off_id: DropOffId, kind: EmailKind, occasion: str = "") -> Email | None:
+        found = super().email(drop_off_id, kind, occasion)
+        return None if self._vanished else found
+
+    def commit(self, changes: Sequence[Change]) -> None:
+        changes = tuple(changes)
+        if not (self.armed and _is_claim(changes)):
+            super().commit(changes)
+            return
+        self.armed = False
+        [change] = changes
+        assert isinstance(change.item, Email)
+        if self.instead is not None:
+            super().commit([Update(self.instead(change.item))])
+        elif self.lands:
+            super().commit(changes)
+        if self.unreadable:
+            self.fail_reads_with = RecordsUnavailable("InternalServerError")
+        self._vanished = self.vanishes
+        raise CommitOutcomeUnknown("ReadTimeoutError")
+
+
+def _is_claim(changes: tuple[Change, ...]) -> bool:
+    return (
+        len(changes) == 1
+        and isinstance(changes[0], Update)
+        and isinstance(changes[0].item, Email)
+        and changes[0].item.status is EmailStatus.SENDING
+    )
+
+
+def on_unknown_claims(world: World) -> UnknownClaimRecords:
+    """The world rebuilt on `UnknownClaimRecords`, with AC-1 dropped off and the fake armed."""
+    records = UnknownClaimRecords()
+    rebuilt(world, records=records)
+    world.send_email = SendPendingEmail(
+        records, world.photos, world.mailer, world.clock, world.studio, world.composer
+    )
+    dropped_off(world, 1)
+    records.armed = True
+    return records
+
+
+def claim_unknown(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
+    [event] = events(caplog, "email_claim_unknown")
+    assert (event["kind"], event["drop_off_id"], event["error_code"]) == (
+        "received",
+        "AC-1",
+        "ReadTimeoutError",
+    )
+    assert event["levelno"] == logging.WARNING
+    return event
+
+
+def assert_nothing_personal_logged(caplog: pytest.LogCaptureFixture) -> None:
+    for record in caplog.records:
+        text = record.getMessage() + repr(vars(record))
+        assert not any(secret in text for secret in (TEST_EMAIL, TEST_NAME, TEST_PHONE))
+        assert record.exc_info is None
+
+
+def test_a_claim_that_landed_behind_an_unknown_outcome_is_sent_once(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    on_unknown_claims(world)
+
+    assert send(world, received(world)) is EmailStatus.SENT
+
+    [message] = world.mailer.sent
+    assert message.to == TEST_EMAIL
+    stored = received(world)
+    assert (stored.status, stored.attempts) == (EmailStatus.SENT, 1)
+    assert claim_unknown(caplog)["outcome"] == "held"
+    assert events(caplog, "email_sent")
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_that_didnt_land_raises_so_the_stream_retries(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.lands = False
+
+    with pytest.raises(CommitOutcomeUnknown):
+        send(world, received(world))
+
+    assert world.mailer.sent == []
+    stored = received(world)
+    assert (stored.status, stored.attempts) == (EmailStatus.PENDING, 0)
+    assert claim_unknown(caplog)["outcome"] == "not_held"
+    assert send(world, received(world)) is EmailStatus.SENT  # the stream's retry
+    assert len(world.mailer.sent) == 1
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_whose_email_reads_back_missing_raises_so_the_stream_retries(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.vanishes = True
+    email = received(world)
+
+    with pytest.raises(CommitOutcomeUnknown):
+        send(world, email)
+
+    assert world.mailer.sent == []
+    assert claim_unknown(caplog)["outcome"] == "not_held"
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_whose_reread_fails_raises_and_sends_nothing(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.unreadable = True
+    email = received(world)
+
+    with pytest.raises(CommitOutcomeUnknown) as raised:
+        send(world, email)
+
+    assert raised.value.code == "ReadTimeoutError"
+    assert world.mailer.sent == []
+    assert claim_unknown(caplog)["outcome"] == "unreadable"
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_another_call_took_meanwhile_returns_none(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.instead = lambda claimed: replace(claimed, claimed_at=NOW - timedelta(seconds=1))
+
+    assert send(world, received(world)) is None
+
+    assert world.mailer.sent == []
+    stored = received(world)
+    assert (stored.status, stored.claimed_at) == (EmailStatus.SENDING, NOW - timedelta(seconds=1))
+    assert claim_unknown(caplog)["outcome"] == "taken"
+    assert_nothing_personal_logged(caplog)
+
+
+@pytest.mark.parametrize("status", [EmailStatus.SENT, EmailStatus.FAILED, EmailStatus.CANCELLED])
+def test_a_claim_finished_meanwhile_returns_none(
+    world: World, caplog: pytest.LogCaptureFixture, status: EmailStatus
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.instead = lambda claimed: replace(claimed, status=status)
+
+    assert send(world, received(world)) is None
+
+    assert world.mailer.sent == []
+    assert received(world).status is status
+    assert claim_unknown(caplog)["outcome"] == "taken"
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_claim_that_landed_and_then_fails_to_send_is_marked_failed(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    world.mailer.fail_with = "MessageRejected"
+    before = received(world)
+
+    assert send(world, before) is EmailStatus.FAILED
+
+    assert not records.armed  # the claim went through the unknown-outcome path
+    assert claim_unknown(caplog)["outcome"] == "held"
+    stored = received(world)
+    assert (stored.status, stored.error_code) == (EmailStatus.FAILED, "MessageRejected")
+    # The claim stored it at version + 1 and the failure at + 2: the failure's commit,
+    # made from the re-read email, passed its version check.
+    assert stored.version == before.version + 2
+    assert events(caplog, "email_failed")
+    assert_nothing_personal_logged(caplog)
+
+
+def test_a_plain_records_failure_on_the_claim_still_raises(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    records = on_unknown_claims(world)
+    records.armed = False
+    records.fail_next_commit_with = RecordsUnavailable("InternalServerError")
+    records.reads.clear()
+
+    with pytest.raises(RecordsUnavailable) as raised:
+        world.send_email(AC_1, EmailKind.RECEIVED, "")
+
+    assert not isinstance(raised.value, CommitOutcomeUnknown)
+    assert records.reads == ["email"]  # no re-read
+    assert world.mailer.sent == []
+    assert not events(caplog, "email_claim_unknown")
+    assert_nothing_personal_logged(caplog)

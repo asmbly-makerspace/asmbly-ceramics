@@ -119,6 +119,21 @@ def claim(email: Email, at: datetime) -> Email:
     return replace(email, status=EmailStatus.SENDING, attempts=email.attempts + 1, claimed_at=at)
 
 
+def holds_claim(stored: Email | None, claimed: Email) -> bool:
+    """Whether `stored` (re-read by key) is the claim `claimed` made: sending, with the same
+    `claimed_at` and `attempts`. False for None, for any other status, and for another
+    call's claim (another `claimed_at`, or an attempt counted since). The version isn't
+    compared: the caller goes on with `stored`, at the version `Records` stored."""
+    return (
+        stored is not None
+        and stored.status is EmailStatus.SENDING
+        and claimed.status is EmailStatus.SENDING
+        and stored.claimed_at is not None
+        and stored.claimed_at == claimed.claimed_at
+        and stored.attempts == claimed.attempts
+    )
+
+
 def mark_sent(email: Email, at: datetime, *, pickup_window_days: int | None = None) -> Email:
     """SENDING to SENT. A ready email keeps the pickup window it gave (1 or more), which
     the close counts from; the other kinds give none."""
