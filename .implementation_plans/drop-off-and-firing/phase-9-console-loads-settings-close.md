@@ -18,8 +18,8 @@ estimated_size: L
   [decision 0002](../../docs/decisions/0002-how-the-app-is-built-and-deployed.md)
   ("Email goes through an outbox", "The scheduled close runs daily, Austin time").
 - [Phase 3](phase-3-load-and-studio-use-cases.md): every use case this phase puts a page
-  on (`StartLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
-  `ViewLoad`, `ListLoads`, `RetryEmail`, `ViewStudio`, `ChangeEmailSettings`,
+  on (`StartLoad`, `AddToLoad`, `AddManyToLoad`, `RemoveFromLoad`, `StartFiring`,
+  `MarkFired`, `ViewLoad`, `ListLoads`, `RetryEmail`, `ViewStudio`, `ChangeEmailSettings`,
   `SendTestEmail`, `AddCatalogItem`, `RetireCatalogItem`, `RestoreCatalogItem`,
   `DeleteCatalogItem`, `CloseFinished`, `WeeklyCounts`) and their errors.
 - [Phase 8](phase-8-console-waiting-and-reject.md): `require_staff`, the CSRF and origin
@@ -118,6 +118,7 @@ change (`load_started`, `load_changed`, `added_to_load`, `removed_from_load`,
 | `/console/loads` | POST | `StartLoad(kiln, firing_type, date, by)` |
 | `/console/loads/{load}` | GET | `ViewLoad(load, all_firing_types=)` (its `waiting` rows are the filtered waiting list) |
 | `/console/loads/{load}/add` | POST | `AddToLoad(load, drop_off, confirmed=, staff=)`; text that isn't an ID: `FindDropOffs(text, waiting_only=True)` |
+| `/console/loads/{load}/add-many` | POST | `AddManyToLoad(load, drop_off_ids, staff=)`: "Add selected" in the waiting list, all or none in one commit |
 | `/console/loads/{load}/remove` | POST | `RemoveFromLoad(load, drop_off, by)` |
 | `/console/loads/{load}/edit` | POST | `ChangeLoad(load, kiln, firing_type, date, version, by)`, while loading |
 | `/console/loads/{load}/start-firing` | POST | `StartFiring(load, version, staff)` |
@@ -187,13 +188,28 @@ is 404.
     for staff to read;
   - success: "AC-61 added." and the field cleared and focused for the next scan.
     Logged `event=added_to_load`, `drop_off_id`, `load_id`, `user`.
+- **Adding several** (`POST .../add-many`, repeated field `drop_off`, one per ticked box in
+  the waiting list; the boxes belong to a form of their own by the `form` attribute, since
+  each row already holds a single "Add" form): `AddManyToLoad` adds every ticked drop-off
+  in one commit, or none. It never confirms a firing type: a different one refuses the
+  whole batch ("AC-61 is Bisque, and this load is Glaze. Nothing was added. Untick it, or
+  add it on its own with its Add button."), and that drop-off is added through the single
+  "Add" and its "Add anyway". `NotWaiting` and `AlreadyInLoad` add " Nothing was added."
+  to their `.message`; `LoadFull` says "N drop-offs won't fit: a load holds at most 48
+  drop-offs. Nothing was added."; nothing ticked on a loading load says "Tick at least one
+  drop-off in the waiting list."; a malformed ID is a 400. A refusal keeps the boxes
+  ticked and the all-types view; a `Conflict` is a 409 on the same page. Success:
+  "3 drop-offs added." (the count comes from `?count=`, bounded to the load's capacity)
+  and each is logged as `event=added_to_load`.
 - **Removing**: "AC-61 is back in the waiting list."; refused once firing.
 - **Start firing / Mark fired**: "Start firing" is a POST button with a plain label.
   "Mark fired" asks first (prep's audit: a double tap on "Start firing" could otherwise
   land on "Mark fired" and email everyone while the kiln has only started): its POST
   without `confirm=1` shows the load again with a panel "Mark L-4 fired? This emails
-  12 people "Ready for pickup"." and "Yes, mark fired" (the same POST with `confirm=1`)
-  and "Not yet". Both carry the load's `version`; `MarkFired` queues one `ready` email per drop-off in the same
+  12 people "Ready for pickup"." and "Yes, mark fired and send 12 emails" (the same POST
+  with `confirm=1`; plain "Yes, mark fired" for an empty test load) and "Not yet". The
+  "Mark fired" button on a firing load carries a hint too: "Heads up: this emails 12 people
+  "Ready for pickup". You'll be asked to confirm first." Both carry the load's `version`; `MarkFired` queues one `ready` email per drop-off in the same
   transaction (phase 3). Marking fired again: `AlreadyFired`'s `.message`, "Load L-4 is
   already fired; nothing was sent again." Logged `event=load_firing` / `event=load_fired` with the load and the
   count.
