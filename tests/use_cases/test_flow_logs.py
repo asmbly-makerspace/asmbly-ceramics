@@ -47,6 +47,7 @@ def test_a_whole_flow_logs_no_personal_details(world: World, caplog: pytest.LogC
         sending_address=a_sending_address("kilnops"),
         pickup_window_days="10",
         pickup_hours_text=studio.pickup_hours_text,
+        received_emails_per_day="300",
         version=studio.version,
         staff=STAFF_MEMBER,
     )

@@ -5,25 +5,26 @@ import logging
 import re
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
 from asmbly_ceramics.adapters.memory.images import NOT_IMAGE, TOO_LARGE, TOO_MANY_PIXELS, UNSUPPORTED_TYPE
 from asmbly_ceramics.domain.dropoff import DropOff, DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus
-from asmbly_ceramics.domain.errors import TooManySubmissions
+from asmbly_ceramics.domain.errors import DropOffNotTaken, TooManySubmissions
 from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, PHOTO_MAX_BYTES
+from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, PHOTO_MAX_BYTES, RateLimit
 from asmbly_ceramics.domain.photos import PhotoRefusal
 from asmbly_ceramics.domain.studio import CatalogList
 from asmbly_ceramics.ports.errors import IdsUnavailable, RecordsUnavailable
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept
 from asmbly_ceramics.ports.records import Conflict, Submission
+from asmbly_ceramics.use_cases.limits import RECEIVED_CAP_KEY
 from asmbly_ceramics.web.fields import MESSAGES, PHOTO_MESSAGES, field_messages, message_for
 from asmbly_ceramics.web.security import RECEIVED_COOKIE, sign
-from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE
-from tests.web.conftest import ADDRESS, COOKIE_KEY, PHOTO, SAME_ORIGIN, SITE, Site
+from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE, TEST_PHONE_DIGITS
+from tests.web.conftest import ADDRESS, COOKIE_KEY, PHOTO, SAME_ORIGIN, SITE, Site, set_cap
 
 NAME = MESSAGES["name.required"]
 EMAIL = MESSAGES["email.invalid"]
@@ -215,6 +216,50 @@ def test_the_thirty_first_from_one_address_is_refused_even_with_new_cookies(site
     answer = site.submit(site.details())
     assert answer.status_code == 429
     assert len(all_drop_offs(site)) == ADDRESS_LIMIT.limit
+
+
+def test_a_drop_off_past_the_daily_cap_shows_the_friendly_refusal(
+    site: Site, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(site, 1)
+    assert site.submit(site.details()).status_code == 303
+    site.client.cookies.clear()
+
+    fields = site.details()
+    answer = site.submit(fields)
+
+    assert answer.status_code == 429
+    shown = html.unescape(re.sub(r"<[^>]+>", " ", answer.text))
+    assert DropOffNotTaken().message in shown
+    for word in ("cap", "limit", "hash", "too many"):
+        assert word not in shown.lower()
+    for typed in (TEST_NAME, TEST_EMAIL, TEST_PHONE, html.escape(TEST_EMAIL)):
+        assert typed not in answer.text
+    assert len(all_drop_offs(site)) == 1
+    logged = repr([vars(r) for r in caplog.records])
+    secrets = (TEST_NAME, TEST_EMAIL, TEST_PHONE, TEST_PHONE_DIGITS, site.device(), str(fields["submission"]))
+    for secret in secrets:
+        assert secret not in logged
+
+
+def test_the_form_says_try_again_when_the_cap_can_t_be_counted(site: Site) -> None:
+    counted = site.world.limiter.hit
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key == RECEIVED_CAP_KEY:
+            raise RecordsUnavailable("ThrottlingException")
+        return counted(key, limit, now)
+
+    site.world.limiter.hit = hit  # type: ignore[method-assign]
+    fields = site.details()
+
+    answer = site.submit(fields)
+
+    assert answer.status_code == 503
+    assert "Something went wrong on our side. Please try again." in answer.text
+    assert f'name="submission" value="{fields["submission"]}"' in answer.text
+    assert all_drop_offs(site) == []
 
 
 def test_submitting_the_same_page_twice_gives_the_same_id(site: Site) -> None:

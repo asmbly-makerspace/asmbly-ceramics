@@ -81,6 +81,22 @@ def test_hits_older_than_the_window_stop_counting(limiter: RateLimiter) -> None:
     assert limiter.hit(KEY, small, NOW + timedelta(minutes=12, seconds=1))
 
 
+def test_a_lowered_limit_refuses_at_once_and_a_raised_one_counts_only_the_hits_kept(
+    limiter: RateLimiter,
+) -> None:
+    window = timedelta(hours=24)
+    four = RateLimit(limit=4, window=window)
+    two = RateLimit(limit=2, window=window)
+    for n in range(4):
+        assert limiter.hit(KEY, four, NOW + timedelta(minutes=n))
+    # Lowered below the hits kept: refused at once, and only the latest 2 are kept.
+    assert not limiter.hit(KEY, two, NOW + timedelta(minutes=4))
+    # Raised again: 5 hits fell in the window, but only the 2 kept count, so 2 more pass.
+    assert limiter.hit(KEY, four, NOW + timedelta(minutes=5))
+    assert limiter.hit(KEY, four, NOW + timedelta(minutes=6))
+    assert not limiter.hit(KEY, four, NOW + timedelta(minutes=7))
+
+
 def test_a_naive_time_is_refused(limiter: RateLimiter) -> None:
     with pytest.raises(ValueError, match="aware"):
         limiter.hit(KEY, DEVICE_LIMIT, NOW.replace(tzinfo=None))

@@ -18,6 +18,7 @@ from starlette.templating import Jinja2Templates
 
 from asmbly_ceramics.domain.errors import (
     FORM_EXPIRED_KEY,
+    DropOffNotTaken,
     InvalidDetails,
     SubmissionNotFound,
     TooManySubmissions,
@@ -223,6 +224,9 @@ async def submit(request: Request) -> Response:
         return _refused(request, form, refused.errors, choices)
     except TooManySubmissions as refused:
         _page_log("rate_limited")
+        return error_response(request, 429, refused.message)
+    except DropOffNotTaken as refused:
+        _page_log("not_taken")
         return error_response(request, 429, refused.message)
     except (Unavailable, Conflict, PhotosAlreadyKept) as error:
         code = error.code if isinstance(error, Unavailable) else type(error).__name__

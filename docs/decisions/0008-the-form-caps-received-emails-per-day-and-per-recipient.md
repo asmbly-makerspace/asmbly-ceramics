@@ -53,6 +53,28 @@ reopen it. While the cap is reached, every drop-off from the form is refused, re
 included, and people are told to ask ceramics staff. The ERROR line repeats for each
 refusal; the alarm notifies on its change of state only.
 
+**Consequence, accepted:** because refused hits count, someone sending about one valid
+submission every 86,400 ÷ cap seconds (every 288 seconds at 300) from rotating devices
+and addresses keeps the form shut for as long as they keep going. That is the design: an
+availability trade-off that keeps the `asmbly.org` identity safe, the same one the device
+limiter makes. The remedy is staff raising the setting (the logged-errors alarm tells
+the maintainers); the limiter isn't changed for it.
+
+**Consequence, accepted:** a double tap whose two requests race both pass the repeated
+token check and both count, so it uses two of the cap's slots. When the cap refuses the
+loser, the submit reads the token's submission again and answers with the winner's
+drop-off if it is stored, so neither request is told it wasn't taken.
+
+**Consequence, accepted:** every accepted submit writes the one shared `received-emails`
+item under a version check, read again at most `TRIES = 3` times. Submits that arrive
+together can lose that race three times, and the loser is answered "try again" with
+nothing stored (fail closed). At about 80 drop-offs a week this is rare; it is a
+contention limit, not a lost drop-off.
+
+**Consequence, accepted:** the limiter keeps only the latest hits up to the cap, so
+lowering the number trims what is kept: setting it back to 300 after lowering it in a
+flood forgets the flood and allows up to 300 more in the same 24 hours.
+
 **Revisit if:** a real day comes near the cap, or staff ask to pause the form on purpose
 (a setting of 0 is refused today).
 
@@ -116,7 +138,9 @@ drop-off by hand and the logs (by reason, never the address) tell the maintainer
 
 ## An alarm on the mailer's send volume
 
-**Chosen:** a metric filter on the mailer's log group counts `email_sent` lines as
+**Chosen:** a metric filter on the mailer's log group counts `email_sent` lines, and
+`email_unrecorded` lines with `outcome=sent` (an email that went but whose sent mark
+couldn't be saved; one that failed logs `outcome=failed` and isn't counted), as
 `EmailsSent` in the `asmbly-ceramics/<env>` namespace, and the alarm
 `asmbly-ceramics-<env>-email-volume` goes off when 100 or more are sent in one hour
 (`Period: 3600`, one evaluation period, missing data not breaching), notifying the
@@ -138,6 +162,35 @@ on a normal day.
 
 ## What has and has not been seen to work
 
-Nothing yet: written with the plan on 17 November 2026, before any of it is built. Each
-phase of the plan adds what its tests show here, and the stage check after the merge
-shows the alarm and the settings field in AWS.
+Written with the plan on 17 November 2026, before any of it was built. Each phase of the
+plan adds what its tests show here, and the stage check after the merge shows the alarm
+and the settings field in AWS.
+
+**The daily cap and the alarm (phase 2, 17 November 2026), seen in tests only, against
+the in-memory fakes and the template:**
+
+- A new studio, and a studio item stored without the setting, read 300; the setting takes
+  1 to 2,000 (a 5,000-digit number, a decimal, a sign or other digits are refused) and
+  the history records "Received emails a day, at most: 300 → 120" with the username
+  (`tests/domain/test_studio.py`, `tests/adapters/aws/test_keys.py`,
+  `tests/use_cases/test_settings.py`, `tests/web/console/test_settings.py`, which also
+  shows the field refused next to itself, the "not allowed" answer outside `ceramics`, and
+  the CSRF check).
+- With the cap at 2, the third drop-off raises `DropOffNotTaken`: no drop-off, email or
+  submission stored, no photo kept, no ID taken, one `drop_off_refused` with
+  `reason=daily_cap` at ERROR and no count; the window rolls (24 hours and a microsecond
+  after the first, one more is taken); a refused field, a repeated token and a retry with
+  the next ID never count; a raised or lowered setting applies to the next drop-off; a cap
+  that can't be counted raises `RecordsUnavailable` after a WARNING line, and the page
+  answers "try again" (`tests/use_cases/test_submit.py`, `tests/web/test_submit.py`).
+- The public page shows only the sentence above (429), with nothing typed echoed, and no
+  log line holds the made-up name, address or phone.
+- The template's `EmailsSentFilter` counts the mailer's `email_sent` lines (and
+  `email_unrecorded` with `outcome=sent`) into
+  `EmailsSent`, and `EmailVolumeAlarm` sums them over 3,600 seconds, one period,
+  threshold 100, notifying the alarm topic with the five tags
+  (`tests/repo/test_app_template.py`; `cfn-lint` 1.57.1 passes). `sam validate` and
+  `sam build` did not run in this run (no `sam` installed).
+
+Not seen yet: the alarm and the setting in AWS (the stage check after the merge), and the
+DynamoDB rate limiter under the fixed key, which only its existing stub tests cover.

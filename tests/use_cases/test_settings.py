@@ -37,13 +37,19 @@ def events(caplog: pytest.LogCaptureFixture, name: str) -> list[dict[str, object
 
 
 def change_email(
-    world: World, *, address: str | None = None, window: str = "14", hours: str | None = None
+    world: World,
+    *,
+    address: str | None = None,
+    window: str = "14",
+    hours: str | None = None,
+    cap: str = "300",
 ) -> Studio:
     studio = world.studio()
     return world.change_email_settings(
         sending_address=address if address is not None else studio.sending_address,
         pickup_window_days=window,
         pickup_hours_text=hours if hours is not None else studio.pickup_hours_text,
+        received_emails_per_day=cap,
         version=studio.version,
         staff=STAFF_MEMBER,
     )
@@ -75,6 +81,31 @@ def test_email_settings_are_saved_with_the_new_values(world: World, caplog: pyte
     assert world.studio() == saved
     [event] = events(caplog, "settings_changed")
     assert event["user"] == STAFF
+
+
+def test_the_received_emails_cap_is_saved_with_its_history(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    saved = change_email(world, cap="120")
+
+    assert saved.received_emails_per_day == 120
+    assert world.studio() == saved
+    [latest, *_] = world.records.history(5).changes
+    assert (latest.what, latest.by) == ("Received emails a day, at most: 300 → 120", STAFF)
+    [event] = events(caplog, "settings_changed")
+    assert event["user"] == STAFF
+    assert not {"list", "item"} & set(event)  # no setting's value logged
+
+
+def test_a_cap_outside_1_to_2000_is_refused_and_nothing_is_saved(world: World) -> None:
+    world.studio()  # seeded
+    commits = len(world.records.commits)
+    with pytest.raises(InvalidSetting) as refused:
+        change_email(world, window="21", cap="2001")
+    assert refused.value.field == "received_emails_per_day"
+    assert len(world.records.commits) == commits
+    assert world.studio().pickup_window_days == 14
 
 
 def test_saving_the_same_values_commits_and_logs_nothing(
@@ -215,6 +246,7 @@ def test_a_stale_version_is_a_conflict(world: World) -> None:
             sending_address=a_sending_address(),
             pickup_window_days="7",
             pickup_hours_text="Daily.",
+            received_emails_per_day="300",
             version=stale,
             staff=STAFF_MEMBER,
         )

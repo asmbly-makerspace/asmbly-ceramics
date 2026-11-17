@@ -266,6 +266,7 @@ def test_history_pages_by_the_sort_key_and_keeps_one_instant_together(records: R
         sending_address=a_sending_address("kiln-room"),
         pickup_window_days="21",
         pickup_hours_text="Weekdays only.",
+        received_emails_per_day="300",
         by=STAFF,
         at=NOW,
     )

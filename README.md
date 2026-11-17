@@ -35,7 +35,10 @@ is in place. The prod form's address isn't published until the switch from Click
 asmbly-staff-login. The plan's remaining phase is in
 [.implementation_plans/drop-off-and-firing/](.implementation_plans/drop-off-and-firing/README.md). The firing record and log (#42) and firing
 notes (#17) are built from
-[.implementation_plans/firing-records-and-notes/](.implementation_plans/firing-records-and-notes/README.md).
+[.implementation_plans/firing-records-and-notes/](.implementation_plans/firing-records-and-notes/README.md). Hardening the outgoing email (#30) is being built from
+[.implementation_plans/harden-outgoing-email/](.implementation_plans/harden-outgoing-email/README.md):
+the form now refuses drop-offs past a daily cap on received emails (a setting, 300 to
+start), and an alarm fires when the mailer sends 100 or more emails in an hour.
 
 | Story | What changes for people |
 | --- | --- |

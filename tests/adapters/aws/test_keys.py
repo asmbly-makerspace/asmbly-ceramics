@@ -367,6 +367,22 @@ def test_old_studio_item_reads_starting_lists() -> None:
     assert all(i.default_program is None for i in old.firing_types)
 
 
+def test_studio_round_trips_the_received_emails_cap() -> None:
+    studio = replace(a_full_studio(), received_emails_per_day=120)
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    assert item["received_emails_per_day"] == {"N": "120"}
+    assert keys.from_item(item) == studio
+
+
+def test_old_studio_item_reads_a_cap_of_300() -> None:
+    studio = replace(a_full_studio(), received_emails_per_day=120)
+    item = keys.to_item(studio, keys.studio_key(), studio.version)
+    del item["received_emails_per_day"]
+    old = keys.from_item(item)
+    assert isinstance(old, Studio)
+    assert old.received_emails_per_day == 300
+
+
 @pytest.mark.parametrize(
     "counts",
     [

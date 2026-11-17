@@ -14,9 +14,10 @@ from starlette.testclient import TestClient
 
 from asmbly_ceramics.domain.ids import ItemId
 from asmbly_ceramics.domain.studio import CatalogList
+from asmbly_ceramics.ports.staff import StaffMember
 from asmbly_ceramics.web.app import WebServices, WebSettings, create_app
 from asmbly_ceramics.web.security import DEVICE_COOKIE
-from tests.domain.builders import TEST_EMAIL, TEST_NAME, TEST_PHONE
+from tests.domain.builders import STAFF, TEST_EMAIL, TEST_NAME, TEST_PHONE
 from tests.use_cases.conftest import World
 from tests.use_cases.conftest import world as world  # the fakes and use cases
 from tests.use_cases.flows import STAFF_MEMBER
@@ -96,3 +97,16 @@ class Site:
 def site(world: World) -> Iterator[Site]:
     with TestClient(create_app(services(world), settings()), base_url=SITE) as client:
         yield Site(client, world)
+
+
+def set_cap(site: Site, per_day: int) -> None:
+    """Sets the studio's daily cap on received emails (#30) as staff would."""
+    studio = site.world.studio()
+    site.world.change_email_settings(
+        sending_address=studio.sending_address,
+        pickup_window_days=str(studio.pickup_window_days),
+        pickup_hours_text=studio.pickup_hours_text,
+        received_emails_per_day=str(per_day),
+        version=studio.version,
+        staff=StaffMember(STAFF, None),
+    )

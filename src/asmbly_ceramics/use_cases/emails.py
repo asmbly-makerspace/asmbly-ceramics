@@ -205,9 +205,11 @@ class SendPendingEmail:
         except Exception as error:  # it went: never mark it failed
             # It stays sending; after STALE_SENDING_AFTER staff see it and may retry it,
             # which may send it twice. A duplicate is better than a lost email.
+            # `outcome=sent`: the email-volume alarm counts this line with `email_sent`.
             log_event(
                 "email_unrecorded",
                 level=logging.ERROR,
+                outcome="sent",
                 kind=email.kind.value,
                 drop_off_id=str(email.drop_off_id),
                 error_code=_code(error),
@@ -259,6 +261,7 @@ class SendPendingEmail:
             log_event(
                 "email_unrecorded",
                 level=logging.ERROR,
+                outcome="failed",
                 kind=email.kind.value,
                 drop_off_id=str(email.drop_off_id),
                 error_code=_code(error),

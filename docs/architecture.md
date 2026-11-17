@@ -28,7 +28,8 @@ and the emails share are in `brand.py`. `infra/bootstrap.yaml` is the bootstrap 
 (deploy roles, boundaries, addresses), deployed by hand with
 [its runbook](runbooks/aws-bootstrap.md). `infra/app.yaml` is the app's SAM template
 for one environment (the records table, the private photo bucket, the form and the console behind an
-HTTP API, the mailer on the table's stream, the daily close, the alarms); a merge to `main` deploys it to
+HTTP API, the mailer on the table's stream, the daily close, the alarms, among them one on the
+mailer's send volume); a merge to `main` deploys it to
 stage and then prod (`.github/workflows/deploy.yml`, [the operations runbook](runbooks/operations.md)).
 The deployed functions start from `entry/` (`run.sh` for the form and the console through the Lambda
 Web Adapter, `mailer.py` for the stream, `close.py` for the daily schedule), read their environment once in
@@ -50,6 +51,9 @@ What the domain code settles, beyond the stories:
 - The settings history records that the sending address changed, never the address.
 - The form's rate limit counts hits in a rolling window, refused hits included, and
   fails closed.
+- The form counts each otherwise-acceptable drop-off against the studio's daily cap on
+  received emails (a setting, 300 to start) in a rolling 24 hours, and refuses past it
+  with one sentence that names no cap (`DropOffNotTaken`, decision 0008).
 - The mailer re-reads an email whose claim's outcome is unknown and sends it when the
   stored email holds that claim (`holds_claim`); a claim that lands only after the
   re-read waits for staff, as a stuck email.
@@ -125,7 +129,8 @@ What the domain code settles, beyond the stories:
   too. Their text is autoescaped wherever it is shown.
 - **Kilns** (Athena, Helios and Vulcan today), **firing types**, **glaze types**,
   **rejection reasons**, **cones** (^06, ^5 and ^6 to start), **clay bodies**, the
-  **pickup window and hours** and the **sending address** are settings, edited in the
+  **pickup window and hours**, the **sending address** and the **daily cap on received
+  emails** (#30) are settings, edited in the
   console with a history of who changed what. Anything a drop-off or load has used is
   retired, not deleted. A firing type can carry a **default program** that fills each
   new load's record, and a kiln its **firing counts** (since new elements and all time,

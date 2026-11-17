@@ -297,6 +297,18 @@ class TooManySubmissions(DomainError):
         super().__init__("Too many drop-offs from here in the last few minutes. Try again later.")
 
 
+class DropOffNotTaken(DomainError):
+    """The form can't take this drop-off now (the daily cap, or, from phase 3 of
+    harden-outgoing-email, the recipient's limit). One fixed sentence for every reason: it
+    names no cap, limit, count, address or hash (decision 0008)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Sorry, we can't take this drop-off online right now. "
+            "Please ask ceramics staff at the studio for help."
+        )
+
+
 class SubmissionNotFound(DomainError):
     """No such submission, or it has expired (the ID page). Fixed text: it names nothing."""
 

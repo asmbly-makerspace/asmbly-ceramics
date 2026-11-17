@@ -8,6 +8,7 @@ import contextlib
 import dataclasses
 import logging
 from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -16,9 +17,16 @@ from asmbly_ceramics.adapters.memory.photos import MemoryPhotoStore
 from asmbly_ceramics.adapters.memory.records import MemoryRecords
 from asmbly_ceramics.domain.dropoff import DropOffState
 from asmbly_ceramics.domain.email import EmailKind, EmailStatus
-from asmbly_ceramics.domain.errors import InvalidDetails, TooManySubmissions
+from asmbly_ceramics.domain.errors import DropOffNotTaken, InvalidDetails, TooManySubmissions
 from asmbly_ceramics.domain.ids import DropOffId
-from asmbly_ceramics.domain.limits import ADDRESS_LIMIT, DEVICE_LIMIT, PHOTO_MAX_BYTES, SUBMISSION_LIFETIME
+from asmbly_ceramics.domain.limits import (
+    ADDRESS_LIMIT,
+    DEVICE_LIMIT,
+    PHOTO_MAX_BYTES,
+    RECEIVED_CAP_WINDOW,
+    SUBMISSION_LIFETIME,
+    RateLimit,
+)
 from asmbly_ceramics.domain.photos import CheckedPhoto, PhotoRef, PhotoSize
 from asmbly_ceramics.ports.errors import (
     IdsUnavailable,
@@ -28,11 +36,14 @@ from asmbly_ceramics.ports.errors import (
 )
 from asmbly_ceramics.ports.photos import PhotosAlreadyKept, UploadMissing
 from asmbly_ceramics.ports.records import Change, CommitOutcomeUnknown, Conflict, Put, Submission
+from asmbly_ceramics.ports.staff import StaffMember
+from asmbly_ceramics.use_cases.limits import RECEIVED_CAP_KEY
 from asmbly_ceramics.use_cases.received import ReceivedView
 from asmbly_ceramics.use_cases.studio import CurrentStudio
 from asmbly_ceramics.use_cases.submit import SubmitDropOff, SubmitRequest, Submitted
 from tests.domain.builders import (
     NOW,
+    STAFF,
     TEST_EMAIL,
     TEST_NAME,
     TEST_PHONE,
@@ -314,13 +325,228 @@ def test_submit_fails_closed_when_the_limiter_is_unavailable(
 def test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter(world: World) -> None:
     world.submit(a_request(world))
     assert world.limiter.keys_hit
-    assert all(key.startswith(("device#", "address#")) for key in world.limiter.keys_hit)
+    assert all(
+        key.startswith(("device#", "address#")) or key == RECEIVED_CAP_KEY for key in world.limiter.keys_hit
+    )
     stored = repr([dataclasses.asdict(change.item) for commit in world.records.commits for change in commit])
     for raw in (TOKEN, DEVICE, SOURCE_ADDRESS):
         assert raw not in stored
         assert all(raw not in key for key in world.limiter.keys_hit)
     [submission] = [c.item for c in submission_commits(world)[0] if isinstance(c.item, Submission)]
     assert submission.token_hash.startswith("submission#")
+
+
+# The daily cap on received emails (#30, decision 0008)
+
+
+def set_cap(world: World, per_day: int) -> None:
+    studio = world.studio()
+    world.change_email_settings(
+        sending_address=studio.sending_address,
+        pickup_window_days=str(studio.pickup_window_days),
+        pickup_hours_text=studio.pickup_hours_text,
+        received_emails_per_day=str(per_day),
+        version=studio.version,
+        staff=StaffMember(STAFF, None),
+    )
+
+
+def from_a_new_device(world: World, number: int) -> SubmitRequest:
+    """A request no device or address limit refuses, so only the cap can."""
+    return a_request(
+        world, token=a_token(number), device=a_device(number), source_address=f"203.0.113.{number}"
+    )
+
+
+def assert_no_personal_details_logged(caplog: pytest.LogCaptureFixture) -> None:
+    logged = repr([vars(r) for r in caplog.records])
+    for detail in (TEST_NAME, TEST_EMAIL, TEST_PHONE, TEST_PHONE_DIGITS):
+        assert detail not in logged
+
+
+def test_a_drop_off_past_the_daily_cap_is_refused_and_nothing_is_stored(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(world, 2)
+    world.submit(from_a_new_device(world, 1))
+    world.submit(from_a_new_device(world, 2))
+    third = from_a_new_device(world, 3)
+
+    with pytest.raises(DropOffNotTaken):
+        world.submit(third)
+
+    assert len(submission_commits(world)) == 2
+    assert world.records.drop_off(DropOffId(3)) is None
+    assert world.records.email(DropOffId(3), EmailKind.RECEIVED) is None
+    assert world.photos.kept_count(DropOffId(3)) == 0
+    assert world.ids.next_drop_off_id() == DropOffId(3)  # no number was taken
+    assert world.photos.upload_count() == 2  # the third's uploads are left for their lifetime
+    [event] = events(caplog, "drop_off_refused")
+    assert (event["reason"], event["levelno"]) == ("daily_cap", logging.ERROR)
+    assert set(event) & {"count", "limit", "per_day"} == set()
+    assert_no_personal_details_logged(caplog)
+
+
+def test_the_cap_is_a_rolling_24_hours(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(world, 2)
+    world.submit(from_a_new_device(world, 1))
+    world.clock.advance(timedelta(hours=1))
+    world.submit(from_a_new_device(world, 2))
+    # 24 hours and a microsecond after the first: it has left the window, the second hasn't.
+    world.clock.advance(RECEIVED_CAP_WINDOW - timedelta(hours=1) + timedelta(microseconds=1))
+
+    assert world.submit(from_a_new_device(world, 3)).view.id == DropOffId(3)
+    with pytest.raises(DropOffNotTaken):
+        world.submit(from_a_new_device(world, 4))
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_refused_field_isnt_counted_against_the_cap(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(world, 2)
+    refused(world, dataclasses.replace(from_a_new_device(world, 1), name=" "))
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == 0
+
+    world.submit(from_a_new_device(world, 2))
+    world.submit(from_a_new_device(world, 3))
+
+    assert len(submission_commits(world)) == 2
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == 2
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_repeated_token_isnt_counted_against_the_cap(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    set_cap(world, 2)
+    request = from_a_new_device(world, 1)
+    first = world.submit(request)
+    assert world.submit(request).repeated
+    assert world.submit(request).repeated
+
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == 1
+    assert world.submit(from_a_new_device(world, 2)).view.id == DropOffId(2)
+    assert first.view.id == DropOffId(1)
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_retry_with_the_next_id_counts_once(world: World) -> None:
+    set_cap(world, 1)
+    world.photos.keep(DropOffId(1), [a_kept_photo()])  # AC-1's number is taken: the next one
+    assert world.submit(from_a_new_device(world, 1)).view.id == DropOffId(2)
+    assert world.limiter.keys_hit.count(RECEIVED_CAP_KEY) == 1
+
+
+def test_the_cap_is_read_from_the_studio_when_used(world: World) -> None:
+    set_cap(world, 1)
+    world.submit(from_a_new_device(world, 1))
+    with pytest.raises(DropOffNotTaken):
+        world.submit(from_a_new_device(world, 2))
+
+    # Raised: the hits kept (at most the old cap's one) count, so it allows more, never fewer.
+    set_cap(world, 3)
+
+    assert world.submit(from_a_new_device(world, 3)).view.id == DropOffId(2)
+    assert world.submit(from_a_new_device(world, 4)).view.id == DropOffId(3)
+    with pytest.raises(DropOffNotTaken):
+        world.submit(from_a_new_device(world, 5))
+
+
+def racing_cap(world: World, *, read_fails: bool = False) -> SubmitRequest:
+    """A double tap whose other request passes step 1 too, takes the cap's last slot and
+    stores its drop-off while this one is counted against the cap."""
+    set_cap(world, 1)
+    request = a_request(world)
+    counted = world.limiter.hit
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key == RECEIVED_CAP_KEY:
+            assert counted(key, limit, now)  # the other request's hit
+            token_hash = world.hasher.submission(TOKEN)
+            winner = Submission(token_hash, DropOffId(7), 3, "Bisque", None, NOW, NOW + SUBMISSION_LIFETIME)
+            world.records.commit([Put(winner)])
+            if read_fails:
+                world.records.fail_reads_with = RecordsUnavailable("InternalServerError")
+        return counted(key, limit, now)
+
+    world.limiter.hit = hit  # type: ignore[method-assign]
+    return request
+
+
+def test_a_double_tap_racing_for_the_caps_last_slot_returns_the_winner(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    request = racing_cap(world)
+
+    result = world.submit(request)
+
+    assert (result.view.id, result.repeated) == (DropOffId(7), True)
+    assert world.ids.next_drop_off_id() == DropOffId(1)  # this request took no number
+    [repeat] = events(caplog, "drop_off_repeated")
+    assert repeat["drop_off_id"] == "AC-7"
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_refusal_at_the_cap_stands_when_the_winner_cant_be_read(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    request = racing_cap(world, read_fails=True)
+
+    with pytest.raises(DropOffNotTaken):
+        world.submit(request)
+
+    [unreadable] = events(caplog, "submission_unreadable")
+    assert (unreadable["error_code"], unreadable["levelno"]) == ("InternalServerError", logging.WARNING)
+    assert_no_personal_details_logged(caplog)
+
+
+def test_a_cap_lowered_below_the_hits_kept_refuses_at_once(world: World) -> None:
+    for number in (1, 2, 3):
+        world.submit(from_a_new_device(world, number))
+    set_cap(world, 2)
+    with pytest.raises(DropOffNotTaken):
+        world.submit(from_a_new_device(world, 4))
+
+
+def test_submit_fails_closed_when_the_cap_cant_be_counted(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
+    counted = world.limiter.hit
+
+    def hit(key: str, limit: RateLimit, now: datetime) -> bool:
+        if key == RECEIVED_CAP_KEY:
+            raise RecordsUnavailable("ProvisionedThroughputExceededException")
+        return counted(key, limit, now)
+
+    world.limiter.hit = hit  # type: ignore[method-assign]
+
+    with pytest.raises(RecordsUnavailable):
+        world.submit(from_a_new_device(world, 1))
+
+    assert_nothing_stored(world)
+    [event] = events(caplog, "drop_off_refused")
+    assert (event["reason"], event["error_code"], event["levelno"]) == (
+        "limiter_unavailable",
+        "ProvisionedThroughputExceededException",
+        logging.WARNING,
+    )
+    assert_no_personal_details_logged(caplog)
+
+
+def test_the_cap_is_counted_under_its_fixed_key(world: World) -> None:
+    world.submit(a_request(world))
+    assert world.limiter.keys_hit == [
+        world.hasher.device(DEVICE),
+        world.hasher.address(SOURCE_ADDRESS),
+        RECEIVED_CAP_KEY,
+    ]
+    assert RECEIVED_CAP_KEY == "received-emails"
 
 
 # Fields and photos

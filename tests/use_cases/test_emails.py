@@ -124,6 +124,7 @@ def test_the_email_uses_the_settings_in_force_when_sent(world: World) -> None:
         sending_address=a_sending_address("kilnops"),
         pickup_window_days="14",
         pickup_hours_text=studio.pickup_hours_text,
+        received_emails_per_day="300",
         version=studio.version,
         staff=STAFF_MEMBER,
     )
@@ -269,7 +270,7 @@ def test_a_sent_email_whose_record_cant_be_saved_stays_sending(
     assert len(world.mailer.sent) == 1
     assert received(world).status is EmailStatus.SENDING  # never marked failed: it went
     [event] = events(caplog, "email_unrecorded")
-    assert event["error_code"] == "InternalServerError"
+    assert (event["error_code"], event["outcome"]) == ("InternalServerError", "sent")  # counted as sent
     assert events(caplog, "email_failed") == []
 
 
@@ -293,7 +294,9 @@ def test_a_failure_whose_record_cant_be_saved_is_still_logged_for_the_alarm(
     assert send(world, received(world)) is EmailStatus.FAILED
 
     assert [e["error_code"] for e in events(caplog, "email_failed")] == ["Throttling"]
-    assert [e["error_code"] for e in events(caplog, "email_unrecorded")] == ["Conflict"]
+    assert [(e["error_code"], e["outcome"]) for e in events(caplog, "email_unrecorded")] == [
+        ("Conflict", "failed")  # not counted as sent
+    ]
 
 
 def rejected(world: World) -> Email:

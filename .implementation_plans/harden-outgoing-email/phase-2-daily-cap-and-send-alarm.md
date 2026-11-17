@@ -8,7 +8,7 @@ estimated_size: L
 
 # Phase 2: The form: a daily cap on received emails, and an alarm on the send volume
 
-> **Status:** [ ] Pending
+> **Status:** [~] In progress
 
 Finishes #30.
 
@@ -66,7 +66,8 @@ None.
   `_received_emails_per_day`.
 - `src/asmbly_ceramics/domain/errors.py`: `DropOffNotTaken`.
 - `src/asmbly_ceramics/adapters/aws/keys.py`: the studio item's new attribute, and its
-  default when absent; the module docstring.
+  default when absent; the module docstring (the studio paragraph, and the key table's
+  `RATE#` row: a keyed hash or the cap's fixed name).
 - `src/asmbly_ceramics/ports/rate_limit.py`: the `key` docstring allows a fixed,
   non-personal name.
 - `src/asmbly_ceramics/use_cases/limits.py`: `RECEIVED_CAP_KEY`, `check_received_cap`.
@@ -81,10 +82,15 @@ None.
 - Tests: `tests/domain/test_studio.py`, `tests/domain/test_errors.py`,
   `tests/adapters/aws/test_keys.py`, `tests/use_cases/test_submit.py`,
   `tests/use_cases/test_settings.py`, `tests/web/test_submit.py`,
-  `tests/web/console/test_settings.py`, `tests/repo/test_app_template.py`. Any other
-  test that calls `change_email_settings` or `ChangeEmailSettings` gains the argument.
-- Docs: `docs/runbooks/operations.md` (the alarm's row; the setting in the staff notes if
-  the runbook lists settings), `docs/architecture.md` (Today; "What the domain code
+  `tests/web/console/test_settings.py`, `tests/repo/test_app_template.py`. Every other
+  test that calls `change_email_settings` or `ChangeEmailSettings` gains the argument:
+  `tests/use_cases/test_flow_logs.py`, `tests/use_cases/test_emails.py`,
+  `tests/use_cases/test_close.py`, `tests/adapters/test_memory.py`,
+  `tests/adapters/contract/test_records.py`.
+- Docs: `docs/runbooks/operations.md` (the alarm's row; the sentence under the table,
+  "Each returns to OK by itself when the next five minutes are quiet", now says the
+  `email-volume` alarm returns after a quiet hour; the setting in the staff notes if the
+  runbook lists settings), `docs/architecture.md` (Today; "What the domain code
   settles"), `docs/decisions/0008-…` ("What has and has not been seen to work").
 
 ## Implementation details
@@ -166,7 +172,10 @@ self._check_cap(studio, now)
 `check_received_cap(self._limiter, per_day=studio.received_emails_per_day, now=now,
 refused_event="drop_off_refused")`. The setting is read from the studio this request
 already read (settings as data, read when used). A repeated token returns before it, so
-a double tap counts once. The hit is outside the ID loop, so a commit's retry with the
+a double tap whose second request comes after the first is stored counts once; one whose
+two requests race both pass that check and both count (decision 0008 accepts it), and
+when the cap refuses the loser, the submit reads the token's submission again and
+answers with the winner's drop-off if it is stored (found in phase 2's review). The hit is outside the ID loop, so a commit's retry with the
 next ID doesn't count twice. Nothing is kept, stored or queued when it refuses. The
 constructor and `composition.py` don't change: the submit already has the limiter and
 the studio.
@@ -232,7 +241,7 @@ In `infra/app.yaml`'s Alarms section, after `EmailFailuresFilter` and after
     Type: AWS::Logs::MetricFilter
     Properties:
       LogGroupName: !Ref MailerLogGroup
-      FilterPattern: '{ $.event = "email_sent" }'
+      FilterPattern: '{ ($.event = "email_sent") || (($.event = "email_unrecorded") && ($.outcome = "sent")) }'
       MetricTransformations:
         - MetricName: EmailsSent
           MetricNamespace: !Sub '${ProjectSlug}/${AppEnv}'
@@ -325,8 +334,12 @@ counted. The cap's own refusals reach the maintainers through the existing
   `RECEIVED_CAP_KEY` raises `RecordsUnavailable`, nothing stored, a WARNING
   `limiter_unavailable` line.
 - `test_the_cap_is_counted_under_its_fixed_key`: the cap's key is exactly
-  `RECEIVED_CAP_KEY`, and the existing
-  `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter` still passes.
+  `RECEIVED_CAP_KEY`.
+- The existing `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter`
+  asserts every key starts with `device#` or `address#`; after this phase the cap's key
+  is hit too, so its assertion becomes "starts with `device#` or `address#`, or is
+  `RECEIVED_CAP_KEY`", and it still asserts no raw token, cookie or address in any key
+  (found by `/prep`: unchanged, it fails).
 
 `tests/use_cases/test_settings.py`:
 
@@ -354,7 +367,8 @@ counted. The cap's own refusals reach the maintainers through the existing
 - `test_every_alarm_notifies_this_project_s_topic_and_ignores_missing_data`: the set gains
   `EmailVolumeAlarm` (the runbook-row and tags tests then cover it).
 - `test_the_email_volume_alarm_counts_the_mailer_s_sent_emails_per_hour`: the filter is on
-  `MailerLogGroup` with pattern `{ $.event = "email_sent" }` into `EmailsSent`; the alarm
+  `MailerLogGroup` with pattern `{ ($.event = "email_sent") || (($.event = "email_unrecorded") && ($.outcome = "sent")) }` (an email that went but whose sent mark failed
+  logs `email_unrecorded` with `outcome=sent`; found in phase 2's review) into `EmailsSent`; the alarm
   sums it over 3,600 seconds, one period, threshold 100, `GreaterThanOrEqualToThreshold`.
 
 ## Acceptance criteria
@@ -429,7 +443,34 @@ The phase's tracker row stays `[~] In progress` until the stage check is confirm
 
 ## Hand-off
 
-_Filled in when the phase is done._ Phase 3 relies on: `DropOffNotTaken` and its message;
-the public `submit` route's 429 branch for it; `use_cases/limits.py`'s
-`check_received_cap` and the submit's step 4b (`_check_cap`), which phase 3 puts its
-recipient check before.
+Built on branch `feat/harden-outgoing-email` on 17 November 2026; stays `[~] In progress`
+until the maintainer confirms the stage check after the merge (the cap set to 1 refuses
+the second drop-off with the friendly sentence, the `logged-errors` alarm email arrives,
+the cap set back to 300, and `describe-alarms` shows
+`asmbly-ceramics-stage-email-volume`), then sets it `[x] Complete` here and in the README.
+
+Phase 3 can rely on:
+
+- `domain/errors.py`'s `DropOffNotTaken()` (no arguments; its one fixed sentence), and
+  `web/public.py`'s `submit` answering it with 429 and that sentence (page log outcome
+  `not_taken`).
+- `use_cases/limits.py`: `RECEIVED_CAP_KEY = "received-emails"` and
+  `check_received_cap(limiter, *, per_day, now, refused_event)`, which logs
+  `refused_event` with `reason=daily_cap` at ERROR or `reason=limiter_unavailable` at
+  WARNING (`error_code`), and raises `DropOffNotTaken` or `RecordsUnavailable`.
+- `use_cases/submit.py`: step 4b, `self._check_cap(studio, now)`, after every field and
+  photo passes and the `_PHOTO_MISSING` winner path, before the firing type's name is
+  read and outside the ID loop; phase 3 puts its recipient check just before it.
+- `domain/limits.py`: `RECEIVED_EMAILS_PER_DAY_MIN`, `RECEIVED_EMAILS_PER_DAY_MAX`,
+  `RECEIVED_CAP_WINDOW`; `domain/studio.py`: `STARTING_RECEIVED_EMAILS_PER_DAY`,
+  `Studio.received_emails_per_day`, and `change_email_settings(...,
+  received_emails_per_day=...)` (a required keyword, also on `ChangeEmailSettings`).
+- `ports/rate_limit.py`'s docstring allows a fixed, non-personal key.
+- `tests/use_cases/test_submit.py`: `set_cap(world, n)`, `from_a_new_device(world, n)`
+  (a request no device or address limit refuses) and `assert_no_personal_details_logged`;
+  `test_no_raw_cookie_address_or_token_reaches_the_records_or_the_limiter` allows
+  `device#`, `address#` and `RECEIVED_CAP_KEY` keys (phase 3 adds `recipient#`).
+- `infra/app.yaml`: `EmailsSentFilter` and `EmailVolumeAlarm`.
+
+Deferred: nothing. `sam validate` and `sam build` were not run (no `sam` where this was
+built); `cfn-lint` 1.57.1 passes.

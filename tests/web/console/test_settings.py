@@ -4,6 +4,7 @@ hours, the studio's lists, and the change history."""
 import html
 import logging
 import re
+from datetime import timedelta
 
 import httpx2
 import pytest
@@ -42,6 +43,7 @@ def save(console: Console, **overrides: str) -> httpx2.Response:
         "sending_address": studio.sending_address,
         "pickup_window_days": str(studio.pickup_window_days),
         "pickup_hours_text": studio.pickup_hours_text,
+        "received_emails_per_day": str(studio.received_emails_per_day),
         "version": version(console),
     } | overrides
     return console.post(f"{SETTINGS}/email", fields)
@@ -172,6 +174,76 @@ def test_a_window_outside_1_to_90_is_refused(staff: Console) -> None:
         assert answer.status_code == 400
         assert "Enter a number of days from 1 to 90." in answer.text
     assert staff.world.studio().pickup_window_days == 14
+
+
+def test_the_emails_card_shows_the_received_emails_cap(staff: Console) -> None:
+    answer = staff.get(SETTINGS)
+    assert answer.status_code == 200
+    assert '<label for="received_emails_per_day">Received emails a day, at most</label>' in answer.text
+    assert 'name="received_emails_per_day" value="300" min="1" max="2000" inputmode="numeric"' in answer.text
+    assert 'aria-describedby="cap-hint"' in answer.text
+    assert "Past it, the form turns drop-offs away and asks people to see staff." in text(answer)
+    assert (
+        "Turned-away attempts count too, so they keep the form closed; raising this number reopens it."
+        in (text(answer))
+    )
+
+
+def test_the_cap_hint_takes_its_window_from_the_domain(
+    staff: Console, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(page, "RECEIVED_CAP_WINDOW", timedelta(hours=12))
+    assert "emails the form sends in any 12 hours." in text(staff.get(SETTINGS))
+
+
+def test_saving_the_cap_records_it_in_the_history(staff: Console, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    answer = save(staff, received_emails_per_day="120")
+
+    assert answer.status_code == 303
+    assert staff.world.studio().received_emails_per_day == 120
+    shown = text(staff.get(answer.headers["location"]))
+    assert f"Received emails a day, at most: 300 → 120 · {STAFF}" in shown
+    assert 'name="received_emails_per_day" value="120"' in staff.get(SETTINGS).text
+    assert ("settings_changed", STAFF) in events(caplog)
+
+
+@pytest.mark.parametrize("cap", ["0", "2001", "lots", "<b>9</b>"])
+def test_a_cap_outside_1_to_2000_is_refused_next_to_the_field(staff: Console, cap: str) -> None:
+    before = staff.world.studio()
+
+    answer = save(staff, received_emails_per_day=cap, pickup_window_days="10")
+
+    assert answer.status_code == 400
+    assert '<p class="field-error" id="cap-error">Enter a number from 1 to 2,000.</p>' in answer.text
+    assert 'aria-describedby="cap-hint cap-error"' in answer.text
+    assert f'name="received_emails_per_day" value="{html.escape(cap)}"' in answer.text  # kept, escaped
+    assert "<b>9</b>" not in answer.text
+    assert staff.world.studio() == before
+
+
+def test_a_signed_in_person_outside_the_group_can_t_change_the_cap(console: Console) -> None:
+    console.sign_in(groups=("front-desk",), username="front.desk")
+    before = console.world.studio()
+    answer = save(console, received_emails_per_day="1")
+    assert answer.status_code == 403
+    assert console.world.studio() == before
+
+
+def test_changing_the_cap_needs_csrf(staff: Console) -> None:
+    before = staff.world.studio()
+    studio = staff.world.studio()
+    fields = {
+        "sending_address": studio.sending_address,
+        "pickup_window_days": str(studio.pickup_window_days),
+        "pickup_hours_text": studio.pickup_hours_text,
+        "received_emails_per_day": "1",
+        "version": version(staff),
+    }
+    assert staff.post(f"{SETTINGS}/email", fields, csrf=False).status_code == 403
+    assert staff.post(f"{SETTINGS}/email", fields | {"csrf": "forged"}, csrf=False).status_code == 403
+    assert staff.world.studio() == before
 
 
 def test_the_history_shows_no_address(staff: Console) -> None:
