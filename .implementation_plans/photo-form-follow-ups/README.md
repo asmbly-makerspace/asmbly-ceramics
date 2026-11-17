@@ -81,7 +81,7 @@ no frontmatter. Both pull requests say `Refs #2`; nothing here closes an issue.
 | Phase | Title | Domain | Size | Status |
 | --- | --- | --- | --- | --- |
 | [1](phase-1-agent-guidance-for-the-photo-inputs.md) | The agents' guidance describes the two photo inputs | docs | S | [x] Complete |
-| [2](phase-2-upload-script-behaviour-tests.md) | A behavioural test of the upload script | web, docs | M | [ ] Pending |
+| [2](phase-2-upload-script-behaviour-tests.md) | A behavioural test of the upload script | web, docs | M | [x] Complete |
 
 ## Dependencies
 

@@ -29,7 +29,7 @@
       "depends_on": [],
       "status": "done",
       "base_sha": "68ad72f6e22db7e514380e0cf17a286f0558e6f4",
-      "squashed_sha": null,
+      "squashed_sha": "70c774643df02f88419e18f8f20306705b3244ff",
       "review_rounds": 1,
       "cold_review": "clean",
       "split_from": null,
@@ -52,11 +52,11 @@
       "depends_on": [
         "1"
       ],
-      "status": "pending",
-      "base_sha": null,
+      "status": "done",
+      "base_sha": "70c774643df02f88419e18f8f20306705b3244ff",
       "squashed_sha": null,
-      "review_rounds": 0,
-      "cold_review": null,
+      "review_rounds": 1,
+      "cold_review": "fixed",
       "split_from": null,
       "parked_branch": null,
       "closes": [],
@@ -64,7 +64,7 @@
         2
       ],
       "admin_actions": [],
-      "notes": ""
+      "notes": "Cold NOTEs left: Node on the CI runner is unpinned and unseen (read the Python job log); pre-release Node versions fail the version check loudly; smaller mutants survive (input cleared on a pick while busy, preview img append, js class, showErrors([]) before upload); no test ties photo_accept to FORMATS; decision 0009 stays proposed"
     }
   ],
   "gate": {
@@ -156,6 +156,29 @@
       "topic": "privacy-guardian",
       "choice": "skipped for phase 1",
       "reason": "domain is docs only"
+    },
+    {
+      "ts": "2026-11-17T20:21:00Z",
+      "type": "squash",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:21:00Z",
+      "type": "phase_start",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:00:00Z",
+      "type": "cold_review",
+      "phase": "2",
+      "verdict": "APPROVED + privacy CLEAR",
+      "block": 0,
+      "warn": 3
+    },
+    {
+      "ts": "2026-11-17T21:00:00Z",
+      "type": "phase_done",
+      "phase": "2"
     }
   ]
 }

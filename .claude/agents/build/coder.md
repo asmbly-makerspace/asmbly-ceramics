@@ -130,7 +130,10 @@ kiln, on a phone or a tablet.
   (decision 0002's list, pinned by tests). A full list disables both inputs and the
   button. Neither input posts anything; only the upload slots do. Never add `capture`
   to the library picker (it would hide the library), and never use `getUserMedia` (the
-  phone's own camera app, not a viewfinder).
+  phone's own camera app, not a viewfinder). The script's behaviour is tested in
+  `tests/web/js/upload.test.mjs` on the stub in `tests/web/js/dom.mjs`, started by
+  `tests/web/test_upload_script.py` (decision 0009): a change to the photo list's
+  behaviour changes those tests, and the stub grows only by what the script calls.
 - Tap targets at least 44 by 44 pixels; the Submit button can't be pressed twice (and
   the server makes a repeat harmless anyway).
 - The page works without JavaScript except the photo upload, and says so when the

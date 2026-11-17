@@ -69,5 +69,14 @@ the cheaper choice); or the console gains scripts of its own.
 On 17 November 2026, while planning: Node 22 runs here (`node --version`), `node:test`,
 `node:assert` and `node:vm` are Node built-ins, and `upload.js` is a plain script whose
 globals (`document`, `window`, `URL`, `fetch`, `FormData`, `HTMLFormElement`) a context
-object can supply. Not yet seen: the tests themselves (phase 2 of the plan builds them)
-and their run on GitHub's runner.
+object can supply.
+
+On 17 November 2026, with phase 2 of the plan built: the 14 tests in
+`tests/web/js/upload.test.mjs` pass on Node 22.23 here, started by
+`tests/web/test_upload_script.py` inside `uv run pytest --cov`, and the same pytest run
+with no `node` on the `PATH` fails with the "Node 20 or later" message instead of
+skipping. Breaking the script in a scratch copy (no renumbering after a Remove, the
+button left enabled on a full list, no size message when a photo is added, the camera
+button always shown, a Remove or a pick let through during an upload, among others) made
+a test fail each time. Not yet seen: their run on GitHub's runner, which the pull
+request's `Python` job shows.
