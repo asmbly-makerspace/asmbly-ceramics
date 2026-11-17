@@ -55,6 +55,7 @@ from asmbly_ceramics.domain.firing import (
     WITNESS_CONES,
     Speed,
     is_no_cone,
+    record_summary,
 )
 from asmbly_ceramics.domain.ids import DropOffId, ItemId, LoadId, NoteId, is_item_id
 from asmbly_ceramics.domain.limits import STUDIO_TZ
@@ -302,6 +303,7 @@ class RecordForm:
     values: Mapping[str, str]
     errors: Mapping[str, str] = field(default_factory=dict)
     problem: str | None = None
+    changed: bool = False  # refused by a `Conflict`: the page also shows the record as stored now
 
 
 def _local_input(at: datetime) -> str:
@@ -350,10 +352,15 @@ def _step_rows(view: LoadView, refused: StepForm | None) -> list[dict[str, Any]]
     return rows
 
 
-def _record_context(view: LoadView, refused: RecordForm | None) -> dict[str, Any]:
+def _record_context(view: LoadView, refused: RecordForm | None, studio: Studio) -> dict[str, Any]:
     """The record form: the values typed (after a refusal) or stored, the numbers
-    suggested while the record has none, and every bound from `domain.limits`."""
+    suggested while the record has none, and every bound from `domain.limits`. After a
+    `Conflict`, also the record as it is stored now (`stored`), so the next save, sent
+    with the load's new version, replaces it only once staff have seen it."""
     values = dict(refused.values if refused else view.record_fields)
+    stored: tuple[tuple[str, str], ...] | None = None
+    if refused is not None and refused.changed:
+        stored = record_summary(view.load.record, lambda id: item_name(studio, CatalogList.CONES, id))
     suggested: set[str] = set()
     if refused is None:
         for name, number in zip(("firing_number", "all_time_number"), view.suggested, strict=True):
@@ -365,6 +372,7 @@ def _record_context(view: LoadView, refused: RecordForm | None) -> dict[str, Any
         "no_cone": {name for name in WITNESS_CONES if is_no_cone(values.get(name, ""))},
         "errors": refused.errors if refused else {},
         "problem": refused.problem if refused else None,
+        "stored": stored,
         "labels": RECORD_LABELS,
         "suggested": suggested,
         "whole": WHOLE_RANGES,
@@ -467,7 +475,7 @@ def _load_page(
         "firing": load.status is LoadStatus.FIRING,
         "fired": load.status is LoadStatus.FIRED,
         "steps": _step_rows(view, step_form),
-        "record": _record_context(view, record),
+        "record": _record_context(view, record, studio),
         "history": [(austin_time(e.at), e.by, e.what) for e in view.history],
         "members": [_member_row(d) for d in view.members],
         "kilns": _choices(studio, CatalogList.KILNS, load.kiln),
@@ -827,7 +835,7 @@ async def save_record(request: Request) -> Response:
         typed = RecordForm(values, refused.errors, refused.message)
         return _load_page(request, staff, _view(request, id), record=typed, status=422)
     except Conflict:
-        typed = RecordForm(values, problem=CHANGED_ELSEWHERE)
+        typed = RecordForm(values, problem=CHANGED_ELSEWHERE, changed=True)
         return _load_page(request, staff, _view(request, id), record=typed, status=409)
     except CommitOutcomeUnknown:
         raise PageError(503, MAYBE_SAVED) from None

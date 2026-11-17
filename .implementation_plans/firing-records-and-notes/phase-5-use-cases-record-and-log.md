@@ -130,9 +130,10 @@ class StepView:
 
 - `suggested`: only when the record has no firing number and no all-time number yet;
   from `suggest_numbers(kiln.counts, fired)`, with `fired` the kiln's fired loads from
-  `loads_dated_between({FIRED}, since, date.max)` (`since` `NUMBERS_DATE_MARGIN` before
-  the counts' Austin day, or `NUMBERS_LOOKBACK` back; the window `RecordNewElements`
-  uses, phase 4), this load left out. Read only for a loading or firing load, or a fired load with
+  `loads_dated_between({FIRED}, since, until)` over `numbers_window` (`since`
+  `NUMBERS_DATE_MARGIN` before the counts' Austin day, or `NUMBERS_LOOKBACK` back, to
+  `NUMBERS_READ_AHEAD` after the load's `fired_at`, or now while unfired; the window
+  `RecordNewElements` uses, phase 4), this load left out. Read only for a loading or firing load, or a fired load with
   no numbers, so a fired load's page reads no more than it needs.
 - `cones`: the studio's active cones plus the cone the record's program already names
   (retired or not), in the studio's order: the same set `SaveFiringRecord` accepts.

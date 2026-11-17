@@ -262,7 +262,9 @@ class ItemRetired(DomainError):
 
 class ItemInUse(DomainError):
     def __init__(self, name: str) -> None:
-        super().__init__(f"{name} is in use by a drop-off, a load or a default program, so it stays retired.")
+        super().__init__(
+            f"{name} is in use by a drop-off, a load, a default program or a note, so it stays retired."
+        )
 
 
 class DuplicateItem(DomainError):

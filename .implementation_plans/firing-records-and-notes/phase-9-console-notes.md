@@ -150,7 +150,8 @@ the search, kept with the load and never deleted by the close).
 `tests/web/console/test_notes.py`:
 
 - `test_add_note`; `test_add_note_on_fired_load`; `test_add_note_text_required`;
-  `test_add_note_with_email_refused`; `test_add_note_with_phone_refused`;
+  `test_add_note_with_personal_details_refused` (an email address or a phone number,
+  parametrized);
   `test_add_note_bad_ruling`; `test_add_note_unknown_tag`; `test_add_note_too_many_tags`;
   `test_add_note_text_escaped` (`<script>` shows as text).
 - `test_edit_note`; `test_edit_shows_retired_tag_checked`; `test_edit_conflict`;

@@ -372,15 +372,29 @@ def test_old_studio_item_reads_starting_lists() -> None:
     [
         {"M": {"since_elements": {"BOOL": True}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
         {"M": {"since_elements": {"S": "1"}, "all_time": {"N": "2"}, "as_of": {"S": "x"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}, "as_of": {"S": "not a time"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}, "as_of": {"N": "5"}}},
+        {"M": {"since_elements": {"N": "1"}, "all_time": {"N": "2"}}},
         {"S": "97"},
     ],
 )
-def test_a_kiln_count_of_the_wrong_type_does_not_parse(counts: dict[str, Any]) -> None:
+def test_kiln_counts_of_the_wrong_type_read_as_none_and_are_logged(
+    counts: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # Like a bad default program, it costs that kiln's counts, not the whole studio.
+    caplog.set_level(logging.INFO, logger="asmbly_ceramics")
     studio = a_full_studio()
     item = keys.to_item(studio, keys.studio_key(), studio.version)
     item["kilns"]["L"][0]["M"]["counts"] = counts
-    with pytest.raises(ValueError, match="the studio's item athena doesn't parse"):
-        keys.from_item(item)
+    read = keys.from_item(item)
+    assert isinstance(read, Studio)
+    assert read.kilns[0].counts is None
+    assert read.kilns[1:] == studio.kilns[1:]
+    assert read.firing_types == studio.firing_types
+    [record] = [r for r in caplog.records if getattr(r, "event", "") == "unexpected_item"]
+    assert record.levelno == logging.ERROR
+    assert getattr(record, "item", None) == "athena"
+    assert getattr(record, "error_code", None) == "UnexpectedItem"
 
 
 @pytest.mark.parametrize(

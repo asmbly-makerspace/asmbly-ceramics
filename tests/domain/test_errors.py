@@ -68,7 +68,7 @@ EXPECTED: list[tuple[errors.DomainError, str]] = [
     (errors.ItemRetired("Vulcan"), "Vulcan is retired and can't be picked."),
     (
         errors.ItemInUse("Helios"),
-        "Helios is in use by a drop-off, a load or a default program, so it stays retired.",
+        "Helios is in use by a drop-off, a load, a default program or a note, so it stays retired.",
     ),
     (errors.DuplicateItem("kiln", "Helios"), "There is already a kiln called Helios."),
     (errors.EmailNotRetryable(), "That email isn't failed."),

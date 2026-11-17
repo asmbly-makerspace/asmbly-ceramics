@@ -157,8 +157,9 @@ Flag anything that could derail the build:
 - **AWS or web code in the domain or the use cases**: an import of `boto3`, `botocore`,
   `starlette` or `jinja2` under `domain/` or `use_cases/` (the composer in `mail/` may
   use Jinja2);
-- **a setting written as a constant**: anything #6 calls a setting (kilns, firing and
-  glaze types, rejection reasons, the pickup window and hours, the sending address)
+- **a setting written as a constant**: anything #6 or #42 calls a setting (kilns, firing
+  and glaze types, rejection reasons, cones, clay bodies, the default programs, the
+  kilns' firing counts, the pickup window and hours, the sending address)
   belongs in `Studio`, not in code. The fixed numbers the stories state (1 to 6 photos,
   10 MB, 1 to 50 pieces, 1,000 characters, 48 per load, 60 days, `America/Chicago`) are
   named domain constants, not settings;

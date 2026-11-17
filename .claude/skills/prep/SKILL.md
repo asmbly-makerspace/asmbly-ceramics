@@ -195,14 +195,15 @@ If nothing moves or is renamed, write "N/A".
 - Entry points (pages, the scheduled close, the mailer) only translate a request into a
   use case call and its result into a response.
 - Nothing a story calls a setting (kilns, firing types, glaze types, rejection reasons,
-  the pickup window and hours, the sending address) is a constant.
+  cones, clay bodies, the default programs, the kilns' firing counts, the pickup window
+  and hours, the sending address) is a constant.
 
 A breach is a HIGH finding.
 
 ### 5f. Personal data, photos and email
 
 - No log line, error, test fixture, issue text or public page holds a name, email,
-  phone, rejection message, photo or token. Logs carry `AC-12`, the load's ID and the
+  phone, rejection message, a firing note's text, photo or token. Logs carry `AC-12`, the load's ID and the
   staff username, and AWS error codes, never AWS's message.
 - Photos stay private: no public bucket, object or address; staff see them only through
   the console, signed in.

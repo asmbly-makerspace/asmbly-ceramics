@@ -675,15 +675,7 @@ def _catalog(items: list[dict[str, Any]]) -> tuple[CatalogItem, ...]:
 def _to_catalog_item(i: dict[str, Any]) -> CatalogItem:
     """A list item's map; one stored before #42 has no `default_program` or `counts`."""
     refused = ValueError(f"the studio's item {i['id']} doesn't parse")
-    stored_program, stored_counts = i.get("default_program"), i.get("counts")
-    counts = None
-    if stored_counts is not None:
-        if not isinstance(stored_counts, dict):
-            raise refused
-        since, total = stored_counts.get("since_elements"), stored_counts.get("all_time")
-        if not (_is_count(since) and _is_count(total)):
-            raise refused
-        counts = KilnCounts(since_elements=since, all_time=total, as_of=parse_iso(stored_counts["as_of"]))
+    stored_program = i.get("default_program")
     return CatalogItem(
         id=ItemId(i["id"]),
         name=i["name"],
@@ -691,8 +683,28 @@ def _to_catalog_item(i: dict[str, Any]) -> CatalogItem:
         needs_glaze_type=i["needs_glaze_type"],
         needs_message=i["needs_message"],
         default_program=_default_program(i["id"], stored_program, refused),
-        counts=counts,
+        counts=_kiln_counts(i["id"], i.get("counts")),
     )
+
+
+def _kiln_counts(item_id: str, stored: object) -> KilnCounts | None:
+    """A kiln's stored firing counts, or None when none are stored. Counts that don't
+    parse (not a map, a count that isn't a whole number, a missing or malformed `as_of`)
+    are logged as `unexpected_item` by the kiln's ID and read as None, like a bad default
+    program, so they cost that kiln's counts, not the whole studio: staff set them again
+    in the console."""
+    if stored is None:
+        return None
+    try:
+        if not isinstance(stored, dict):
+            raise ValueError("the counts aren't a map")
+        since, total, as_of = stored.get("since_elements"), stored.get("all_time"), stored.get("as_of")
+        if not (_is_count(since) and _is_count(total) and isinstance(as_of, str)):
+            raise ValueError("the counts don't parse")
+        return KilnCounts(since_elements=since, all_time=total, as_of=parse_iso(as_of))
+    except ValueError:
+        log_event("unexpected_item", level=logging.ERROR, error_code="UnexpectedItem", item=item_id)
+        return None
 
 
 def _default_program(item_id: str, stored: object, refused: ValueError) -> Program | None:

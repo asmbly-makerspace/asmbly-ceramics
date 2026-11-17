@@ -133,6 +133,8 @@ class MemoryRecords:
 
     def notes_written_between(self, start: datetime, end: datetime) -> list[FiringNote]:
         _check_range(start, end)
+        if start >= end:
+            return []  # like the adapter: nothing is read, so nothing can fail
         self._read("notes_written_between")
         return _newest_first(
             n for n in self._all(FiringNote) if not n.removed and start <= n.written_at < end

@@ -154,13 +154,14 @@ removed notes, `Put` refusals), and the failure switch the fake already has.
 
 ### app: `RecordNewElements`
 
-Reads `records.loads_dated_between({FIRED}, since, date.max)` filtered by kiln, where
-`since` is `NUMBERS_DATE_MARGIN` (60 days, `domain/limits.py`) before the kiln's
-`counts.as_of` Austin day (or `NUMBERS_LOOKBACK`, 400 days, back when it has no counts),
+Reads `records.loads_dated_between({FIRED}, since, until)` filtered by kiln, the range
+from `domain.load.numbers_window`, where `since` is `NUMBERS_DATE_MARGIN` (60 days,
+`domain/limits.py`) before the kiln's `counts.as_of` Austin day (or `NUMBERS_LOOKBACK`, 400 days, back when it has no counts),
 in place of `loads_in({FIRED})`. A load's date is the day staff chose, not when it was
 fired: a load dated a few days before the counts' day can be fired after them, and one
-dated after today can already be fired, so the range starts a margin early and has no
-end; `suggest_numbers` then keeps only the loads fired after the counts.
+dated after today can already be fired, so the range starts a margin early and ends
+`NUMBERS_READ_AHEAD` (60 days, `domain/limits.py`) after today; `suggest_numbers` then
+keeps only the loads fired after the counts.
 
 ### infra: `infra/app.yaml`, `ConsoleFunction`
 
@@ -248,10 +249,11 @@ None.
       the note (`N-12`), a refused event its load.
 - [x] `is_item_used` counts notes that aren't removed for clay bodies and glaze types.
 - [x] The console role queries `LOAD#*` and counts `COUNTER#note` (`CountIds`).
-- [x] `RecordNewElements` reads `loads_dated_between({FIRED}, since, date.max)`, `since`
+- [x] `RecordNewElements` reads `loads_dated_between({FIRED}, since, until)` over
+      `numbers_window`, ending `NUMBERS_READ_AHEAD` (60 days) after today, `since`
       `NUMBERS_DATE_MARGIN` (60 days) before the counts' Austin day, or
       `NUMBERS_LOOKBACK` (400 days) back without counts, both in `domain/limits.py`;
-      phase 5's suggestion reuses this window. A load dated after today is read; one
+      phase 5's suggestion reuses this window. A load dated up to 60 days after today is read; one
       dated more than the margin before the counts' day but fired after them isn't
       (said in the docstring). The fake records each range it is asked for
       (`MemoryRecords.date_ranges`), so a test pins the window.

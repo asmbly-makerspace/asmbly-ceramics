@@ -268,7 +268,10 @@ def test_a_used_item_can_be_retired_not_deleted(staff: Console) -> None:
 
     answer = list_post(staff, "kilns", "delete", item="athena")
     assert answer.status_code == 400
-    assert "Athena is in use by a drop-off, a load or a default program, so it stays retired." in answer.text
+    assert (
+        "Athena is in use by a drop-off, a load, a default program or a note, so it stays retired."
+        in answer.text
+    )
     assert staff.world.studio().item(CatalogList.KILNS, ATHENA).status is ItemStatus.RETIRED
 
 

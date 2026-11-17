@@ -24,6 +24,7 @@ from asmbly_ceramics.domain.notes import (
     matches,
     move_note,
     remove_note,
+    taggable_items,
     write_note,
 )
 from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, Studio, retire_item
@@ -437,6 +438,15 @@ def test_edit_keeps_retired_tag() -> None:
     assert edited.clay_bodies == (CINCO,)
     with pytest.raises(ItemRetired, match="Cinco Blanco"):
         _edit(a_note(clay_bodies=()), studio, clay_bodies=(CINCO,))
+
+
+def test_taggable_items_are_active_ones_then_retired_ones_already_carried() -> None:
+    studio = _retired(CatalogList.CLAY_BODIES, CINCO)
+    active = tuple(item.id for item in studio.clay_bodies if item.id != CINCO)
+    assert tuple(item.id for item in taggable_items(studio, CatalogList.CLAY_BODIES, ())) == active
+    kept = taggable_items(studio, CatalogList.CLAY_BODIES, (CINCO,))
+    assert tuple(item.id for item in kept) == (*active, CINCO)
+    assert kept[-1].retired
 
 
 def test_edit_checks_as_write_does() -> None:

@@ -225,7 +225,7 @@ phase.
 - `tests/adapters/contract/test_records.py`: `test_cone_used_by_load_program`;
   `test_cone_used_by_default_program`; `test_clay_body_not_used`.
 - `tests/web/console/test_settings.py`: `test_cones_and_clay_bodies_listed`;
-  `test_add_cone`; `test_unknown_list_slug_is_404` still passes.
+  `test_add_cone`; `test_an_unknown_list_is_404` still passes.
 
 ## Acceptance criteria
 

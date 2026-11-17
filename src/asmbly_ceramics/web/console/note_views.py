@@ -11,11 +11,10 @@ from typing import Any
 
 from asmbly_ceramics.domain.ids import ItemId, NoteId
 from asmbly_ceramics.domain.limits import NOTE_TAGS_MAX, NOTE_TEXT_MAX
-from asmbly_ceramics.domain.notes import FiringNote, Ruling
-from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, Studio
+from asmbly_ceramics.domain.notes import FiringNote, Ruling, taggable_items
+from asmbly_ceramics.domain.studio import CatalogList, Studio
 from asmbly_ceramics.mail.compose import austin_time
 from asmbly_ceramics.use_cases.notes import NoteRow
-from asmbly_ceramics.use_cases.studio import active_items
 
 # The ruling as a tag: a glyph and words, never colour alone.
 RULING_TAGS: Mapping[Ruling | None, str] = {
@@ -70,10 +69,9 @@ class NoteForm:
 
 
 def _tag_choices(studio: Studio, which: CatalogList, kept: Sequence[ItemId]) -> list[dict[str, Any]]:
-    """The active items, then any retired one the note already carries, marked so."""
-    items: list[CatalogItem] = list(active_items(studio.items(which)))
-    shown = {item.id for item in items}
-    items.extend(item for item in studio.items(which) if item.id in kept and item.id not in shown)
+    """`taggable_items`: the active items, then any retired one the note already carries,
+    marked so."""
+    items = taggable_items(studio, which, kept)
     return [
         {"id": item.id, "name": f"{item.name} (retired)" if item.retired else item.name} for item in items
     ]

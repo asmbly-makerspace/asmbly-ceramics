@@ -22,7 +22,7 @@ from asmbly_ceramics.domain.errors import InvalidNote, LoadNotNotable, NotFound
 from asmbly_ceramics.domain.ids import ItemId, LoadId, NoteId
 from asmbly_ceramics.domain.limits import NOTE_TAGS_MAX, NOTE_TEXT_MAX, PHONE_DIGITS_MIN
 from asmbly_ceramics.domain.load import Load, LoadStatus
-from asmbly_ceramics.domain.studio import CatalogList, Studio, kind_name, kinds_name
+from asmbly_ceramics.domain.studio import CatalogItem, CatalogList, ItemStatus, Studio, kind_name, kinds_name
 
 _ALLOWED_CONTROLS = frozenset("\n\t")
 # What people put between a phone number's digit groups, after `_for_phone_check`: any
@@ -241,13 +241,22 @@ def _tags_message(tags: Sequence[ItemId], which: CatalogList) -> str | None:
     return None
 
 
+def taggable_items(studio: Studio, which: CatalogList, kept: Sequence[ItemId]) -> tuple[CatalogItem, ...]:
+    """The glaze types or clay bodies a note may carry: the active ones, in the studio's
+    order, then those of `kept` (the tags the note already has) retired since. The one
+    rule `add_note`, `edit_note` and the note form all follow."""
+    items = studio.items(which)
+    active = tuple(item for item in items if item.status is ItemStatus.ACTIVE)
+    return active + tuple(item for item in items if item.status is not ItemStatus.ACTIVE and item.id in kept)
+
+
 def _check_items(studio: Studio, which: CatalogList, tags: Sequence[ItemId], kept: frozenset[ItemId]) -> None:
-    """A tag the note already had may be retired since; any other must be active."""
+    """Each tag must be one of `taggable_items`; any other is `UnknownItem` or, when it is
+    retired and the note didn't already carry it, `ItemRetired`."""
+    allowed = {item.id for item in taggable_items(studio, which, tuple(kept))}
     for tag in tags:
-        if tag in kept:
-            studio.item(which, tag)
-        else:
-            studio.active_item(which, tag)
+        if tag not in allowed:
+            studio.active_item(which, tag)  # raises: unknown, or retired and not kept
 
 
 def _check_text(text: str) -> tuple[str, str | None]:

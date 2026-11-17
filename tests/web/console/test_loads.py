@@ -1104,6 +1104,41 @@ def test_record_conflict_message(staff: Console) -> None:
     assert load_of(staff) == before
 
 
+def test_record_conflict_shows_the_stored_record_beside_the_typed_one(staff: Console) -> None:
+    start(staff)
+    stale = str(load_of(staff).version)
+    assert save_record(staff, {"max_temp_f": "2236", "cone": CONE_6}).status_code == 303  # someone else
+
+    typed = {"version": stale, "percent_full": "70"}  # the form as the stale page sent it
+    answer = staff.post("/console/loads/L-1/record", typed)
+
+    assert answer.status_code == 409
+    page = text(answer)
+    assert "The record as it is saved now" in page
+    assert "<dt>Max temp</dt><dd>2,236 °F</dd>" in page
+    assert "<dt>Cone</dt><dd>^6</dd>" in page
+    assert 'name="percent_full" value="70"' in page  # what was typed stays in the form
+    assert 'name="max_temp_f" value=""' in page  # the typed form didn't hold it
+    assert f'name="version" value="{load_of(staff).version}"' in page
+    assert load_of(staff).record.max_temp_f == 2236
+
+
+def test_record_conflict_on_an_empty_record_says_nothing_is_recorded(staff: Console) -> None:
+    start(staff)
+    cleared = dict.fromkeys(RECORD_FIELDS, "")
+    assert save_record(staff, cleared).status_code == 303  # the default program cleared
+    answer = save_record(staff, {"percent_full": "70"}, version="99")
+    assert answer.status_code == 409
+    assert "Nothing is recorded." in text(answer)
+
+
+def test_a_refused_record_without_a_conflict_shows_no_stored_record(staff: Console) -> None:
+    start(staff)
+    answer = save_record(staff, {"cost": "lots"})
+    assert answer.status_code == 422
+    assert "The record as it is saved now" not in text(answer)
+
+
 def test_record_on_fired_load(staff: Console) -> None:
     staff.drop_off(1)
     start(staff)

@@ -59,6 +59,21 @@
     {% endif %}
   </div>
   {% endif %}
+  {% if record.stored is not none %}
+  <div class="record-now" id="record-now">
+    <h4>The record as it is saved now</h4>
+    {% if record.stored %}
+    <dl class="summary">
+      {% for label, value in record.stored %}
+      <dt>{{ label }}</dt><dd>{{ value }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p>Nothing is recorded.</p>
+    {% endif %}
+    <p class="hint">The form below still holds what you typed. Saving it replaces the whole record above.</p>
+  </div>
+  {% endif %}
   <p class="hint">Every field is optional. Saving changes only the record. Drop-offs and emails aren't touched.</p>
   <form method="post" action="/console/loads/{{ load.id }}/record">
     <input type="hidden" name="csrf" value="{{ csrf }}">

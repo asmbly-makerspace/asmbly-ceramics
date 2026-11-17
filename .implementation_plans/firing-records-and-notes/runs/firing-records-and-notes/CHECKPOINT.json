@@ -5,7 +5,7 @@
  "feature_branch": "feat/firing-records-and-notes",
  "worktree": null,
  "status": "in-progress",
- "stage": "phases",
+ "stage": "docs",
  "selected_phases": [
   "1",
   "2",
@@ -244,7 +244,7 @@
    ],
    "status": "done",
    "base_sha": "7ec99d3",
-   "squashed_sha": null,
+   "squashed_sha": "410d320",
    "review_rounds": 3,
    "cold_review": "fixed",
    "split_from": null,
@@ -261,16 +261,21 @@
   }
  ],
  "gate": {
-  "base_sha": null,
-  "result": null,
+  "base_sha": "410d320",
+  "result": "clean",
   "squashed_sha": null,
-  "test_count": null,
-  "coverage": null,
-  "steps_skipped": []
+  "test_count": 3723,
+  "coverage": "99.30%",
+  "steps_skipped": [
+   {
+    "step": "sam validate --lint / sam build",
+    "reason": "sam CLI not installed"
+   }
+  ]
  },
  "final_review": {
-  "base_sha": null,
-  "result": null,
+  "base_sha": "410d320",
+  "result": "fixed",
   "squashed_sha": null
  },
  "docs": {
@@ -513,6 +518,31 @@
    "phase": "phase-9-console-notes",
    "review_lead": "APPROVED after fix rounds (BLOCK fixed)",
    "privacy": "CLEAR after fix round"
+  },
+  {
+   "ts": "2026-11-17T00:33:55Z",
+   "type": "squash",
+   "phase": "phase-9-console-notes",
+   "sha": "410d320"
+  },
+  {
+   "ts": "2026-11-17T00:36:33Z",
+   "type": "gate_result",
+   "result": "clean",
+   "test_count": 3723
+  },
+  {
+   "ts": "2026-11-17T00:58:59Z",
+   "type": "final_review",
+   "review_lead": "APPROVED (0 BLOCK, 7 WARN fixed)",
+   "privacy": "FLAG (0 BLOCK, 1 WARN: removed notes keep text; deferred to maintainer)"
+  },
+  {
+   "ts": "2026-11-17T00:58:59Z",
+   "type": "decision",
+   "topic": "product calls left to maintainer",
+   "choice": "firing-number suggestion prefill; empty test firing counting; removed notes keeping text",
+   "reason": "story wording decisions"
   }
  ]
 }

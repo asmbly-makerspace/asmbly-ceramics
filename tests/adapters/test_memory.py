@@ -285,12 +285,14 @@ def test_records_new_reads_are_recorded_and_honour_the_failure_switch() -> None:
             read()
 
 
-def test_records_empty_or_reversed_date_range_reads_nothing() -> None:
+def test_records_empty_or_reversed_range_reads_nothing() -> None:
     records = MemoryRecords()
     records.fail_reads_with = RecordsUnavailable("InternalServerError")  # not reached
     day = NOW.date()
     assert records.loads_dated_between({LoadStatus.FIRED}, day, day) == []
     assert records.loads_dated_between({LoadStatus.FIRED}, day + timedelta(days=1), day) == []
+    assert records.notes_written_between(NOW, NOW) == []
+    assert records.notes_written_between(NOW + timedelta(hours=1), NOW) == []
     assert records.reads == []
     assert records.date_ranges == []
 

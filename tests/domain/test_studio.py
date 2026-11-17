@@ -372,7 +372,7 @@ def test_an_unknown_item_is_refused(which: CatalogList) -> None:
 def test_used_item_can_be_retired_not_deleted() -> None:
     studio, _ = retire_item(a_studio(), CatalogList.KILNS, ItemId("helios"), STAFF, LATER)
     assert studio.item(CatalogList.KILNS, ItemId("helios")).status is ItemStatus.RETIRED
-    in_use = "Helios is in use by a drop-off, a load or a default program, so it stays retired"
+    in_use = "Helios is in use by a drop-off, a load, a default program or a note, so it stays retired"
     with pytest.raises(errors.ItemInUse, match=in_use):
         delete_item(studio, CatalogList.KILNS, ItemId("helios"), used=True, by=STAFF, at=LATER)
 

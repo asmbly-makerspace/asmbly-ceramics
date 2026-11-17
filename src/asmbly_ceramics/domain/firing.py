@@ -295,6 +295,17 @@ def record_changes(
     return tuple(lines)
 
 
+def record_summary(record: FiringRecord, cone_name: Callable[[ItemId], str]) -> tuple[tuple[str, str], ...]:
+    """Each recorded field as (label, value as the page shows it), in the page's order,
+    leaving out the fields not recorded: what a "Save firing record" refused by a
+    `Conflict` shows as stored now, beside what was typed."""
+    return tuple(
+        (RECORD_LABELS[field], _shown(field, value, cone_name))
+        for field in RECORD_FIELDS
+        if (value := _value(record, field)) is not None
+    )
+
+
 def changed_fields(old: FiringRecord, new: FiringRecord) -> tuple[str, ...]:
     """The names (`RECORD_FIELDS`) of the fields that differ, in the page's order: what a
     log line may say about a saved record, never the values."""
