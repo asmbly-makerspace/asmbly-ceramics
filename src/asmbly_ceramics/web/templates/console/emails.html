@@ -8,12 +8,12 @@
 <div class="table-box">
 <table class="list">
   <thead>
-    <tr><th scope="col">Drop-off</th><th scope="col">Email</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
+    <tr><th scope="col">Drop-off</th><th scope="col">Email</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Action</span></th><th scope="col"><span class="visually-hidden">Open</span></th></tr>
   </thead>
   <tbody>
   {% for row, label, state in rows %}
     <tr>
-      <td class="mono">{% if row.drop_off_found %}<a href="/console/drop-offs/{{ row.drop_off_id }}">{{ row.drop_off_id }}</a>{% else %}{{ row.drop_off_id }}{% endif %}</td>
+      <td class="mono">{% if row.drop_off_found %}<a class="row-link" href="/console/drop-offs/{{ row.drop_off_id }}">{{ row.drop_off_id }}</a>{% else %}{{ row.drop_off_id }}{% endif %}</td>
       <td>{{ label }}</td>
       <td>{{ state }}</td>
       <td>
@@ -26,6 +26,7 @@
         </form>
         {% endif %}
       </td>
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>

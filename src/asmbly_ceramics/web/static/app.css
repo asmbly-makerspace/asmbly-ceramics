@@ -65,6 +65,7 @@
   --line-height-heading: 1.2;
   --weight-heading: 700;
   --weight-strong: 600;
+  --weight-normal: 400;
 
   /* Space and size. */
   --space-1: 0.25rem;
@@ -406,8 +407,23 @@ a { color: var(--accent-strong); }
 /* A settings item's own forms (default program, firing counts) sit under its row, as part of it. */
 .list tr:has(+ .row-extra) > * { border-bottom: var(--none); }
 .list .row-extra > td { padding-top: var(--none); }
+/* A row that opens something (a drop-off, a load) is one link: its .row-link, in the cell
+   that names it, stretches over the whole row, and a chevron ends the row. A button or
+   form in the row sits above the stretched link, so it still does its own thing. Only
+   these rows tint on hover, so a tint means "this opens". */
+.list tbody tr:has(.row-link) { position: relative; }
+.list .row-link { color: var(--text); font-weight: var(--weight-strong); text-decoration: none; }
+.list .row-link::after { content: ""; position: absolute; inset: var(--none); }
+.list .row-link:focus-visible { outline: none; }
+.list .row-link:focus-visible::after { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+.list tr:has(.row-link) :is(form, button, input, select) { position: relative; z-index: 1; }
+.list .row-sub { margin-left: var(--space-2); color: var(--muted); font-weight: var(--weight-normal); font-size: var(--font-size-small); }
+.list .row-go { width: var(--space-5); padding-left: var(--none); text-align: right; color: var(--muted); }
+.list tr:has(.row-link) .row-go::after { content: "\203A"; font-size: var(--font-size-h2); line-height: var(--line-height-heading); }
 @media (hover: hover) {
-  .table-box > .list tbody tr:hover { background: var(--row-hover); }
+  .list tbody tr:has(.row-link):hover { background: var(--row-hover); cursor: pointer; }
+  .list tbody tr:has(.row-link):hover .row-link { color: var(--accent-strong); }
+  .list tbody tr:has(.row-link):hover .row-go { color: var(--accent-strong); }
 }
 .thumb { display: block; width: var(--console-thumb); height: var(--console-thumb); object-fit: cover; border-radius: var(--radius); }
 .mono { font-family: var(--font-mono); }

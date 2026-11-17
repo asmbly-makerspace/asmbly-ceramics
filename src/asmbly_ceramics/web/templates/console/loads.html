@@ -49,11 +49,11 @@
 {% if open_loads %}
 <div class="table-box">
 <table class="list">
-  <thead><tr><th scope="col">Load</th><th scope="col">Status</th><th scope="col">Drop-offs</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
+  <thead><tr><th scope="col">Load</th><th scope="col">Status</th><th scope="col">Drop-offs</th><th scope="col"><span class="visually-hidden">Action</span></th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead>
   <tbody>
   {% for row in open_loads %}
     <tr>
-      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
+      <td><a class="row-link" href="/console/loads/{{ row.load.id }}">{{ row.title }}<span class="row-sub mono">{{ row.load.id }}</span></a>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
       <td>{{ row.load.status.value | capitalize }}</td>
       <td>{{ row.count }}</td>
       <td>
@@ -65,6 +65,7 @@
         </form>
         {% endif %}
       </td>
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>
@@ -79,13 +80,14 @@
 {% if fired_loads %}
 <div class="table-box">
 <table class="list">
-  <thead><tr><th scope="col">Load</th><th scope="col">Fired</th><th scope="col">Drop-offs</th></tr></thead>
+  <thead><tr><th scope="col">Load</th><th scope="col">Fired</th><th scope="col">Drop-offs</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead>
   <tbody>
   {% for row in fired_loads %}
     <tr>
-      <td><a href="/console/loads/{{ row.load.id }}">{{ row.title }}</a> <span class="mono">{{ row.load.id }}</span>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
+      <td><a class="row-link" href="/console/loads/{{ row.load.id }}">{{ row.title }}<span class="row-sub mono">{{ row.load.id }}</span></a>{% if row.load.test %} <span class="tag">Test</span>{% endif %}</td>
       <td>Fired</td>
       <td>{{ row.count }}</td>
+      <td class="row-go"></td>
     </tr>
   {% endfor %}
   </tbody>
