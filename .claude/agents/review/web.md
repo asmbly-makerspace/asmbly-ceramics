@@ -63,6 +63,9 @@ Ref: #2; decision 0002, Photos and The rate limit.
 - [ ] The received page shows the new ID and a summary without contact details, read
       from the submission this device made.
 - [ ] Without JavaScript the form says photos need it, rather than failing silently.
+- [ ] A change to what `upload.js` does comes with a test in
+      `tests/web/js/upload.test.mjs` and `NODE_TESTS` in `tests/web/test_upload_script.py`
+      updated to the new count (decision 0009).
 
 ### The console (BLOCK)
 
@@ -103,9 +106,11 @@ Ref: #3; decision 0002, Staff sign-in.
 
 ### Phones (WARN)
 
-- [ ] The form works one-handed on a phone: the photo field opens the camera or library
-      (`accept="image/jpeg,image/png,image/webp"`), `type="email"` and `type="tel"`
-      keyboards, tap targets large enough, errors next to their fields.
+- [ ] The form works one-handed on a phone: the library picker and, on a touch screen,
+      the "Take a photo" button (a camera input with `capture="environment"`) both work
+      and feed one list, both with `accept="image/jpeg,image/png,image/webp"`;
+      `type="email"` and `type="tel"` keyboards, tap targets large enough, errors next
+      to their fields.
 - [ ] Console pages used at the kiln are readable on a tablet: the waiting list, a load,
       the fire button.
 - [ ] Text and contrast follow the brand helper; nothing depends on hover.

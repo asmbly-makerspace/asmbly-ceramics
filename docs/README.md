@@ -24,6 +24,7 @@ number.
 | [0005](decisions/0005-the-http-apis-are-the-bootstraps.md) | Proposed: amends 0003: the bootstrap creates the stage and prod HTTP APIs and the execution role changes only their routes, stages and mappings, by ID; reads and deletes CloudFormation makes before a create or in a rollback are allowed by name; the bootstrap template is uploaded to S3 |
 | [0007](decisions/0007-firing-notes-are-kept-with-their-load-and-are-not-personal-data.md) | Proposed: a firing note's text is kept with its load and the close never touches it, because a note is not personal data; the server refuses text shaped like an email address or a phone number |
 | [0008](decisions/0008-the-form-caps-received-emails-per-day-and-per-recipient.md) | Proposed: adds to 0002: the form queues at most 300 received emails a day per environment (a studio setting) and 3 drop-offs per recipient a day (under a keyed hash of the normalized address), refuses past either with one friendly sentence, and an alarm goes off at 100 emails the mailer sends in a clock hour |
+| [0009](decisions/0009-the-upload-script-is-tested-with-nodes-own-test-runner.md) | Proposed: adds to 0002: the drop-off form's upload script is tested with Node's built-in test runner on a hand-written DOM stub, started by pytest; no npm package, no build step, no CI change; Node 20 or later is a development requirement, and the test fails, never skips, without it |
 
 ## Runbooks
 

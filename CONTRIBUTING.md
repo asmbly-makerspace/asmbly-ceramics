@@ -45,6 +45,10 @@ issue → plan → branch → commits → checks → pull request → PR check �
    uv run pytest --cov
    ```
 
+   `uv run pytest` needs Node.js 20 or later on the `PATH`: it runs the drop-off
+   form's upload script tests with Node's built-in test runner
+   ([decision 0009](docs/decisions/0009-the-upload-script-is-tested-with-nodes-own-test-runner.md)).
+
    After a change to a template in `infra/`, also
    `uvx cfn-lint==1.57.1 infra/*.yaml`; after a change to `infra/app.yaml`, also
    `sam validate --lint -t infra/app.yaml && sam build -t infra/app.yaml` (the

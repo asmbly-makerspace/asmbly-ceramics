@@ -1,0 +1,239 @@
+{
+  "plan_name": "photo-form-follow-ups",
+  "run": "photo-form-follow-ups",
+  "issue": null,
+  "feature_branch": "claude/wizardly-bell-u8y238",
+  "worktree": null,
+  "status": "complete",
+  "stage": "briefing",
+  "selected_phases": [
+    "1",
+    "2"
+  ],
+  "environment": {
+    "uv": "ready",
+    "jq": true,
+    "github": "mcp",
+    "sam": false,
+    "aws_read": false
+  },
+  "plan_sha": "68ad72f6e22db7e514380e0cf17a286f0558e6f4",
+  "phases": [
+    {
+      "id": "phase-1-agent-guidance-for-the-photo-inputs",
+      "number": "1",
+      "title": "The agents guidance describes the two photo inputs",
+      "domain": [
+        "docs"
+      ],
+      "depends_on": [],
+      "status": "done",
+      "base_sha": "68ad72f6e22db7e514380e0cf17a286f0558e6f4",
+      "squashed_sha": "70c774643df02f88419e18f8f20306705b3244ff",
+      "review_rounds": 1,
+      "cold_review": "clean",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [],
+      "notes": "privacy-guardian skipped: docs-only. Cold NOTEs: coder.md:131 getUserMedia wording and the quote in the hand-off; critic.md:49 still says the presigned POST type agrees with the domain; no test ties photo_accept to FORMATS; lead.md:204 example names MAX_PHOTOS/web/upload.js (real: PHOTOS_MAX in domain/limits.py, web/static/upload.js)"
+    },
+    {
+      "id": "phase-2-upload-script-behaviour-tests",
+      "number": "2",
+      "title": "A behavioural test of the upload script",
+      "domain": [
+        "web",
+        "docs"
+      ],
+      "depends_on": [
+        "1"
+      ],
+      "status": "done",
+      "base_sha": "70c774643df02f88419e18f8f20306705b3244ff",
+      "squashed_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
+      "review_rounds": 1,
+      "cold_review": "fixed",
+      "split_from": null,
+      "parked_branch": null,
+      "closes": [],
+      "refs": [
+        2
+      ],
+      "admin_actions": [],
+      "notes": "Cold NOTEs left: Node on the CI runner is unpinned and unseen (read the Python job log); pre-release Node versions fail the version check loudly; smaller mutants survive (input cleared on a pick while busy, preview img append, js class, showErrors([]) before upload); no test ties photo_accept to FORMATS; decision 0009 stays proposed"
+    }
+  ],
+  "gate": {
+    "base_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
+    "result": "clean",
+    "squashed_sha": null,
+    "test_count": 3891,
+    "coverage": "99.34%",
+    "steps_skipped": []
+  },
+  "final_review": {
+    "base_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
+    "result": "fixed",
+    "squashed_sha": "1081ade2b8742b36988bd6408ec7461e191b0c41"
+  },
+  "docs": {
+    "base_sha": "1081ade2b8742b36988bd6408ec7461e191b0c41",
+    "squashed_sha": "18eb7977c4c8d31f527b5ab5f3e5921425dd7f04"
+  },
+  "qa": {
+    "base_sha": "18eb7977c4c8d31f527b5ab5f3e5921425dd7f04",
+    "squashed_sha": "55f455588b6043dd15a0a9dc2974bddccab625bd",
+    "closes": [],
+    "refs": [
+      2
+    ]
+  },
+  "pr": {
+    "number": 54,
+    "result": "green",
+    "rounds": [
+      {
+        "round": 1,
+        "sha": "2898e92",
+        "fixed": 0,
+        "answered": 0,
+        "note": "ticked acceptance criterion 6 and decision 0009 seen on the runner"
+      }
+    ]
+  },
+  "events": [
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "run_start"
+    },
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "decision",
+      "topic": "branch",
+      "choice": "the session branch claude/wizardly-bell-u8y238 (restarted from origin/main) is the pull request head",
+      "reason": "the session may push only to its own branch; #52 on it already merged"
+    },
+    {
+      "ts": "2026-11-17T19:45:00Z",
+      "type": "decision",
+      "topic": "github",
+      "choice": "GitHub MCP tools instead of gh",
+      "reason": "gh is not signed in here"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "planned"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "decision",
+      "topic": "JS test",
+      "choice": "node:test with vm on a DOM stub, run by pytest, no CI change; decision 0009 (proposed)",
+      "reason": "no dependency, no build step"
+    },
+    {
+      "ts": "2026-11-17T19:55:00Z",
+      "type": "decision",
+      "topic": "node missing",
+      "choice": "the test fails, never skips",
+      "reason": "CLAUDE.md forbids skipped tests"
+    },
+    {
+      "ts": "2026-11-17T20:00:00Z",
+      "type": "phase_start",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "cold_review",
+      "phase": "1",
+      "verdict": "APPROVED",
+      "block": 0,
+      "warn": 0
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "phase_done",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:20:00Z",
+      "type": "decision",
+      "topic": "privacy-guardian",
+      "choice": "skipped for phase 1",
+      "reason": "domain is docs only"
+    },
+    {
+      "ts": "2026-11-17T20:21:00Z",
+      "type": "squash",
+      "phase": "1"
+    },
+    {
+      "ts": "2026-11-17T20:21:00Z",
+      "type": "phase_start",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:00:00Z",
+      "type": "cold_review",
+      "phase": "2",
+      "verdict": "APPROVED + privacy CLEAR",
+      "block": 0,
+      "warn": 3
+    },
+    {
+      "ts": "2026-11-17T21:00:00Z",
+      "type": "phase_done",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:01:00Z",
+      "type": "squash",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:20:00Z",
+      "type": "gate_result",
+      "result": "clean"
+    },
+    {
+      "ts": "2026-11-17T21:50:00Z",
+      "type": "final_review",
+      "verdict": "APPROVED + privacy CLEAR",
+      "block": 0,
+      "warn": 3
+    },
+    {
+      "ts": "2026-11-17T22:05:00Z",
+      "type": "decision",
+      "topic": "docs",
+      "choice": "CONTRIBUTING.md gets a Node 20+ note; nothing else",
+      "reason": "README, decision 0009 and its index row were updated by the phases"
+    },
+    {
+      "ts": "2026-11-17T22:20:00Z",
+      "type": "qa_written"
+    },
+    {
+      "ts": "2026-11-17T21:20:00Z",
+      "type": "pr_opened",
+      "pr": 54
+    },
+    {
+      "ts": "2026-11-17T21:20:00Z",
+      "type": "pr_round",
+      "round": 1
+    },
+    {
+      "ts": "2026-11-17T21:20:00Z",
+      "type": "decision",
+      "topic": "pr subscription",
+      "choice": "the PR agent subscribed this session to #54 activity",
+      "reason": "the session rule watches PRs; events are small, kept"
+    }
+  ]
+}

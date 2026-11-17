@@ -9,7 +9,20 @@ import re
 
 from tests.repo.files import REPO, repository_files
 
-TEXT = ("*.md", "*.py", "*.yml", "*.yaml", "*.json", "*.toml", "*.sh", "*.txt", "*.html", "CODEOWNERS")
+TEXT = (
+    "*.md",
+    "*.py",
+    "*.yml",
+    "*.yaml",
+    "*.json",
+    "*.toml",
+    "*.sh",
+    "*.txt",
+    "*.html",
+    "*.js",
+    "*.mjs",
+    "CODEOWNERS",
+)
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # A North American phone number, written the usual ways (dashes, dots, spaces, brackets, +1).
 PHONE = re.compile(r"(?<![\w.])(?:\+?1[ .-]?)?\(?[2-9]\d{2}\)?[ .-]\d{3}[ .-]\d{4}(?![\w.])")

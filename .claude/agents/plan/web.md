@@ -121,7 +121,9 @@ Jinja2 in decision 0002, while it stands); follow the routes and templates alrea
 - **Phones** are the main screen for the form and a common one for the console: plain
   HTML that works without the page's script for everything but the photo upload, large
   targets, the right keyboard (`type="email"`, `type="tel"`, `inputmode`), and the
-  camera through `accept="image/*"`.
+  camera through a separate `capture="environment"` input behind a "Take a photo"
+  button, beside a library picker, both with decision 0002's specific `accept` list
+  (decision 0002 chose the specific list so an iPhone sends JPEG).
 
 ## What you don't do
 

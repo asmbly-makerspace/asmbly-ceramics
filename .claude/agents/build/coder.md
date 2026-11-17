@@ -91,8 +91,11 @@ request into a use case call and its result into a response. It decides no rule.
 - **Hostile input.** Every field the public form sends is checked on the server (type,
   length, format), and so are the number of photos and each photo's real type and size,
   before anything is stored or sent. The page's own checks (`required`, `maxlength`,
-  `accept`) are for the person's convenience only, and their values come from the domain
-  constants, not copies.
+  `min`/`max`, `accept`) are for the person's convenience only. The lengths, counts and
+  sizes come from the domain constants (`domain/limits.py`), not copies. The photo
+  `accept` list is the one literal in `form.html` (decision 0002's
+  `image/jpeg,image/png,image/webp`, pinned by `tests/web/test_form.py`), and the
+  server's photo inspector (`adapters/images.py`) is the real check.
 - **Escaping.** Autoescape is on for every template, page and email. Never `|safe`,
   `Markup(...)`, `autoescape=False` or string-built HTML on anything a person typed.
 - **Headers.** Every page sends the strict Content-Security-Policy the plan sets,
@@ -119,8 +122,18 @@ kiln, on a phone or a tablet.
   horizontal scroll.
 - The right keyboard: `type="email"` with `autocomplete="email"`, `type="tel"` with
   `autocomplete="tel"`, `inputmode="numeric"` for pieces, `autocomplete="name"`.
-- Photos: `<input type="file" accept="...">` with `multiple`, which offers the camera
-  and the library on a phone; the accepted types come from the domain's list.
+- Photos come from two inputs that feed one list in `upload.js`: the library picker
+  (`<input id="photos" type="file" multiple>`) and the camera input
+  (`<input id="photos-camera" type="file" capture="environment">`, one photo per pick,
+  no `name`, opened by the "Take a photo" button, which the script shows on touch
+  screens only). Both take `accept="{{ photo_accept }}"`, the template's one literal
+  (decision 0002's list, pinned by tests). A full list disables both inputs and the
+  button. Neither input posts anything; only the upload slots do. Never add `capture`
+  to the library picker (it would hide the library), and never use `getUserMedia` (the
+  phone's own camera app, not a viewfinder). The script's behaviour is tested in
+  `tests/web/js/upload.test.mjs` on the stub in `tests/web/js/dom.mjs`, started by
+  `tests/web/test_upload_script.py` (decision 0009): a change to the photo list's
+  behaviour changes those tests, and the stub grows only by what the script calls.
 - Tap targets at least 44 by 44 pixels; the Submit button can't be pressed twice (and
   the server makes a repeat harmless anyway).
 - The page works without JavaScript except the photo upload, and says so when the

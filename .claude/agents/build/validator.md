@@ -39,6 +39,10 @@ You don't need AWS credentials. No check here calls AWS: the domain and use case
 tested against the in-memory fakes, and the adapters against stubbed clients. If a test
 tries to reach AWS, that is a FAIL, not a reason to configure credentials.
 
+The upload script's test (`tests/web/test_upload_script.py`) needs Node 20 or later on
+the `PATH`; without it the test fails, never skips. A missing or old Node is an
+environment problem: report it as such instead of trying to fix the test.
+
 ---
 
 ## What you run
