@@ -133,7 +133,8 @@ class StepView:
   `loads_dated_between({FIRED}, since, until)` over `numbers_window` (`since`
   `NUMBERS_DATE_MARGIN` before the counts' Austin day, or `NUMBERS_LOOKBACK` back, to
   `NUMBERS_READ_AHEAD` after the load's `fired_at`, or now while unfired; the window
-  `RecordNewElements` uses, phase 4), this load left out. Read only for a loading or firing load, or a fired load with
+  `RecordNewElements` uses, phase 4), this load left out. Every fired load counts,
+  numbered or not, test or not, empty or not (phase 2's rule). Read only for a loading or firing load, or a fired load with
   no numbers, so a fired load's page reads no more than it needs.
 - `cones`: the studio's active cones plus the cone the record's program already names
   (retired or not), in the studio's order: the same set `SaveFiringRecord` accepts.
@@ -301,7 +302,8 @@ partition); a later pull request sets `[x]`.
       `composition.py` and `ConsoleServices` (`save_firing_record`, `correct_step_time`).
 - [x] `LoadView.steps` (`StepView`: step, label, reached, by, at, can_correct; `by` None with
       `reached` is "not recorded"), `history` (oldest first), `suggested` (only with no
-      numbers on the record; a fired load counts only loads fired before it), `cones`
+      numbers on the record; a fired load counts only loads fired before it, every one of
+      them, numbered or not, since the maintainer's call that any firing counts), `cones`
       (`record_cones`), `record_fields` (`domain.firing.record_values`, which reads back
       to the same record). `STEP_LABELS`.
 - [x] `FiringLog(kiln, start, end, kind)` → `FiringLogView` (`rows` newest fired first,

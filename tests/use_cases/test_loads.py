@@ -1284,6 +1284,39 @@ def test_view_load_suggests_from_firings_before_a_fired_load(world: World) -> No
     assert world.view_load(unnumbered.id).suggested == (5, 41)
 
 
+def fired_unnumbered(world: World, kiln: ItemId, *, drop_off: int | None = None) -> LoadId:
+    """A fired test load on `kiln` whose record holds no number: empty, or holding the
+    drop-off numbered `drop_off`."""
+    load_id = world.start_load(kiln, BISQUE, None, STAFF_MEMBER, test=True).id
+    if drop_off is not None:
+        world.add_to_load(load_id, dropped_off(world, drop_off), confirmed=True, staff=STAFF_MEMBER)
+    world.start_firing(load_id, version(world, load_id), STAFF_MEMBER)
+    world.mark_fired(load_id, version(world, load_id), STAFF_MEMBER)
+    return load_id
+
+
+def test_view_load_counts_every_firing_numbered_or_not(world: World) -> None:
+    """Any firing counts toward the numbers (#42): an empty test, a test with drop-offs,
+    and a firing marked fired with no record saved."""
+    world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
+    world.clock.advance(timedelta(hours=1))
+    empty_test = fired_unnumbered(world, HELIOS)
+    world.clock.advance(timedelta(hours=1))
+    assert world.view_load(world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER).id).suggested == (99, 253)
+    numbered_fired(world, HELIOS, "99", "253")
+    world.clock.advance(timedelta(hours=1))
+    with_drop_offs = fired_unnumbered(world, HELIOS, drop_off=1)
+    stored = world.records.load(with_drop_offs)
+    assert stored is not None
+    assert (stored.test, stored.members) == (True, (AC_1,))
+    world.clock.advance(timedelta(hours=1))
+
+    assert world.view_load(world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER).id).suggested == (101, 255)
+    # A fired load is suggested its own numbers from the firings before it alone.
+    assert world.view_load(empty_test).suggested == (98, 252)
+    assert world.view_load(with_drop_offs).suggested == (100, 254)
+
+
 def test_view_load_no_suggestion_once_numbered(world: World) -> None:
     world.set_kiln_counts(HELIOS, "97", "251", world.studio().version, STAFF_MEMBER)
     load = world.start_load(HELIOS, BISQUE, None, STAFF_MEMBER)

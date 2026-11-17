@@ -69,7 +69,7 @@ unsubscribed.
 
 - **Work:** ran plan `firing-records-and-notes` (all 9 phases), found on the branch the run was given, because that branch held only that plan. See `CHECKPOINT.json`, first `decision` event.
 - **Story closing:** phase 7 refs #42; phase 9 closes #17 and #42, because #42's firing-log criterion includes the notes count column built in phase 9. See `CHECKPOINT.json`.
-- **Product calls left to you:** the firing-number suggestion prefill, whether an empty test firing counts, and whether removed notes keep their text. These are story-wording decisions. See "Action items".
+- **Product calls left to you:** the firing-number suggestion prefill, and whether removed notes keep their text. (Whether an empty test firing counts is decided: any firing counts toward the numbers, made in a follow-up change.) These are story-wording decisions. See "Action items".
 - **Pull request subscription:** the orchestrator unsubscribed the session from #44's activity, by the rule that the orchestrator holds no PR subscriptions.
 
 ## Plan amendments
@@ -124,7 +124,7 @@ The branch has 15 commits against a target of 12 plus at most 4, so no squash st
 - [ ] After the merge: tell ceramics staff about the firing record, the log and the notes.
 - [ ] After the merge: flip the trackers of phases 1, 2, 4, 5, 6, 7 and 9 to `[x]`.
 - [ ] Decision record 0007 is proposed and needs your decision.
-- [ ] Product calls: (a) firing-number suggestions are prefilled as real values on a loading load, so two loads on one kiln get the same number; (b) whether an empty unnumbered test firing counts toward firing numbers; (c) removed notes keep their text, so a name typed into a note stays stored.
+- [ ] Product calls: (a) firing-number suggestions are prefilled as real values on a loading load, so two loads on one kiln get the same number; (b) decided after the merge: any firing counts toward the firing numbers, empty, test or not (a follow-up change); (c) removed notes keep their text, so a name typed into a note stays stored.
 - [ ] The plan documents carry a claude.ai design link. It is already in the public issue bodies; decide whether it stays.
 - [ ] Read the diff of `CLAUDE.md` and the agent kit (`.claude/`): the edits are additions only.
 - [ ] Confirm CI ran the sam validate and build steps (the run could not).

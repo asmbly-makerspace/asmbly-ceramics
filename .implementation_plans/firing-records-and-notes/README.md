@@ -74,8 +74,11 @@ What this plan adds to the model of `drop-off-and-firing`, without reworking it:
   changes and the program is still the old default); a kiln's
   `counts: KilnCounts | None` (`since_elements`, `all_time`, `as_of`), set by hand once
   and reset by "New elements". `suggest_numbers` suggests each firing number as the
-  kiln's latest fired load after `as_of` that has one, plus 1, or else the counts plus 1.
-  A typed number is never overwritten.
+  kiln's latest fired load after `as_of` that has one, plus the loads fired after it,
+  plus 1, or else the counts plus every load fired after `as_of`, plus 1. Any firing
+  counts toward the numbers, whether it was empty, a test, or numbered or not (the
+  maintainer's call after the merge); with no counts and no numbered firing the field is
+  left blank. A typed number is never overwritten.
 - **Ports.** No new port. `Records` gains `load_events(load_id)`,
   `loads_dated_between(statuses, start, end)`, `note(load_id, note_id)`,
   `notes_for(load_id)` and `notes_written_between(start, end)`; `Put` takes a

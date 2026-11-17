@@ -534,7 +534,8 @@ class ViewLoad:
         """The numbers to suggest, only while the record has neither (so a numbered load's
         page reads no other load): from the kiln's counts and its loads fired before this
         one (`numbers_window` around its `fired_at`, or now while unfired), this load left
-        out. None for a load fired at or before the counts' `as_of`: the counts already
+        out. Every one of those firings counts, numbered or not, test or not, empty or not
+        (`suggest_numbers`). None for a load fired at or before the counts' `as_of`: the counts already
         include it, so counts plus 1 would be the next firing's number, not its own.
         Two loads loading on one kiln at once are both suggested the same next number."""
         if load.record.firing_number is not None or load.record.all_time_number is not None:

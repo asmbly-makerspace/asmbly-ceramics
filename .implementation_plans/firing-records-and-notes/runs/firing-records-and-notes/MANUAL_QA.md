@@ -124,7 +124,9 @@ check maps back to an issue (#42, #17).
     number over one and save → your number stays. (The suggestions are prefilled as real
     values on a loading load too: see the open calls below.)
 22. In Settings, press **New elements…** on that kiln, then **Yes, new elements** → the next
-    fired load's suggested Firing # is 1 and its all-time number carries on.
+    fired load's suggested Firing # is 1 and its all-time number carries on. Every firing
+    counts: a load fired without a saved record (an empty test one too) still moves both
+    numbers on by one.
 23. In Settings > Firing types, check each type's default program (cone, speed, preheat
     hours, hold minutes), correct it with **Save program**, and see the new load use it.
 24. Enter a count over the page's limit, or a negative one → refused with a message under
@@ -209,11 +211,11 @@ working through the steps, and say if any should change.
   firing number and all-time number are prefilled as ordinary values, not as greyed
   placeholders. Saving the record without touching them stores the suggestion. Staff
   never lose a typed number, but a suggestion saved by accident looks like a real count.
-- **An empty, unnumbered test firing.** A test load fired with no record at all has no
-  firing number; whether it counts toward a kiln's firing numbers is not decided in the
-  code. #42 says a test counts "like any other firing" and the next suggestion comes
-  from the latest fired load that has a number, so it doesn't move the count until a
-  number is typed.
+- **An empty, unnumbered test firing (decided).** The maintainer decided after the
+  merge that any firing counts toward the firing numbers, whether it was empty, a test,
+  or not. A follow-up change makes the suggestion count every fired load after the
+  kiln's counts, numbered or not: fire an empty test load on a kiln with counts 12 and 40
+  without saving a record, and the next load suggests 14 and 42.
 - **A removed note keeps its text.** A removed note is hidden (a soft delete with who
   and when), and its text stays in the table. Say if removing should erase the text.
 

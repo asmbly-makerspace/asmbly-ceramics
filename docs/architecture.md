@@ -91,7 +91,8 @@ What the domain code settles, beyond the stories:
   fired and nothing in the future.
 - Each live load has an optional **firing record** (#42), every field optional and
   checked on the server: % full, the firing number since the kiln's elements and all
-  time (suggested from the kiln's last fired load, or its counts), the program (preheat,
+  time (suggested from the kiln's last numbered firing, or its counts, plus every load
+  fired since: any firing counts, empty, test or not), the program (preheat,
   cone, speed, hold), the firing time, max and board temperatures, the cost, and how far
   the top, center and bottom witness cones bent (or "no cone"). Saving it never touches
   the load's drop-offs or sends an email, so a fired load's contents still can't change.
