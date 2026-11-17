@@ -172,8 +172,8 @@ by ID and username only.
   `JinjaComposer` in `mail/compose.py` (the three emails and the test email, Jinja2 with
   autoescape); 2d: `WaitingList`, `FindDropOffs`, `ViewDropOff`, `PreviewRejection`,
   `RejectDropOff`, `UndoRejection`.
-- Phase 3: `StartLoad`, `ChangeLoad`, `AddToLoad`, `RemoveFromLoad`, `StartFiring`, `MarkFired`,
-  `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `EmailsNeedingAttention`
+- Phase 3: `StartLoad`, `ChangeLoad`, `AddToLoad`, `AddManyToLoad`, `RemoveFromLoad`, `StartFiring`,
+  `MarkFired`, `ViewLoad`, `ListLoads`, `SendPendingEmail`, `RetryEmail`, `EmailsNeedingAttention`
   (the console's studio-wide list of failed or stuck emails, phase 8's
   `/console/emails`), `ViewStudio`,
   `ChangeEmailSettings`, `SendTestEmail`, `AddCatalogItem`, `RetireCatalogItem`,
