@@ -196,3 +196,12 @@ def test_rows_that_open_something_are_one_link_with_a_chevron() -> None:
         assert page.count('class="row-link') == tables, name
         assert page.count('<td class="row-go"></td>') == tables, name
         assert ">Open</a>" not in page, name
+
+
+def test_a_hidden_file_input_stays_hidden() -> None:
+    """`input[type="file"]` sets `display: block`, which would beat the `hidden` attribute
+    and show the camera input as a second, unlabeled picker."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == 'input[type="file"][hidden]')
+    assert "display: none" in body
+    assert REST.index('input[type="file"][hidden]') > REST.index('input[type="file"] {')

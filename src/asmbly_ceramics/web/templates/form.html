@@ -52,7 +52,7 @@
     data-message-count="{{ photo_messages.count }}" data-message-too-large="{{ photo_messages.too_large }}"
     data-message-failed="{{ photo_messages.failed }}" data-message-expired="{{ photo_messages.expired }}" data-message-try-again="{{ photo_messages.try_again }}">
     <label for="photos">Photos of your pieces</label>
-    <p class="hint" id="photos-hint">Add {{ limits.PHOTOS_MIN }} to {{ limits.PHOTOS_MAX }} photos, each under {{ limits.PHOTO_MAX_BYTES // 1048576 }} MB. Take them with your camera or choose them from your phone.</p>
+    <p class="hint" id="photos-hint">Add {{ limits.PHOTOS_MIN }} to {{ limits.PHOTOS_MAX }} photos, each under {{ limits.PHOTO_MAX_BYTES // 1048576 }} MB. Take a photo or choose from your library.</p>
     <div id="photos-error" class="photo-errors" aria-live="polite">
       {% if messages.by_field.get("photos") %}<p class="field-error">{{ messages.by_field.get("photos") }}</p>{% endif %}
       {% for message in messages.photos %}<p class="field-error">{{ message }}</p>{% endfor %}
@@ -67,6 +67,8 @@
       {% endfor %}
     </ul>
     <input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photos-hint photos-error">
+    <button type="button" id="take-photo" class="button button-quiet" aria-describedby="photos-hint photos-error" hidden>Take a photo</button>
+    <input id="photos-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
   </div>
 
   <p class="upload-status" id="upload-status" role="status" aria-live="polite"></p>

@@ -28,6 +28,8 @@
   };
 
   var picker = document.getElementById("photos");
+  var camera = document.getElementById("photos-camera");
+  var takePhoto = document.getElementById("take-photo");
   var list = document.getElementById("photo-list");
   var errors = document.getElementById("photos-error");
   var status = document.getElementById("upload-status");
@@ -92,12 +94,34 @@
   }
 
   // While the photos upload, the list can't change: the slots were asked for these.
+  // A full list takes no more photos either.
   var busy = false;
+  function updateControls() {
+    var full = keptCount() + chosen.length >= PHOTOS_MAX;
+    picker.disabled = busy || full;
+    camera.disabled = busy || full;
+    takePhoto.disabled = busy || full;
+  }
   function setBusy(value) {
     busy = value;
     submit.disabled = value;
     picker.disabled = value;
+    camera.disabled = value;
+    takePhoto.disabled = value;
     list.querySelectorAll(".remove").forEach(function (button) { button.disabled = value; });
+    updateControls();
+  }
+
+  // The label of each photo is its place in the list, so a screen reader hears which Remove
+  // is which. A camera shot has no useful file name (a phone names every one the same).
+  function renumber() {
+    list.querySelectorAll(".photo-item").forEach(function (item, i) {
+      item.querySelector(".remove").setAttribute("aria-label", "Remove photo " + (i + 1));
+      if (item.hasAttribute("data-camera")) {
+        item.querySelector(".photo-label").textContent = "Photo " + (i + 1);
+      }
+    });
+    updateControls();
   }
 
   // Photos already uploaded and kept by the server after a refused submit.
@@ -105,20 +129,30 @@
     button.addEventListener("click", function () {
       if (busy) { return; }
       button.parentNode.remove();
+      status.textContent = "";
+      renumber();
     });
   });
 
-  // Each pick adds to the list: a phone's camera returns one photo per pick.
-  picker.addEventListener("change", function () {
-    if (busy) { picker.value = ""; return; }
-    var files = Array.prototype.slice.call(picker.files);
-    var dropped = false;
+  // Each pick adds to the list, from the library or from the camera: a phone's camera
+  // returns one photo per pick. The files are copied, then the input is cleared so the
+  // same file can be picked again.
+  function addFiles(input, fromCamera) {
+    if (busy) { input.value = ""; return; }
+    var files = Array.prototype.slice.call(input.files);
+    var messages = [];
+    var added = 0;
     files.forEach(function (file) {
-      if (keptCount() + chosen.length >= PHOTOS_MAX) { dropped = true; return; }
+      if (keptCount() + chosen.length >= PHOTOS_MAX) {
+        if (messages.indexOf(MESSAGES.count) < 0) { messages.push(MESSAGES.count); }
+        return;
+      }
       var entry = { file: file, url: URL.createObjectURL(file) };
       chosen.push(entry);
+      added += 1;
       var item = document.createElement("li");
       item.className = "photo-item";
+      if (fromCamera) { item.setAttribute("data-camera", "true"); }
       var img = document.createElement("img");
       img.src = entry.url;
       img.alt = "";
@@ -131,12 +165,30 @@
         chosen.splice(chosen.indexOf(entry), 1);
         URL.revokeObjectURL(entry.url);
         item.remove();
+        status.textContent = "";
+        renumber();
       }));
       list.appendChild(item);
+      if (file.size > PHOTO_MAX_BYTES) { messages.push(MESSAGES.tooLarge(keptCount() + chosen.length)); }
     });
-    showErrors(dropped ? [MESSAGES.count] : []);
-    picker.value = "";
-  });
+    showErrors(messages);
+    input.value = "";
+    renumber();
+    if (added) {
+      status.textContent = "Photo " + (keptCount() + chosen.length) + " of " + PHOTOS_MAX + " added";
+    }
+  }
+  picker.addEventListener("change", function () { addFiles(picker, false); });
+  camera.addEventListener("change", function () { addFiles(camera, true); });
+
+  // The camera button is for phones and tablets: a desktop browser ignores `capture` and
+  // would open the same file picker twice.
+  if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) {
+    takePhoto.hidden = false;
+    takePhoto.addEventListener("click", function () {
+      if (!busy) { camera.click(); }
+    });
+  }
 
   function fail(message) {
     showErrors([message]);
