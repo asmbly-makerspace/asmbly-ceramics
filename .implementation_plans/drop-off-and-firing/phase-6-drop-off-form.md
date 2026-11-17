@@ -188,8 +188,11 @@ Anything else under the public app is a 404 page. Methods not listed get 405.
   The messages above are the plan's wording; the email message must not contain an
   example address (the repository's personal-data test fails on one). The firing and
   glaze checks use the lists as they are when the drop-off is submitted.
-- No `capture` attribute, so a phone offers both the camera and the library. The file
-  input has no `name`, so it never posts a file name or a file: only the hidden `slot`
+- The library input (`#photos`) has no `capture` attribute, so a phone offers both the
+  camera and the library. A "Take a photo" button (shown on touch screens) opens a second
+  input, `#photos-camera`, with `capture="environment"` and the same `accept` list, one
+  photo per tap; both feed one list (added after the phase). The file
+  inputs have no `name`, so they never post a file name or a file: only the hidden `slot`
   inputs reach the server.
 - The `accept` list is deliberately specific: under it, an iPhone converts HEIC photos
   to JPEG before upload (WebKit bug 292350); under `image/*` it may send HEIC, which
@@ -211,7 +214,9 @@ defer>`; no inline script anywhere.
 2. Keeps the chosen photos as a list across picks: a phone's camera returns one photo
    per pick and a `multiple` input replaces its selection, so each pick adds to the list
    (up to 6, counting photos already uploaded and kept by a refused submit, below), each
-   with a 96 px preview and a "Remove" button.
+   with a 96 px preview and a "Remove" button named by its place (a screen reader hears
+   "Remove photo 2"); a full list disables the pickers and the "Take a photo" button, and
+   "Photo 3 of 6 added" is announced in the status line.
 3. On Submit: stops the default submit, disables the Submit button until the upload ends
    or fails (a second tap would ask for a second set of slots), checks the number of
    photos (1 to 6) and each new one's size (≤ 10 MB) for the person's convenience,
@@ -399,7 +404,8 @@ phase 2's use cases; made-up details are built in code (for example
   - `test_the_form_sets_a_device_cookie_once`: first visit sets `__Host-device` with
     `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`; a second visit with it sets none.
   - `test_each_page_load_has_a_new_submission_token`.
-  - `test_the_photo_field_accepts_only_jpeg_png_and_webp_and_doesnt_force_the_camera`.
+  - `test_the_photo_field_accepts_only_jpeg_png_and_webp_and_doesnt_force_the_camera`
+    (the library input only; the camera input has its own test).
   - `test_the_form_says_it_needs_javascript_for_photos` (the `<noscript>` text).
 - `test_submit.py`
   - `test_a_valid_drop_off_is_stored_and_redirects_to_its_id`: 303 to
@@ -517,7 +523,10 @@ requests that have none, for the local app only. Chrome and Firefox keep `Secure
 After phase 7's deploy (it's that phase's check, written here so the form is tested
 where people use it): open `https://ceramics-stage.asmbly.org/` on an iPhone and on an
 Android phone, submit with made-up details, a mailbox you own and two photos, one taken
-with the camera then. Expect the ID page, the "We received your drop-off" email with
+with the camera then (use the "Take a photo" button: it must open the camera directly,
+six shots in a row must land in one list, the sixth must disable both buttons, and the
+list must survive the trip to the camera app, as a low-memory Android can reload the
+tab). Expect the ID page, the "We received your drop-off" email with
 both photos, and in the stage table the photos stored as JPEG; an iPhone photo arriving
 as JPEG answers the HEIC question (record the iOS version in the hand-off).
 

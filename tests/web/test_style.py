@@ -196,3 +196,27 @@ def test_rows_that_open_something_are_one_link_with_a_chevron() -> None:
         assert page.count('class="row-link') == tables, name
         assert page.count('<td class="row-go"></td>') == tables, name
         assert ">Open</a>" not in page, name
+
+
+def test_a_hidden_file_input_stays_hidden() -> None:
+    """`input[type="file"]` sets `display: block`, which would beat the `hidden` attribute
+    and show the camera input as a second, unlabeled picker."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == 'input[type="file"][hidden]')
+    assert "display: none" in body
+    assert REST.index('input[type="file"][hidden]') > REST.index('input[type="file"] {')
+
+
+def test_a_disabled_quiet_button_is_readable() -> None:
+    """`button:disabled` paints the accent-hover background; the quiet button must set its
+    own, or its accent text sits on it at about 1.3:1."""
+    rules = dict(re.findall(r"([^{}]+)\{([^{}]*)\}", REST))
+    body = next(body for sel, body in rules.items() if sel.strip() == ".button-quiet:disabled")
+    assert "background: var(--surface)" in body
+    assert "color: var(--muted)" in body
+
+
+def test_the_hidden_take_a_photo_button_stays_hidden() -> None:
+    """`button, .button` sets `display: inline-flex`; the button stays hidden until the
+    script shows it only because the global `[hidden]` rule comes after it."""
+    assert REST.index("button, .button {") < REST.index("\n[hidden] { display: none; }")

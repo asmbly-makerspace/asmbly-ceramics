@@ -166,6 +166,7 @@ input[type="text"], input[type="email"], input[type="tel"], input[type="number"]
 }
 
 input[type="file"] { display: block; width: var(--full); min-height: var(--tap-target); font: inherit; font-size: var(--font-size-body); }
+input[type="file"][hidden] { display: none; }
 
 .field-invalid input[type="text"], .field-invalid input[type="email"], .field-invalid input[type="tel"], .field-invalid input[type="number"], .field-invalid input[type="date"], .field-invalid input[type="datetime-local"] {
   border: var(--border-width-accent) solid var(--error-edge);
@@ -218,6 +219,7 @@ button:focus-visible, .button:focus-visible, input:focus-visible, a:focus-visibl
 .photo-item { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
 .photo-item img { width: var(--thumb-size); height: var(--thumb-size); object-fit: cover; border-radius: var(--radius); }
 .photo-label { flex: 1; overflow-wrap: anywhere; }
+.photos > .button { margin-top: var(--space-2); }
 
 .upload-status { min-height: var(--space-5); margin: var(--none); font-weight: var(--weight-strong); }
 
@@ -260,6 +262,8 @@ a { color: var(--accent-strong); }
 }
 
 [hidden] { display: none; }
+.button-quiet { color: var(--accent-strong); background: var(--surface); border: var(--border-width) solid var(--accent-strong); }
+.button-quiet:disabled { color: var(--muted); background: var(--surface); border-color: var(--control-edge); }
 
 /* The staff console (phase 8). It is used at a desk as much as at the kiln, so it is
    laid out for a wide screen first: a quiet canvas, content on cards, hairline rows,
@@ -284,7 +288,6 @@ a { color: var(--accent-strong); }
 .console-band :focus-visible { outline-color: var(--on-accent); }
 .signed-in { margin: var(--none); overflow-wrap: anywhere; }
 .inline-form { display: inline-flex; margin: var(--none); }
-.button-quiet { color: var(--accent-strong); background: var(--surface); border: var(--border-width) solid var(--accent-strong); }
 .console .button-quiet { border-color: var(--control-edge); font-weight: var(--weight-strong); }
 
 /* Tabs: a light bar under the band; the current tab is dark with a ceramics underline. */

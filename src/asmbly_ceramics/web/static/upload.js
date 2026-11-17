@@ -9,7 +9,9 @@
   var form = document.getElementById("drop-off-form");
   if (!form) { return; }
   var field = document.getElementById("photos-field");
-  // The limits and sentences come from the server (domain/limits.py and web/fields.py).
+  // The limits and the server's sentences come from the server (domain/limits.py and
+  // web/fields.py); the short labels for the list ("Photo 2", "Remove photo 2") are the
+  // script's own.
   var PHOTOS_MIN = parseInt(field.getAttribute("data-photos-min"), 10);
   var PHOTOS_MAX = parseInt(field.getAttribute("data-photos-max"), 10);
   var PHOTO_MAX_BYTES = parseInt(field.getAttribute("data-photo-max-bytes"), 10);
@@ -28,6 +30,8 @@
   };
 
   var picker = document.getElementById("photos");
+  var camera = document.getElementById("photos-camera");
+  var takePhoto = document.getElementById("take-photo");
   var list = document.getElementById("photo-list");
   var errors = document.getElementById("photos-error");
   var status = document.getElementById("upload-status");
@@ -69,8 +73,11 @@
     return list.querySelectorAll(".photo-kept").length;
   }
 
+  // The server's refusal messages are in `errors` too; the ones the script puts there are
+  // marked, so a Remove rewrites only those.
   function showErrors(messages) {
     errors.textContent = "";
+    if (messages.length) { errors.setAttribute("data-script", "true"); } else { errors.removeAttribute("data-script"); }
     messages.forEach(function (message) {
       var p = document.createElement("p");
       p.className = "field-error";
@@ -92,33 +99,93 @@
   }
 
   // While the photos upload, the list can't change: the slots were asked for these.
+  // A full list takes no more photos either.
   var busy = false;
+  function updateControls() {
+    var full = keptCount() + chosen.length >= PHOTOS_MAX;
+    var active = document.activeElement;
+    if (!busy && full && (active === picker || active === camera || active === takePhoto)) {
+      submit.focus(); // a disabled control would drop the keyboard's place to the top
+    }
+    picker.disabled = busy || full;
+    camera.disabled = busy || full;
+    takePhoto.disabled = busy || full;
+  }
   function setBusy(value) {
     busy = value;
     submit.disabled = value;
-    picker.disabled = value;
     list.querySelectorAll(".remove").forEach(function (button) { button.disabled = value; });
+    updateControls();
   }
+
+  // The photos over the size limit, by their place in the list. Built from the list each
+  // time, so a removed photo takes its message with it and the numbers stay right.
+  function sizeMessages() {
+    var out = [];
+    chosen.forEach(function (entry, i) {
+      if (entry.file.size > PHOTO_MAX_BYTES) { out.push(MESSAGES.tooLarge(keptCount() + i + 1)); }
+    });
+    return out;
+  }
+
+  function refreshErrors() {
+    if (errors.hasAttribute("data-script")) { showErrors(sizeMessages()); }
+  }
+
+  // The label of each photo is its place in the list, so a screen reader hears which Remove
+  // is which. A camera shot has no useful file name (a phone names every one the same).
+  function renumber() {
+    var keptTotal = keptCount();
+    var kept = 0;
+    list.querySelectorAll(".photo-item").forEach(function (item, i) {
+      var remove = item.querySelector(".remove");
+      if (item.classList.contains("photo-kept")) {
+        // The server's messages number the photos as the person sent them, which a refused
+        // photo changes, so a kept photo is never called by a position that may not match.
+        kept += 1;
+        remove.setAttribute("aria-label", "Remove kept photo " + kept + " of " + keptTotal);
+        return;
+      }
+      remove.setAttribute("aria-label", "Remove photo " + (i + 1));
+      if (item.hasAttribute("data-camera")) {
+        item.querySelector(".photo-label").textContent = "Photo " + (i + 1);
+      }
+    });
+    updateControls();
+  }
+  renumber();
 
   // Photos already uploaded and kept by the server after a refused submit.
   list.querySelectorAll(".photo-kept .remove").forEach(function (button) {
     button.addEventListener("click", function () {
       if (busy) { return; }
       button.parentNode.remove();
+      status.textContent = "";
+      refreshErrors();
+      renumber();
     });
   });
 
-  // Each pick adds to the list: a phone's camera returns one photo per pick.
-  picker.addEventListener("change", function () {
-    if (busy) { picker.value = ""; return; }
-    var files = Array.prototype.slice.call(picker.files);
-    var dropped = false;
+  // Each pick adds to the list, from the library or from the camera: a phone's camera
+  // returns one photo per pick. The files are copied, then the input is cleared so the
+  // same file can be picked again.
+  function addFiles(input, fromCamera) {
+    if (busy) { input.value = ""; return; }
+    status.textContent = "";
+    var files = Array.prototype.slice.call(input.files);
+    var messages = [];
+    var added = 0;
     files.forEach(function (file) {
-      if (keptCount() + chosen.length >= PHOTOS_MAX) { dropped = true; return; }
+      if (keptCount() + chosen.length >= PHOTOS_MAX) {
+        if (messages.indexOf(MESSAGES.count) < 0) { messages.push(MESSAGES.count); }
+        return;
+      }
       var entry = { file: file, url: URL.createObjectURL(file) };
       chosen.push(entry);
+      added += 1;
       var item = document.createElement("li");
       item.className = "photo-item";
+      if (fromCamera) { item.setAttribute("data-camera", "true"); }
       var img = document.createElement("img");
       img.src = entry.url;
       img.alt = "";
@@ -131,12 +198,33 @@
         chosen.splice(chosen.indexOf(entry), 1);
         URL.revokeObjectURL(entry.url);
         item.remove();
+        status.textContent = "";
+        refreshErrors();
+        renumber();
       }));
       list.appendChild(item);
     });
-    showErrors(dropped ? [MESSAGES.count] : []);
-    picker.value = "";
-  });
+    messages = messages.concat(sizeMessages());
+    showErrors(messages);
+    input.value = "";
+    renumber();
+    if (messages.length) {
+      status.textContent = messages[0]; // where the person is looking, beside the buttons
+    } else if (added) {
+      status.textContent = "Photo " + (keptCount() + chosen.length) + " of " + PHOTOS_MAX + " added";
+    }
+  }
+  picker.addEventListener("change", function () { addFiles(picker, false); });
+  camera.addEventListener("change", function () { addFiles(camera, true); });
+
+  // The camera button is for phones and tablets: a desktop browser ignores `capture` and
+  // would open the same file picker twice.
+  if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) {
+    takePhoto.hidden = false;
+    takePhoto.addEventListener("click", function () {
+      if (!busy) { camera.click(); }
+    });
+  }
 
   function fail(message) {
     showErrors([message]);
@@ -170,10 +258,7 @@
       showErrors([MESSAGES.count]);
       return;
     }
-    var tooLarge = [];
-    chosen.forEach(function (entry, i) {
-      if (entry.file.size > PHOTO_MAX_BYTES) { tooLarge.push(MESSAGES.tooLarge(keptCount() + i + 1)); }
-    });
+    var tooLarge = sizeMessages();
     if (tooLarge.length) {
       showErrors(tooLarge);
       return;

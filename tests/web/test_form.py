@@ -56,8 +56,24 @@ def test_the_photo_field_accepts_only_jpeg_png_and_webp_and_doesnt_force_the_cam
     [photo_input] = re.findall(r'<input id="photos"[^>]*>', page)
     assert 'accept="image/jpeg,image/png,image/webp"' in photo_input
     assert "multiple" in photo_input
-    assert "capture" not in page
+    assert "capture" not in photo_input  # the library picker never forces the camera
     assert "name=" not in photo_input  # only the slots post, never a file or its name
+
+
+def test_the_camera_input_takes_one_photo_from_the_rear_camera_and_posts_nothing(site: Site) -> None:
+    page = site.client.get("/").text
+    [camera_input] = re.findall(r'<input id="photos-camera"[^>]*>', page)
+    assert 'capture="environment"' in camera_input
+    assert 'accept="image/jpeg,image/png,image/webp"' in camera_input  # the same types as the library
+    assert "multiple" not in camera_input  # a camera returns one photo per tap
+    assert "name=" not in camera_input  # only the slots post
+    assert " hidden" in camera_input
+    [button] = re.findall(r'<button[^>]*id="take-photo"[^>]*>[^<]*</button>', page)
+    assert 'type="button"' in button  # it can't submit the form
+    assert " hidden" in button  # the script shows it on a touch screen
+    assert 'aria-describedby="photos-hint photos-error"' in button
+    assert "Take a photo</button>" in button
+    assert "Take a photo or choose from your library." in page
 
 
 def test_the_form_says_it_needs_javascript_for_photos(site: Site) -> None:
@@ -132,11 +148,32 @@ def test_the_script_locks_the_photo_list_while_it_uploads() -> None:
     import asmbly_ceramics.web
 
     script = (Path(asmbly_ceramics.web.__file__).parent / "static" / "upload.js").read_text()
-    assert "picker.disabled = value;" in script
+    assert "picker.disabled = busy || full;" in script
+    assert "camera.disabled = busy || full;" in script
+    assert "takePhoto.disabled = busy || full;" in script
     assert (
         'list.querySelectorAll(".remove").forEach(function (button) { button.disabled = value; });' in script
     )
     assert "var sending = chosen.slice();" in script
     assert "chosen[i]" not in script
     assert "setBusy(true);" in script
-    assert script.count("if (busy) {") >= 4  # submit, picker, a chosen photo's and a kept photo's Remove
+    assert script.count("if (busy) {") >= 4  # submit, addFiles, a chosen photo's and a kept photo's Remove
+
+
+def test_both_inputs_feed_one_list_that_stops_at_the_limit() -> None:
+    """The library picker and the camera add to the same list through one function, a full
+    list disables both and the button, and the camera button shows only on a touch screen."""
+    from pathlib import Path
+
+    import asmbly_ceramics.web
+
+    script = (Path(asmbly_ceramics.web.__file__).parent / "static" / "upload.js").read_text()
+    assert "addFiles(picker, false)" in script
+    assert "addFiles(camera, true)" in script
+    assert script.count("function addFiles(") == 1
+    assert "keptCount() + chosen.length >= PHOTOS_MAX" in script
+    assert 'matchMedia("(pointer: coarse)")' in script
+    assert script.count("sizeMessages()") >= 4  # add, both Removes, submit: one place builds them
+    assert "var tooLarge = sizeMessages();" in script
+    assert "getUserMedia" not in script  # the phone's own camera app, not a viewfinder
+    assert "Remove photo " in script  # each Remove names its photo
