@@ -40,7 +40,8 @@ read was needed):
   `window` (`matchMedia`), `URL` (`createObjectURL`, `revokeObjectURL`), `fetch`,
   `FormData` and `HTMLFormElement`.
 - CI (`.github/workflows/pr-checks.yml`, job `python`) runs `uv run pytest --cov` on
-  `ubuntu-24.04`, whose image has Node on its `PATH`; no workflow sets Node up.
+  `ubuntu-24.04`, whose image is assumed to have Node on its `PATH` (an assumption until
+  the first CI run shows it); no workflow sets Node up.
   `tests/repo/test_checks.py` pins CLAUDE.md's "Done means verified" commands to what CI
   runs, so a new command would need CLAUDE.md, the README, CONTRIBUTING and the pull
   request template changed too. Started from pytest, the Node tests need none of that.
@@ -70,7 +71,7 @@ adapter or a page's behaviour.
 ## Stories
 
 No epic and no story: this is follow-up work on #2's form, so the phase documents carry
-no frontmatter. Both pull requests say `Refs #2`; nothing here closes an issue.
+no frontmatter. Both phases go in one pull request, which says `Refs #2`; nothing here closes an issue.
 
 | Story | Title | Phases |
 | --- | --- | --- |
@@ -106,11 +107,11 @@ no change.
 
 ## Rollout
 
-Nothing reaches AWS. Merging either pull request deploys the app as every merge does
-(stage, its smoke test, prod, its smoke test), but neither changes a template, a role, a
+Nothing reaches AWS. Merging the pull request deploys the app as every merge does
+(stage, its smoke test, prod, its smoke test), but neither phase changes a template, a role, a
 resource or the shipped script, so the deployed app behaves as before. The only
-exception is a bug the phase 2 tests find in `upload.js`: its fix ships with phase 2's
-merge, and its Verification then includes the by-hand browser check in that phase's
+exception is a bug the phase 2 tests find in `upload.js`: its fix ships in the same
+pull request, and its Verification then includes the by-hand browser check in that phase's
 document.
 
 ## Related work

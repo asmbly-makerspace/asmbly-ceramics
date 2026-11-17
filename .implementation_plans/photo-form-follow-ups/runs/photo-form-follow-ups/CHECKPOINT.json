@@ -5,7 +5,7 @@
   "feature_branch": "claude/wizardly-bell-u8y238",
   "worktree": null,
   "status": "in-progress",
-  "stage": "phases",
+  "stage": "docs",
   "selected_phases": [
     "1",
     "2"
@@ -54,7 +54,7 @@
       ],
       "status": "done",
       "base_sha": "70c774643df02f88419e18f8f20306705b3244ff",
-      "squashed_sha": null,
+      "squashed_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
       "review_rounds": 1,
       "cold_review": "fixed",
       "split_from": null,
@@ -68,16 +68,16 @@
     }
   ],
   "gate": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
+    "result": "clean",
     "squashed_sha": null,
-    "test_count": null,
-    "coverage": null,
+    "test_count": 3891,
+    "coverage": "99.34%",
     "steps_skipped": []
   },
   "final_review": {
-    "base_sha": null,
-    "result": null,
+    "base_sha": "a981d77c60c23a910f006edfeb74e48ff3f7c543",
+    "result": "fixed",
     "squashed_sha": null
   },
   "docs": {
@@ -179,6 +179,23 @@
       "ts": "2026-11-17T21:00:00Z",
       "type": "phase_done",
       "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:01:00Z",
+      "type": "squash",
+      "phase": "2"
+    },
+    {
+      "ts": "2026-11-17T21:20:00Z",
+      "type": "gate_result",
+      "result": "clean"
+    },
+    {
+      "ts": "2026-11-17T21:50:00Z",
+      "type": "final_review",
+      "verdict": "APPROVED + privacy CLEAR",
+      "block": 0,
+      "warn": 3
     }
   ]
 }

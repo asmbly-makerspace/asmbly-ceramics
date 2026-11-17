@@ -123,8 +123,7 @@ Jinja2 in decision 0002, while it stands); follow the routes and templates alrea
   targets, the right keyboard (`type="email"`, `type="tel"`, `inputmode`), and the
   camera through a separate `capture="environment"` input behind a "Take a photo"
   button, beside a library picker, both with decision 0002's specific `accept` list
-  (a wildcard of every image type would let an iPhone send HEIC, which the server
-  refuses).
+  (decision 0002 chose the specific list so an iPhone sends JPEG).
 
 ## What you don't do
 

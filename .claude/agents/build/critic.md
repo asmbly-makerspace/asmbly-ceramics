@@ -46,8 +46,11 @@ only what you find; don't produce a list of everything that passed.
   from the domain constants (1 to 6 photos, 10 MB, 1 to 50 pieces, 1,000 characters),
   not copies that can drift. The photo `accept` list, on both photo inputs, is one
   template literal that matches the types the server's inspector accepts
-  (`adapters/images.py`). The presigned POST's size and type conditions agree with the
-  domain.
+  (`adapters/images.py`). The presigned POST's size condition agrees with the domain's
+  10 MB; its type condition is decision 0002's `image/` prefix (`adapters/aws/photos.py`).
+- **Upload script and its tests:** a change to what `upload.js` does comes with a test in
+  `tests/web/js/upload.test.mjs` and a new `NODE_TESTS` count in
+  `tests/web/test_upload_script.py` (decision 0009).
 - **Port, fake and adapter:** the same methods, the same signatures, the same errors.
   The fake fails the way the port's contract says the adapter can.
 - **Template and code:** every environment variable and Parameter Store name the

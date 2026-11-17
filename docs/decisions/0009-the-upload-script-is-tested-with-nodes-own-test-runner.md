@@ -29,7 +29,8 @@ a JSON file, runs `node --test` on them and fails with Node's output when any fa
 command, no change to "Done means verified", no change to `.github/workflows/`. CI uses
 the Node that GitHub's `ubuntu-24.04` runner image already has on its `PATH`.
 
-Node 20 or later is a development requirement from then on, like uv. When `node` is not
+Node 20 or later is a development requirement from then on, like uv (seen on Node 22
+only; 20 is the floor the built-ins need, not a version that has been run). When `node` is not
 on the `PATH`, or is older than 20, the test **fails** with a message that says what to
 install; it is never skipped, because CLAUDE.md forbids skipping a test and a skipped
 check would let a contributor without Node, or a runner image without it, pass without
@@ -61,7 +62,9 @@ hand. Coverage measures Python only, so the script's lines are not in the floor.
 
 **Revisit if:** GitHub's `ubuntu-24.04` image drops Node or ships one older than 20
 (then add `actions/setup-node`, pinned by commit, with its version in the workflow's
-`env`); the stub grows past what the script needs (a sign that a DOM library has become
+`env`); a Node version on the runner image changes the TAP summary lines
+(`# tests`, `# pass`) that `tests/web/test_upload_script.py` counts, which would turn
+the required check red with no code change; the stub grows past what the script needs (a sign that a DOM library has become
 the cheaper choice); or the console gains scripts of its own.
 
 ## What has and has not been seen to work

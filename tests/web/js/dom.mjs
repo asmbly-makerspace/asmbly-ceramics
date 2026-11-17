@@ -101,13 +101,29 @@ class Element {
 
   querySelectorAll(selector) {
     const steps = parseSelector(selector);
-    return this.descendants().filter((element) => matchesSteps(element, steps));
+    return nodeList(this.descendants().filter((element) => matchesSteps(element, steps)));
   }
 
   querySelector(selector) {
     const found = this.querySelectorAll(selector);
     return found.length ? found[0] : null;
   }
+}
+
+// What a browser's querySelectorAll returns is a NodeList, not an Array: it has a
+// length, indexes and forEach, but no map, filter or the like. This stub's has only
+// those three, so a script (or a test) that calls an Array method on one fails here as
+// it would in a browser. Tests wrap one in Array.from to use Array methods.
+function nodeList(elements) {
+  const list = Object.create(null);
+  elements.forEach((element, index) => {
+    Object.defineProperty(list, index, { value: element, enumerable: true });
+  });
+  Object.defineProperty(list, "length", { value: elements.length });
+  Object.defineProperty(list, "forEach", {
+    value(callback, thisArg) { elements.forEach((element, index) => callback.call(thisArg, element, index, list)); },
+  });
+  return Object.freeze(list);
 }
 
 // A compound selector: tag, .class, #id, [name="value"] and :checked, in any order.

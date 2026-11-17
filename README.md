@@ -85,7 +85,7 @@ tests/                  the app's tests; tests/repo/ checks the repository itsel
   (3.14) and the tools in `pyproject.toml`.
 - [GitHub CLI](https://cli.github.com/), signed in, to work with issues and pull
   requests.
-- [Node.js](https://nodejs.org/) 20 or later on the `PATH`. `uv run pytest` starts
+- [Node.js](https://nodejs.org/) 20 or later on the `PATH` (seen on Node 22). `uv run pytest` starts
   Node's built-in test runner for the drop-off form's upload script
   ([decision 0009](docs/decisions/0009-the-upload-script-is-tested-with-nodes-own-test-runner.md));
   nothing is installed with npm.

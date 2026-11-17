@@ -63,6 +63,9 @@ Ref: #2; decision 0002, Photos and The rate limit.
 - [ ] The received page shows the new ID and a summary without contact details, read
       from the submission this device made.
 - [ ] Without JavaScript the form says photos need it, rather than failing silently.
+- [ ] A change to what `upload.js` does comes with a test in
+      `tests/web/js/upload.test.mjs` and `NODE_TESTS` in `tests/web/test_upload_script.py`
+      updated to the new count (decision 0009).
 
 ### The console (BLOCK)
 

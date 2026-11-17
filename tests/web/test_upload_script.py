@@ -21,7 +21,7 @@ from asmbly_ceramics.adapters.memory.images import NOT_IMAGE
 from tests.repo.files import REPO
 from tests.web.conftest import PHOTO, Site
 
-NODE_MIN = 20
+NODE_MIN = 20  # the floor decision 0009 states; seen to work on Node 22 only
 NODE_TESTS = 14  # the tests in upload.test.mjs; each must run and pass
 JS = Path(__file__).parent / "js"
 SCRIPT = Path(asmbly_ceramics.web.__file__).parent / "static" / "upload.js"
@@ -34,12 +34,17 @@ ADVICE = (
 )
 
 
+def node_env(**extra: str) -> dict[str, str]:
+    """The minimal environment Node runs with, for the version probe and the tests alike."""
+    return {"PATH": os.environ.get("PATH", ""), **extra}
+
+
 def find_node() -> str:
     node = shutil.which("node")
     if node is None:
         pytest.fail(ADVICE)
     found = subprocess.run(  # noqa: S603 (a fixed command)
-        [node, "--version"], check=True, capture_output=True, text=True, timeout=30
+        [node, "--version"], check=True, capture_output=True, text=True, timeout=30, env=node_env()
     ).stdout.strip()
     version = re.fullmatch(r"v(\d+)\.\d+\.\d+", found)
     if version is None or int(version.group(1)) < NODE_MIN:
@@ -113,7 +118,7 @@ def test_the_upload_script_behaves_as_the_form_needs(site: Site, tmp_path: Path)
     ran = subprocess.run(  # noqa: S603 (a fixed command)
         [node, "--test", "--test-reporter=tap", str(JS / "upload.test.mjs")],
         cwd=REPO,
-        env={"PATH": os.environ.get("PATH", ""), "UPLOAD_FORM": str(fixture), "UPLOAD_SCRIPT": str(SCRIPT)},
+        env=node_env(UPLOAD_FORM=str(fixture), UPLOAD_SCRIPT=str(SCRIPT)),
         capture_output=True,
         text=True,
         timeout=120,
@@ -136,6 +141,7 @@ def test_a_missing_node_fails_and_says_what_to_install(monkeypatch: pytest.Monke
 def test_an_old_node_fails_and_names_its_version(monkeypatch: pytest.MonkeyPatch) -> None:
     def old_node(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         assert command == ["/made-up/bin/node", "--version"]
+        assert kwargs["env"] == {"PATH": os.environ.get("PATH", "")}, "probed with the tests' environment"
         return subprocess.CompletedProcess(command, 0, stdout="v18.19.0\n", stderr="")
 
     monkeypatch.setattr(shutil, "which", lambda name: "/made-up/bin/node")

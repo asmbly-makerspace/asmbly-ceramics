@@ -25,9 +25,9 @@ function start(options) {
 }
 
 const items = (page) => page.el("photo-list").querySelectorAll(".photo-item");
-const labels = (page) => items(page).map((item) => item.querySelector(".photo-label").textContent);
-const removeLabels = (page) => items(page).map((item) => item.querySelector(".remove").getAttribute("aria-label"));
-const errorTexts = (page) => page.el("photos-error").querySelectorAll("p").map((p) => p.textContent);
+const labels = (page) => Array.from(items(page)).map((item) => item.querySelector(".photo-label").textContent);
+const removeLabels = (page) => Array.from(items(page)).map((item) => item.querySelector(".remove").getAttribute("aria-label"));
+const errorTexts = (page) => Array.from(page.el("photos-error").querySelectorAll("p")).map((p) => p.textContent);
 const statusText = (page) => page.el("upload-status").textContent;
 const removeAt = (page, i) => items(page)[i].querySelector(".remove").click();
 const pots = (from, count, size = 1000) =>
@@ -182,7 +182,7 @@ test("the list is locked while its photos upload", () => {
   for (const id of ["submit-button", "photos", "photos-camera", "take-photo"]) {
     assert.equal(page.el(id).disabled, true, id);
   }
-  assert.deepEqual(items(page).map((item) => item.querySelector(".remove").disabled), [true, true]);
+  assert.deepEqual(Array.from(items(page)).map((item) => item.querySelector(".remove").disabled), [true, true]);
 
   removeAt(page, 0);
   removeAt(page, 1);
