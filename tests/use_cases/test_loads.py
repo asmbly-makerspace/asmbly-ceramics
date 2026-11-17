@@ -312,6 +312,27 @@ def test_add_many_with_none_given_changes_nothing(world: World) -> None:
     assert len(world.records.commits) == commits
 
 
+def test_two_staff_adding_many_at_once_one_gets_a_conflict(world: World) -> None:
+    dropped_off(world, 1)
+    dropped_off(world, 2)
+    dropped_off(world, 3)
+    load_id = loaded(world)
+    stale = world.records.load(load_id)
+    world.add_to_load(load_id, AC_1, confirmed=False, staff=STAFF_MEMBER)
+    read = world.records.load
+
+    def stale_read(id: LoadId) -> object:
+        return stale if id == load_id else read(id)
+
+    world.records.load = stale_read  # type: ignore[assignment,method-assign]  # the fake read replaced to stage a race
+    with pytest.raises(Conflict):
+        world.add_many_to_load(load_id, [AC_2, DropOffId(3)], staff=STAFF_MEMBER)
+    world.records.load = read  # type: ignore[method-assign]  # the fake read replaced to stage a race
+
+    assert world.view_load(load_id).load.members == (AC_1,)
+    assert [row.drop_off.id for row in world.waiting().rows] == [AC_2, DropOffId(3)]
+
+
 def test_add_many_refuses_past_the_loads_capacity(world: World) -> None:
     ids = [DropOffId(n) for n in range(1, LOAD_CAPACITY + 2)]
     world.records.commit([Put(a_drop_off(id.number)) for id in ids])

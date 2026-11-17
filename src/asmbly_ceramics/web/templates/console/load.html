@@ -198,7 +198,7 @@
     {% for row in waiting %}
     {% set d = row.drop_off %}
       <tr>
-        <td><input type="checkbox" name="drop_off" value="{{ d.id }}" form="add-many"{% if d.id in ticked %} checked{% endif %} aria-label="Select {{ d.id }}"></td>
+        <td><label class="choice"><input type="checkbox" name="drop_off" value="{{ d.id }}" form="add-many"{% if d.id in ticked %} checked{% endif %}> <span class="visually-hidden">Select {{ d.id }}</span></label></td>
         <td>{% if d.photos and d.contact %}<img class="thumb" src="/console/drop-offs/{{ d.id }}/photos/1/thumb" alt="Photo of {{ d.id }}" width="48" height="48" loading="lazy">{% endif %}</td>
         <td class="mono">{{ d.id }}</td>
         <td>{{ d.contact.name if d.contact else "Closed" }}</td>
