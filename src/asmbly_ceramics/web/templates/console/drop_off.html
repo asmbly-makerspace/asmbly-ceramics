@@ -7,6 +7,7 @@
   <h2 class="drop-off-title mono">{{ drop_off.id }}</h2>
   {% if drop_off.contact %}<p class="lead">{{ drop_off.contact.name }}</p>{% endif %}
   <p><span class="tag">{{ view.firing_type }}</span> <span class="state">{{ state }}</span></p>
+  {% if drop_off.load_id %}<p class="drop-off-load">Load: <a href="/console/loads/{{ drop_off.load_id }}" class="mono">{{ drop_off.load_id }}</a></p>{% endif %}
   {% if drop_off.rejection and drop_off.rejection.message %}
   <p class="rejection-message">Message: {{ drop_off.rejection.message }}</p>
   {% endif %}

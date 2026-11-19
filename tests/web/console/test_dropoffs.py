@@ -609,3 +609,23 @@ def test_a_delete_that_may_not_have_landed_says_so(ready: Console) -> None:
 
     assert answer.status_code == 503
     assert "That may or may not have been saved." in html.unescape(answer.text)
+
+
+def test_a_drop_off_in_a_load_links_to_it(ready: Console) -> None:
+    load_id = loaded(ready.world, AC_1)
+
+    page = ready.get(PAGE).text
+
+    assert f'href="/console/loads/{load_id}"' in page
+
+
+def test_a_fired_drop_off_still_links_to_its_load(ready: Console) -> None:
+    load_id = fired(ready.world, AC_1)
+
+    page = ready.get(PAGE).text
+
+    assert f'href="/console/loads/{load_id}"' in page
+
+
+def test_a_waiting_drop_off_has_no_load_link(ready: Console) -> None:
+    assert "/console/loads/" not in ready.get(PAGE).text
