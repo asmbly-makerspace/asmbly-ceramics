@@ -1,0 +1,3 @@
+{"plan_name":"drop-off-load-link","run":"9-drop-off-load-link","feature_branch":"ccr-9f25ab82-thi7rd","status":"in-progress","stage":"final-review",
+"phases":[{"id":"single-change","title":"Link the drop-off page to its load","status":"done","squashed_sha":"45774e5"}],
+"events":[{"type":"run_start"},{"type":"decision","topic":"no plan","choice":"skipped plan-product/plan-tech/prep","reason":"one-template change already built and checked before the run"},{"type":"decision","topic":"branch","choice":"PR head is the session branch, not feat/<run>","reason":"session rules allow pushing only to ccr-9f25ab82-thi7rd"}]}
