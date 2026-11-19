@@ -628,4 +628,4 @@ def test_a_fired_drop_off_still_links_to_its_load(ready: Console) -> None:
 
 
 def test_a_waiting_drop_off_has_no_load_link(ready: Console) -> None:
-    assert "/console/loads/" not in ready.get(PAGE).text
+    assert "drop-off-load" not in ready.get(PAGE).text
